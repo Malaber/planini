@@ -363,6 +363,8 @@
       "trouble_signing_in": "Probleme beim Anmelden?",
       "backend": "Backend",
       "configured_host": "Konfigurierter Host",
+      "account": "Konto",
+      "last_signed_in_as": "Zuletzt angemeldet als",
       "sign_in": "Anmelden",
       "signing_in": "Anmeldung läuft...",
       "continue_with_passkey": "Mit Passkey fortfahren"
@@ -435,6 +437,13 @@
       "checked_off": "Abgehakt",
       "quick_add_uncategorized": "Artikel ohne Kategorie schnell hinzufügen",
       "quick_add_to": "Schnell zu {category} hinzufügen"
+    },
+    "undo": {
+      "button": "Rückgängig",
+      "item_added_back_named": "{name} wurde wieder zur Liste hinzugefügt.",
+      "item_checked_named": "{name} wurde abgehakt.",
+      "item_unchecked_named": "{name} wurde wieder geöffnet.",
+      "item_deleted_named": "{name} wurde gelöscht."
     },
     "item": {
       "item_section": "Artikel",
