@@ -1,5 +1,58 @@
 import Foundation
 
+public struct HouseholdSummary: Identifiable, Equatable, Codable, Sendable {
+    public let id: UUID
+    public let name: String
+
+    public init(id: UUID, name: String) {
+        self.id = id
+        self.name = name
+    }
+
+    public init?(json: [String: Any]) {
+        guard
+            let idText = json["id"] as? String,
+            let id = UUID(uuidString: idText),
+            let name = json["name"] as? String
+        else {
+            return nil
+        }
+
+        self.init(id: id, name: name)
+    }
+}
+
+public struct HouseholdInviteLink: Equatable, Sendable {
+    public let inviteURL: String
+    public let expiresAt: Date?
+
+    public init(inviteURL: String, expiresAt: Date?) {
+        self.inviteURL = inviteURL
+        self.expiresAt = expiresAt
+    }
+
+    public init?(json: [String: Any]) {
+        guard let inviteURL = json["invite_url"] as? String else {
+            return nil
+        }
+
+        let expiresAt = (json["expires_at"] as? String).flatMap(Self.parseDate)
+        self.init(inviteURL: inviteURL, expiresAt: expiresAt)
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let formatterWithFractions = ISO8601DateFormatter()
+        formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatterWithFractions.date(from: value) {
+            return parsed
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
+}
+
 public struct GroceryListSummary: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
     public let householdID: UUID

@@ -48,6 +48,13 @@ final class WatchConnectivityBridge: NSObject {
     func requestLatestStateAsync() async -> SharedAppState? {
         await waitForActivationIfNeeded()
 
+        if let session, session.isReachable {
+            watchConnectivityLog.debug("Requesting latest state from iPhone via sendMessage.")
+            if let state = await requestStateViaMessage(session) {
+                return state
+            }
+        }
+
         if
             let session,
             let state = decodedState(from: session.receivedApplicationContext)
@@ -77,7 +84,11 @@ final class WatchConnectivityBridge: NSObject {
             )
             return nil
         }
-        watchConnectivityLog.debug("Requesting latest state from iPhone via sendMessage.")
+        watchConnectivityLog.error("No shared state available after reachable sync attempt.")
+        return nil
+    }
+
+    private func requestStateViaMessage(_ session: WCSession) async -> SharedAppState? {
         return await withCheckedContinuation { continuation in
             session.sendMessage(
                 ["command": "syncState"],

@@ -3,6 +3,56 @@ import Testing
 @testable import PlaniniCore
 
 struct ListPresentationTests {
+    @Test func householdSummaryParsesJSON() {
+        let householdID = UUID()
+
+        let household = HouseholdSummary(
+            json: [
+                "id": householdID.uuidString,
+                "name": "Home",
+            ]
+        )
+
+        #expect(household == HouseholdSummary(id: householdID, name: "Home"))
+    }
+
+    @Test func householdSummaryRejectsInvalidJSON() {
+        #expect(HouseholdSummary(json: [:]) == nil)
+        #expect(
+            HouseholdSummary(
+                json: [
+                    "id": "not-a-uuid",
+                    "name": "Home",
+                ]
+            ) == nil
+        )
+    }
+
+    @Test func householdInviteLinkParsesJSON() {
+        let invite = HouseholdInviteLink(
+            json: [
+                "invite_url": "https://planini.top/invite/token",
+                "expires_at": "2026-05-18T12:00:00.123Z",
+            ]
+        )
+
+        #expect(invite?.inviteURL == "https://planini.top/invite/token")
+        #expect(invite?.expiresAt != nil)
+    }
+
+    @Test func householdInviteLinkParsesJSONWithoutValidExpiration() {
+        let invite = HouseholdInviteLink(
+            json: [
+                "invite_url": "https://planini.top/invite/token",
+                "expires_at": "not-a-date",
+            ]
+        )
+
+        #expect(invite?.inviteURL == "https://planini.top/invite/token")
+        #expect(invite?.expiresAt == nil)
+        #expect(HouseholdInviteLink(json: [:]) == nil)
+    }
+
     @Test func groceryListSummaryStoresInitializerArguments() {
         let listID = UUID()
         let householdID = UUID()
@@ -124,6 +174,23 @@ struct ListPresentationTests {
         #expect(ordered.map(\.name) == ["Dairy", "Bakery", "Produce"])
     }
 
+    @Test func listCategoryPresentationBreaksOrderTiesByCategoryID() throws {
+        let laterID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000002"))
+        let earlierID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let later = GroceryCategorySummary(id: laterID, name: "Later", colorHex: nil)
+        let earlier = GroceryCategorySummary(id: earlierID, name: "Earlier", colorHex: nil)
+
+        let ordered = ListCategoryPresentation.orderedCategories(
+            categories: [later, earlier],
+            categoryOrder: [
+                ListCategoryOrderEntry(categoryID: laterID, sortOrder: 0),
+                ListCategoryOrderEntry(categoryID: earlierID, sortOrder: 0),
+            ]
+        )
+
+        #expect(ordered.map(\.id) == [earlierID, laterID])
+    }
+
     @Test func listCategoryPresentationFiltersDisabledCategoriesForPickers() {
         let dairy = GroceryCategorySummary(id: UUID(), name: "Dairy", colorHex: nil)
         let bakery = GroceryCategorySummary(id: UUID(), name: "Bakery", colorHex: nil)
@@ -163,6 +230,14 @@ struct ListPresentationTests {
                 categoryOrder: [],
                 moving: bakery.id,
                 direction: .up
+            ) == nil
+        )
+        #expect(
+            ListCategoryPresentation.movedCategoryIDs(
+                categories: [dairy, bakery],
+                categoryOrder: [],
+                moving: dairy.id,
+                direction: .down
             ) == nil
         )
         #expect(

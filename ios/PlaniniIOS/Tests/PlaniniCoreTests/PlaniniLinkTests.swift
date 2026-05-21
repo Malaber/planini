@@ -53,6 +53,12 @@ struct PlaniniLinkTests {
     @Test func ignoresUnsupportedPlaniniPaths() {
         #expect(
             PlaniniLinkParser.parse(
+                "https://planini.top/invite",
+                allowedWebHosts: ["planini.top"]
+            ) == nil
+        )
+        #expect(
+            PlaniniLinkParser.parse(
                 "https://planini.top/settings/account",
                 allowedWebHosts: ["planini.top"]
             ) == nil
@@ -76,6 +82,8 @@ struct PlaniniLinkTests {
         #expect(
             PlaniniLinkParser.parse("custom://passkey-add/token-9") == .passkeyAdd(token: "token-9")
         )
+        #expect(PlaniniLinkParser.passkeyAddToken(from: "  \n  ") == nil)
+        #expect(PlaniniLinkParser.passkeyAddToken(from: "%") == nil)
         #expect(PlaniniLinkParser.passkeyAddToken(from: "bad token") == nil)
     }
 }
