@@ -19,6 +19,7 @@ final class WatchAppViewModel: ObservableObject {
     @Published private(set) var isWorking = false
     @Published private(set) var isCompanionAppInstalled = false
     @Published private(set) var isPhoneReachable = false
+    @Published private var listActionHistories: [UUID: WatchListActionHistory] = [:]
 
     private let store: SharedAppStateStore
     private let backendClient: WatchBackendClient
@@ -110,6 +111,13 @@ final class WatchAppViewModel: ObservableObject {
         isPhoneReachable ? "Sync from iPhone" : "Open and unlock iPhone app"
     }
 
+    var versionBuildText: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "0"
+        let build = info["CFBundleVersion"] as? String ?? "0"
+        return "Version \(version) (\(build))"
+    }
+
     func performInitialLoad() async {
         await Task.yield()
         connectivityBridge.requestLatestState()
@@ -151,14 +159,18 @@ final class WatchAppViewModel: ObservableObject {
     func addDraftItem(to list: GroceryListSummary) async {
         let name = draftItemName
         draftItemName = ""
-        await runAction { [self] in
-            try await self.backendClient.addItem(named: name, to: list.id, using: self.state)
+        guard name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { return }
+        await runListMutation(for: list.id) { [self] in
+            let result = try await self.backendClient.addItemResult(named: name, to: list.id, using: self.state)
+            return (result.snapshot, .added(item: result.item))
         }
     }
 
     func toggle(_ item: GroceryItemRecord, in list: GroceryListSummary) async {
-        await runAction { [self] in
-            try await self.backendClient.toggle(item, in: list.id, using: self.state)
+        await runListMutation(for: list.id) { [self] in
+            let before = self.state.items.first { $0.id == item.id } ?? item
+            let result = try await self.backendClient.toggleResult(before, in: list.id, using: self.state)
+            return (result.snapshot, .toggled(before: before, after: result.item))
         }
     }
 
@@ -174,14 +186,16 @@ final class WatchAppViewModel: ObservableObject {
 
         do {
             await syncLatestState()
-            let snapshot = try await backendClient.saveEdit(
+            let before = state.items.first { $0.id == item.id } ?? item
+            let result = try await backendClient.saveEditResult(
                 item: item,
                 note: note,
                 categoryID: categoryID,
                 in: list.id,
                 using: state
             )
-            applySnapshot(snapshot)
+            applySnapshot(result.snapshot)
+            record(.edited(before: before, after: result.item), for: list.id)
             watchAppLog.debug("Watch item edit completed successfully.")
             return true
         } catch {
@@ -194,24 +208,169 @@ final class WatchAppViewModel: ObservableObject {
         }
     }
 
-    private func runAction(_ operation: @escaping () async throws -> SharedAppState) async {
+    func canUndoListAction(for list: GroceryListSummary) -> Bool {
+        actionHistory(for: list.id).canUndo && isWorking == false
+    }
+
+    func canRedoListAction(for list: GroceryListSummary) -> Bool {
+        actionHistory(for: list.id).canRedo && isWorking == false
+    }
+
+    func undoListActionTitle(for list: GroceryListSummary) -> String {
+        actionHistory(for: list.id).undoTitle ?? "Undo"
+    }
+
+    func redoListActionTitle(for list: GroceryListSummary) -> String {
+        actionHistory(for: list.id).redoTitle ?? "Redo"
+    }
+
+    func undoLastListAction(in list: GroceryListSummary) async {
+        guard let action = popUndoAction(for: list.id) else { return }
+        await runHistoryAction(
+            for: list.id,
+            action: action,
+            restore: restoreUndoAction,
+            complete: completeUndoAction
+        ) {
+            try await self.applyUndo(action, in: list.id)
+        }
+    }
+
+    func redoLastListAction(in list: GroceryListSummary) async {
+        guard let action = popRedoAction(for: list.id) else { return }
+        await runHistoryAction(
+            for: list.id,
+            action: action,
+            restore: restoreRedoAction,
+            complete: completeRedoAction
+        ) {
+            try await self.applyRedo(action, in: list.id)
+        }
+    }
+
+    private func runListMutation(
+        for listID: UUID,
+        _ operation: @escaping () async throws -> (WatchListSnapshot, WatchListAction)
+    ) async {
         errorMessage = nil
         isWorking = true
         defer { isWorking = false }
 
         do {
             await syncLatestState()
-            let updatedState = try await operation()
-            state = updatedState
-            store.save(updatedState)
-            watchAppLog.debug("Watch action completed successfully.")
+            let (snapshot, action) = try await operation()
+            applySnapshot(snapshot)
+            record(action, for: listID)
+            watchAppLog.debug("Watch list mutation completed successfully.")
         } catch {
             if let backendError = error as? WatchBackendClientError, backendError == .unauthorized {
                 clearAuthenticatedSession()
             }
-            watchAppLog.error("Watch action failed: \(error.localizedDescription, privacy: .public)")
+            watchAppLog.error("Watch list mutation failed: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func runHistoryAction(
+        for listID: UUID,
+        action: WatchListAction,
+        restore: (UUID, WatchListAction) -> Void,
+        complete: (UUID, WatchListAction) -> Void,
+        operation: () async throws -> WatchListAction
+    ) async {
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            await syncLatestState()
+            let completedAction = try await operation()
+            complete(listID, completedAction)
+            watchAppLog.debug("Watch history action completed successfully.")
+        } catch {
+            restore(listID, action)
+            if let backendError = error as? WatchBackendClientError, backendError == .unauthorized {
+                clearAuthenticatedSession()
+            }
+            watchAppLog.error("Watch history action failed: \(error.localizedDescription, privacy: .public)")
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func applyUndo(_ action: WatchListAction, in listID: UUID) async throws -> WatchListAction {
+        switch action {
+        case let .added(item):
+            let snapshot = try await backendClient.deleteItem(item, in: listID, using: state)
+            applySnapshot(snapshot)
+            return action
+        case let .toggled(before, after):
+            let result = try await backendClient.setChecked(before.checked, for: after, in: listID, using: state)
+            applySnapshot(result.snapshot)
+            return .toggled(before: before, after: after)
+        case let .edited(before, after):
+            let result = try await backendClient.saveItem(before, in: listID, using: state)
+            applySnapshot(result.snapshot)
+            return .edited(before: before, after: after)
+        }
+    }
+
+    private func applyRedo(_ action: WatchListAction, in listID: UUID) async throws -> WatchListAction {
+        switch action {
+        case let .added(item):
+            let result = try await backendClient.recreateItem(item, in: listID, using: state)
+            applySnapshot(result.snapshot)
+            return .added(item: result.item)
+        case let .toggled(before, after):
+            let result = try await backendClient.setChecked(after.checked, for: before, in: listID, using: state)
+            applySnapshot(result.snapshot)
+            return .toggled(before: before, after: after)
+        case let .edited(before, after):
+            let result = try await backendClient.saveItem(after, in: listID, using: state)
+            applySnapshot(result.snapshot)
+            return .edited(before: before, after: result.item)
+        }
+    }
+
+    private func actionHistory(for listID: UUID) -> WatchListActionHistory {
+        listActionHistories[listID] ?? WatchListActionHistory()
+    }
+
+    private func updateActionHistory(for listID: UUID, _ update: (inout WatchListActionHistory) -> Void) {
+        var history = actionHistory(for: listID)
+        update(&history)
+        listActionHistories[listID] = history
+    }
+
+    private func record(_ action: WatchListAction, for listID: UUID) {
+        updateActionHistory(for: listID) { $0.record(action) }
+    }
+
+    private func popUndoAction(for listID: UUID) -> WatchListAction? {
+        var poppedAction: WatchListAction?
+        updateActionHistory(for: listID) { poppedAction = $0.popUndo() }
+        return poppedAction
+    }
+
+    private func restoreUndoAction(for listID: UUID, action: WatchListAction) {
+        updateActionHistory(for: listID) { $0.restoreUndo(action) }
+    }
+
+    private func completeUndoAction(for listID: UUID, action: WatchListAction) {
+        updateActionHistory(for: listID) { $0.completeUndo(action) }
+    }
+
+    private func popRedoAction(for listID: UUID) -> WatchListAction? {
+        var poppedAction: WatchListAction?
+        updateActionHistory(for: listID) { poppedAction = $0.popRedo() }
+        return poppedAction
+    }
+
+    private func restoreRedoAction(for listID: UUID, action: WatchListAction) {
+        updateActionHistory(for: listID) { $0.restoreRedo(action) }
+    }
+
+    private func completeRedoAction(for listID: UUID, action: WatchListAction) {
+        updateActionHistory(for: listID) { $0.completeRedo(action) }
     }
 
     private func syncLatestState() async {
