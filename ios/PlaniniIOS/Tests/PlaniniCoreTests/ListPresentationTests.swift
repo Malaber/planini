@@ -174,6 +174,23 @@ struct ListPresentationTests {
         #expect(ordered.map(\.name) == ["Dairy", "Bakery", "Produce"])
     }
 
+    @Test func listCategoryPresentationBreaksOrderTiesByCategoryID() throws {
+        let laterID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000002"))
+        let earlierID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let later = GroceryCategorySummary(id: laterID, name: "Later", colorHex: nil)
+        let earlier = GroceryCategorySummary(id: earlierID, name: "Earlier", colorHex: nil)
+
+        let ordered = ListCategoryPresentation.orderedCategories(
+            categories: [later, earlier],
+            categoryOrder: [
+                ListCategoryOrderEntry(categoryID: laterID, sortOrder: 0),
+                ListCategoryOrderEntry(categoryID: earlierID, sortOrder: 0),
+            ]
+        )
+
+        #expect(ordered.map(\.id) == [earlierID, laterID])
+    }
+
     @Test func listCategoryPresentationFiltersDisabledCategoriesForPickers() {
         let dairy = GroceryCategorySummary(id: UUID(), name: "Dairy", colorHex: nil)
         let bakery = GroceryCategorySummary(id: UUID(), name: "Bakery", colorHex: nil)
@@ -213,6 +230,14 @@ struct ListPresentationTests {
                 categoryOrder: [],
                 moving: bakery.id,
                 direction: .up
+            ) == nil
+        )
+        #expect(
+            ListCategoryPresentation.movedCategoryIDs(
+                categories: [dairy, bakery],
+                categoryOrder: [],
+                moving: dairy.id,
+                direction: .down
             ) == nil
         )
         #expect(

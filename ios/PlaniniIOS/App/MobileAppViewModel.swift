@@ -9,6 +9,7 @@ private enum AppBuildConfiguration {
     private static let backendURLOverrideKey = "PLANINI_BACKEND_BASE_URL_OVERRIDE"
     static let uiTestRestoreStoredSessionKey = "PLANINI_UI_TEST_RESTORE_STORED_SESSION"
     static let uiTestStoredAccessTokenOverrideKey = "PLANINI_UI_TEST_STORED_ACCESS_TOKEN_OVERRIDE"
+    static let uiTestStoredDisplayNameOverrideKey = "PLANINI_UI_TEST_STORED_DISPLAY_NAME_OVERRIDE"
 
     static var backendURL: URL? {
         if let overriddenURL = validatedURL(from: ProcessInfo.processInfo.environment[backendURLOverrideKey]) {
@@ -159,7 +160,19 @@ final class MobileAppViewModel: ObservableObject {
                 authToken = tokenOverride
                 userDefaults.set(tokenOverride, forKey: Self.authTokenKey)
             }
-            displayName = userDefaults.string(forKey: Self.displayNameKey)
+            if
+                processInfo.environment["PLANINI_UI_TEST_MODE"] == "1",
+                processInfo.environment[AppBuildConfiguration.uiTestRestoreStoredSessionKey] == "1",
+                let displayNameOverride = processInfo.environment[
+                    AppBuildConfiguration.uiTestStoredDisplayNameOverrideKey
+                ]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                displayNameOverride.isEmpty == false
+            {
+                displayName = displayNameOverride
+                userDefaults.set(displayNameOverride, forKey: Self.displayNameKey)
+            } else {
+                displayName = userDefaults.string(forKey: Self.displayNameKey)
+            }
             quickAddItemName = userDefaults.string(forKey: Self.quickAddItemKey) ?? SharedAppState.defaultQuickAddItemName
         } else {
             favoriteListID = nil
