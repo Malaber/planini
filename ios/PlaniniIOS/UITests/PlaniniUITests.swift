@@ -406,7 +406,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(listSettingsButton.waitForExistence(timeout: 5))
         listSettingsButton.tap()
         XCTAssertTrue(app.otherElements["list-settings-sheet"].waitForExistence(timeout: 5))
-        let settingsSaveState = app.descendants(matching: .any)["list-settings-save-state"]
+        let settingsSaveState = app.descendants(matching: .any)["list-settings-save-state"].firstMatch
         XCTAssertTrue(settingsSaveState.waitForExistence(timeout: 3))
 
         let renamedHostingName = "Hosting errands \(UUID().uuidString.prefix(6))"
@@ -421,6 +421,7 @@ final class PlaniniUITests: XCTestCase {
             )
         )
         dismissKeyboard(in: app)
+        XCTAssertTrue(waitForElementLabel(settingsSaveState, containing: "Saved", timeout: 8))
 
         let haushaltRow = app.descendants(matching: .any)["category-settings-row-\(haushaltCategoryID.uuidString)"]
         let backwarenRow = app.descendants(matching: .any)["category-settings-row-\(backwarenCategoryID.uuidString)"]
@@ -527,7 +528,7 @@ final class PlaniniUITests: XCTestCase {
             "Expected bootstrapped list before force-closing the app."
         )
         XCTAssertFalse(app.buttons["login-passkey-button"].exists)
-        app.terminate()
+        terminateAndWait(app)
 
         let relaunchedApp = XCUIApplication()
         configureLaunchLanguage(for: relaunchedApp)
@@ -542,7 +543,36 @@ final class PlaniniUITests: XCTestCase {
             "Expected saved session to survive force-close and restore the initial list."
         )
         XCTAssertFalse(relaunchedApp.buttons["login-passkey-button"].exists)
-        relaunchedApp.terminate()
+        terminateAndWait(relaunchedApp)
+    }
+
+    func testInvalidStoredSessionShowsLogin() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+
+        let expiredApp = XCUIApplication()
+        configureLaunchLanguage(for: expiredApp)
+        expiredApp.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
+        expiredApp.launchEnvironment["PLANINI_UI_TEST_RESTORE_STORED_SESSION"] = "1"
+        expiredApp.launchEnvironment["PLANINI_UI_TEST_STORED_ACCESS_TOKEN_OVERRIDE"] = "expired-ui-test-token"
+        expiredApp.launchEnvironment["PLANINI_UI_TEST_STORED_DISPLAY_NAME_OVERRIDE"] = session.displayName
+        expiredApp.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
+        expiredApp.launch()
+
+        XCTAssertTrue(expiredApp.buttons["login-passkey-button"].waitForExistence(timeout: 15))
+        XCTAssertFalse(expiredApp.tabBars.firstMatch.exists)
+        XCTAssertTrue(expiredApp.descendants(matching: .any)["login-last-account"].waitForExistence(timeout: 3))
+        let alert = expiredApp.alerts["Error"]
+        if alert.waitForExistence(timeout: 3) {
+            XCTAssertTrue(alert.staticTexts["Session expired. Sign in again with your passkey."].exists)
+            alert.buttons["OK"].tap()
+        }
+        XCTAssertTrue(expiredApp.buttons["login-passkey-button"].waitForExistence(timeout: 3))
+        terminateAndWait(expiredApp)
     }
 
     func testListReceivesLiveUpdates() throws {
@@ -943,8 +973,8 @@ final class PlaniniUITests: XCTestCase {
         firstCategoryID: UUID,
         accessToken: String
     ) -> Bool {
-        let grabberOffsets: [CGFloat] = [1.12, 1.04, 0.96, 0.85, 0.72, 0.55]
-        let targetOffsets: [CGFloat] = [-0.9, -0.65, -0.35, -0.1]
+        let grabberOffsets: [CGFloat] = [1.12, 1.04, 0.98, 0.96, 0.92, 0.85, 0.72, 0.55]
+        let targetOffsets: [CGFloat] = [-1.2, -0.9, -0.7, -0.65, -0.6, -0.45, -0.35, -0.25, -0.1]
         for grabberOffset in grabberOffsets {
             for targetOffset in targetOffsets {
                 scrollToHittable(movingRow, in: app, maxSwipes: 2)
@@ -1012,6 +1042,33 @@ final class PlaniniUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
         return (statusLabel.exists && statusLabel.label.contains(status)) || app.staticTexts[status].exists
+    }
+
+    private func waitForElementLabel(
+        _ element: XCUIElement,
+        containing text: String,
+        timeout: TimeInterval = 8
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && (element.label.contains(text) || element.valueText.contains(text)) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return element.exists && (element.label.contains(text) || element.valueText.contains(text))
+    }
+
+    private func terminateAndWait(_ app: XCUIApplication, timeout: TimeInterval = 8) {
+        app.terminate()
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if app.state == .notRunning {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
     private func waitForFieldValue(

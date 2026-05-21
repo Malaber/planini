@@ -360,6 +360,8 @@
       "trouble_signing_in": "Having trouble signing in?",
       "backend": "Backend",
       "configured_host": "Configured host",
+      "account": "Account",
+      "last_signed_in_as": "Last signed in as",
       "sign_in": "Sign in",
       "signing_in": "Signing in...",
       "continue_with_passkey": "Continue with Passkey"

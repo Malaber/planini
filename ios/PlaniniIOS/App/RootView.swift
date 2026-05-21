@@ -168,6 +168,13 @@ struct RootView: View {
                 LabeledContent(l10n.t("ios.login.configured_host"), value: viewModel.backendDisplayName)
             }
 
+            if let displayName = viewModel.displayName, displayName.isEmpty == false {
+                Section(l10n.t("ios.login.account")) {
+                    LabeledContent(l10n.t("ios.login.last_signed_in_as"), value: displayName)
+                        .accessibilityIdentifier("login-last-account")
+                }
+            }
+
             Section(l10n.t("ios.login.sign_in")) {
                 Button {
                     Task { await viewModel.loginWithPasskey() }

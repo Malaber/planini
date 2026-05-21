@@ -360,6 +360,8 @@
       "trouble_signing_in": "Probleme beim Anmelden?",
       "backend": "Backend",
       "configured_host": "Konfigurierter Host",
+      "account": "Konto",
+      "last_signed_in_as": "Zuletzt angemeldet als",
       "sign_in": "Anmelden",
       "signing_in": "Anmeldung läuft...",
       "continue_with_passkey": "Mit Passkey fortfahren"
