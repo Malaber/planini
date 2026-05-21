@@ -1755,7 +1755,7 @@ private struct SectionHeader: View {
             }
         }
         .textCase(nil)
-        .accessibilityIdentifier("section-\(section.id)")
+        .accessibilityElement(children: .contain)
     }
 }
 
