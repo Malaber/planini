@@ -111,6 +111,7 @@ final class MobileAppViewModel: ObservableObject {
     @Published private(set) var isAuthenticating = false
     @Published private(set) var authToken: String?
     @Published private(set) var displayName: String?
+    @Published private(set) var households: [HouseholdSummary] = []
     @Published private(set) var lists: [GroceryListSummary] = []
     @Published private(set) var items: [GroceryItemRecord] = []
     @Published private(set) var categories: [GroceryCategorySummary] = []
@@ -198,6 +199,10 @@ final class MobileAppViewModel: ObservableObject {
 
     var favoriteList: GroceryListSummary? {
         lists.first { $0.id == favoriteListID }
+    }
+
+    var sortedHouseholdsForManagement: [HouseholdSummary] {
+        households.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     var availableCategories: [GroceryCategorySummary] {
@@ -572,6 +577,7 @@ final class MobileAppViewModel: ObservableObject {
         liveUpdates.disconnect()
         authToken = nil
         displayName = nil
+        households = []
         lists = []
         items = []
         categories = []
@@ -632,14 +638,17 @@ final class MobileAppViewModel: ObservableObject {
         guard let backendURL, let authToken else { return }
 
         do {
-            let households = try await requestArray(
+            let householdPayloads = try await requestArray(
                 backendURL: backendURL,
                 path: "/api/v1/households",
                 token: authToken
             )
+            households = sortedHouseholds(
+                householdPayloads.compactMap { HouseholdSummary(json: $0) }
+            )
 
             var loadedLists: [GroceryListSummary] = []
-            for household in households {
+            for household in householdPayloads {
                 guard
                     let householdIDText = household["id"] as? String,
                     let householdID = UUID(uuidString: householdIDText),
@@ -681,6 +690,7 @@ final class MobileAppViewModel: ObservableObject {
         } catch {
             if let cachedLists = cachedLists(), cachedLists.isEmpty == false {
                 lists = cachedLists
+                households = sortedHouseholds(Self.households(from: cachedLists))
                 showOfflineStatus("Offline. Showing saved list.")
             } else {
                 throw error
@@ -705,6 +715,92 @@ final class MobileAppViewModel: ObservableObject {
         await flushPendingItemToggles()
         updateLiveUpdatesConnection()
         watchSyncCoordinator.publishCurrentState()
+    }
+
+    @discardableResult
+    func createHousehold(name rawName: String) async -> HouseholdSummary? {
+        guard let backendURL, let authToken else { return nil }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name.isEmpty == false else {
+            errorMessage = "Enter a household name."
+            return nil
+        }
+
+        do {
+            let payload = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/households",
+                method: "POST",
+                body: ["name": name],
+                token: authToken
+            )
+            guard let household = HouseholdSummary(json: payload) else {
+                throw AppError.invalidResponse
+            }
+            try await reloadAllData()
+            return households.first { $0.id == household.id } ?? household
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    @discardableResult
+    func createList(householdID: UUID, name rawName: String) async -> GroceryListSummary? {
+        guard let backendURL, let authToken else { return nil }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name.isEmpty == false else {
+            errorMessage = "Enter a list name."
+            return nil
+        }
+
+        do {
+            let payload = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/households/\(householdID.uuidString)/lists",
+                method: "POST",
+                body: ["name": name],
+                token: authToken
+            )
+            guard
+                let listIDText = payload["id"] as? String,
+                let listID = UUID(uuidString: listIDText)
+            else {
+                throw AppError.invalidResponse
+            }
+
+            try await reloadAllData()
+            if lists.contains(where: { $0.id == listID }) {
+                selectedListID = listID
+                try await reloadItems()
+            }
+            return lists.first { $0.id == listID }
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func createInvite(householdID: UUID) async -> HouseholdInviteLink? {
+        guard let backendURL, let authToken else { return nil }
+
+        do {
+            let payload = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/households/\(householdID.uuidString)/invites",
+                method: "POST",
+                body: [:],
+                token: authToken
+            )
+            guard let invite = HouseholdInviteLink(json: payload) else {
+                throw AppError.invalidResponse
+            }
+            errorMessage = nil
+            return invite
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
     }
 
     func selectList(id: UUID) async {
@@ -1232,6 +1328,23 @@ final class MobileAppViewModel: ObservableObject {
             }
             return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+    }
+
+    private func sortedHouseholds(_ households: [HouseholdSummary]) -> [HouseholdSummary] {
+        households.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private static func households(from lists: [GroceryListSummary]) -> [HouseholdSummary] {
+        let uniqueHouseholds = Dictionary(
+            grouping: lists,
+            by: \.householdID
+        ).compactMap { householdID, lists -> HouseholdSummary? in
+            guard let householdName = lists.first?.householdName else { return nil }
+            return HouseholdSummary(id: householdID, name: householdName)
+        }
+        return uniqueHouseholds
     }
 
     private func cacheLists(_ lists: [GroceryListSummary]) {
