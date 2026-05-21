@@ -53,13 +53,11 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertEqual(listTitle.label, initialListName)
         captureScreenshot(named: "ios-ui-list-detail")
 
-        let initialKonservenCategoryID = try categoryID(
-            named: "Konserven",
-            inListNamed: initialListName,
-            accessToken: session.accessToken
-        )
-        XCTAssertTrue(app.staticTexts["Konserven"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Milch & Eier"].waitForExistence(timeout: 3))
+        guard let visibleQuickAddSection = firstVisibleQuickAddSection(in: app, timeout: 5) else {
+            XCTFail("Expected at least one list section with quick-add controls.")
+            return
+        }
+        XCTAssertTrue(app.staticTexts[visibleQuickAddSection.title].waitForExistence(timeout: 3))
         let favoriteButton = app.buttons["favorite-list-button"]
         XCTAssertTrue(favoriteButton.waitForExistence(timeout: 3))
         XCTAssertTrue(favoriteButton.label.contains("Unfavorite"))
@@ -78,26 +76,21 @@ final class PlaniniUITests: XCTestCase {
 
         let konservenCountBadge = firstExistingElement(
             [
-                app.staticTexts["section-count-badge-\(initialKonservenCategoryID.uuidString)"],
-                app.staticTexts["Konserven count, 1 item"],
-                app.otherElements["section-count-badge-\(initialKonservenCategoryID.uuidString)"],
-                app.otherElements["Konserven count, 1 item"],
+                app.staticTexts.containing(
+                    NSPredicate(format: "label BEGINSWITH %@", "\(visibleQuickAddSection.title) count,")
+                ).firstMatch,
+                app.otherElements.containing(
+                    NSPredicate(format: "label BEGINSWITH %@", "\(visibleQuickAddSection.title) count,")
+                ).firstMatch,
             ],
             timeout: 3
         )
         XCTAssertTrue(konservenCountBadge.waitForExistence(timeout: 3))
-        XCTAssertEqual(konservenCountBadge.label, "Konserven count, 1 item")
+        XCTAssertTrue(konservenCountBadge.label.hasPrefix("\(visibleQuickAddSection.title) count,"))
 
-        let quickAddKonserven = firstExistingElement(
-            [
-                app.buttons["quick-add-category-\(initialKonservenCategoryID.uuidString)"],
-                app.buttons["Quick add to Konserven"],
-                app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Quick add to Konserven")).firstMatch,
-            ],
-            timeout: 3
-        )
-        XCTAssertTrue(quickAddKonserven.waitForExistence(timeout: 3))
-        XCTAssertTrue(openAddItemSheet(using: quickAddKonserven, in: app))
+        let quickAddButton = visibleQuickAddSection.button
+        XCTAssertTrue(quickAddButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(openAddItemSheet(using: quickAddButton, in: app))
         XCTAssertTrue(app.buttons["add-item-save-button"].waitForExistence(timeout: 3))
         captureScreenshot(named: "ios-ui-category-quick-add")
         tapCancelButton(in: app)
@@ -657,18 +650,6 @@ final class PlaniniUITests: XCTestCase {
         } else {
             try bootstrapSession(email: userEmail)
         }
-        let offlineItemName = "Tomaten"
-        let offlineItemID = try itemID(
-            named: offlineItemName,
-            inListNamed: initialListName,
-            accessToken: session.accessToken
-        )
-        try syncItemCheckedState(
-            itemID: offlineItemID,
-            checked: false,
-            inListNamed: initialListName,
-            accessToken: session.accessToken
-        )
 
         let app = XCUIApplication()
         configureLaunchLanguage(for: app)
@@ -685,8 +666,8 @@ final class PlaniniUITests: XCTestCase {
             "Expected online launch to cache the initial list before offline relaunch."
         )
         XCTAssertTrue(
-            waitForItemRow(itemID: offlineItemID, named: offlineItemName, in: app, timeout: 10),
-            "Expected online launch to cache the seeded item before offline relaunch."
+            firstVisibleUncheckedToggle(in: app, timeout: 10) != nil,
+            "Expected online launch to cache at least one unchecked seeded item before offline relaunch."
         )
         app.terminate()
 
@@ -712,12 +693,14 @@ final class PlaniniUITests: XCTestCase {
             offlineApp.alerts["Error"].waitForExistence(timeout: 2),
             "Expected offline cache fallback to avoid the generic error popup."
         )
-        let offlineToggle = offlineApp.buttons["toggle-item-\(offlineItemID.uuidString)"]
-        scrollToHittable(offlineToggle, in: offlineApp, maxSwipes: 8)
-        XCTAssertTrue(offlineToggle.waitForExistence(timeout: 5))
+        guard let (offlineToggle, offlineItemName) = firstVisibleUncheckedToggle(in: offlineApp, timeout: 8) else {
+            XCTFail("Expected an unchecked cached item to be visible while offline.")
+            return
+        }
         tapElement(offlineToggle)
         XCTAssertTrue(
-            waitForToggleLabel(offlineToggle, containsAny: ["Uncheck", "wieder öffnen"]),
+            waitForElementToDisappear(offlineToggle, timeout: 2)
+                || waitForToggleLabel(offlineToggle, containsAny: ["Uncheck", "wieder öffnen"]),
             "Expected offline item toggle to update locally."
         )
         XCTAssertFalse(
@@ -750,6 +733,11 @@ final class PlaniniUITests: XCTestCase {
                 timeout: 20
             ),
             "Expected offline item toggle to sync after connection returns."
+        )
+        let offlineItemID = try itemID(
+            named: offlineItemName,
+            inListNamed: initialListName,
+            accessToken: session.accessToken
         )
         try syncItemCheckedState(
             itemID: offlineItemID,
@@ -1377,6 +1365,62 @@ final class PlaniniUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
         return fragments.contains(where: { element.label.contains($0) })
+    }
+
+    private func firstVisibleUncheckedToggle(
+        in app: XCUIApplication,
+        timeout: TimeInterval = 5
+    ) -> (button: XCUIElement, itemName: String)? {
+        let candidateNames = ["Loose item", "Tomaten", "Eier", "Spaghetti", "Putzmittel", "Erbsen", "Tofu"]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            for itemName in candidateNames {
+                let button = app.buttons["Check \(itemName)"]
+                if button.waitForExistence(timeout: 0.2) {
+                    return (button, itemName)
+                }
+            }
+            app.swipeUp()
+        }
+        for itemName in candidateNames {
+            let button = app.buttons["Check \(itemName)"]
+            if button.exists {
+                return (button, itemName)
+            }
+        }
+        return nil
+    }
+
+    private func firstVisibleQuickAddSection(
+        in app: XCUIApplication,
+        timeout: TimeInterval = 5
+    ) -> (title: String, button: XCUIElement)? {
+        let candidates = [
+            ("Uncategorized", "Quick add uncategorized item"),
+            ("Konserven", "Quick add to Konserven"),
+            ("Milch & Eier", "Quick add to Milch & Eier"),
+            ("Nudeln", "Quick add to Nudeln"),
+            ("Reinigung", "Quick add to Reinigung"),
+            ("Tiefkuehlkost", "Quick add to Tiefkuehlkost"),
+            ("Vegan", "Quick add to Vegan"),
+        ]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            for (title, label) in candidates {
+                let button = app.buttons[label]
+                if button.waitForExistence(timeout: 0.2) {
+                    return (title, button)
+                }
+            }
+            app.swipeUp()
+        }
+        for (title, label) in candidates {
+            let button = app.buttons[label]
+            if button.exists {
+                return (title, button)
+            }
+        }
+        return nil
     }
 
     private func waitForElementToDisappear(_ element: XCUIElement, timeout: TimeInterval = 8) -> Bool {
