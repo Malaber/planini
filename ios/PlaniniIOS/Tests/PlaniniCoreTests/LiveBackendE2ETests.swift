@@ -232,7 +232,7 @@ struct LiveBackendE2ETests {
         let checkedIndex = try #require(sectionsAfterHide.firstIndex { $0.kind == .checked })
         let hiddenIndex = try #require(sectionsAfterHide.firstIndex { $0.kind == .hidden })
         #expect(hiddenIndex < checkedIndex)
-        #expect(hiddenSection.title == "Hidden for 4h")
+        #expect(hiddenSection.title == "Saved for later")
         #expect(hiddenSection.items.contains(where: { $0.name == updatedName }))
 
         let restoredHidden = try await client.jsonObject(

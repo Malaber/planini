@@ -594,7 +594,7 @@ public enum GroceryItemSectionBuilder {
             sections.append(
                 GroceryItemSection(
                     kind: .hidden,
-                    title: "Hidden for 4h",
+                    title: "Saved for later",
                     itemCount: hiddenItems.count,
                     colorHex: "#94a3b8",
                     items: hiddenItems

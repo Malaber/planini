@@ -455,7 +455,7 @@ struct ListPresentationTests {
         #expect(
             GroceryItemSection(
                 kind: .hidden,
-                title: "Hidden for 4h",
+                title: "Saved for later",
                 itemCount: 0,
                 colorHex: nil,
                 items: []
@@ -586,7 +586,7 @@ struct ListPresentationTests {
             now: now
         )
 
-        #expect(sections.map(\.title) == ["Uncategorized", "Hidden for 4h", "Checked off"])
+        #expect(sections.map(\.title) == ["Uncategorized", "Saved for later", "Checked off"])
         #expect(sections[0].items.map(\.name) == ["Visible"])
         #expect(sections[1].kind == .hidden)
         #expect(sections[1].items.map(\.name) == ["Hidden A", "Hidden B"])
