@@ -597,8 +597,8 @@ final class PlaniniUITests: XCTestCase {
 
         let disabledKonservenToggle = firstExistingElement(
             [
-                app.switches["category-enabled-toggle-\(konservenCategoryID.uuidString)"],
-                app.buttons["category-enabled-toggle-\(konservenCategoryID.uuidString)"],
+                app.switches["category-enabled-toggle-\(hostingKonservenCategoryID.uuidString)"],
+                app.buttons["category-enabled-toggle-\(hostingKonservenCategoryID.uuidString)"],
             ],
             timeout: 3
         )
