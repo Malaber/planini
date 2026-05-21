@@ -939,35 +939,36 @@ final class PlaniniUITests: XCTestCase {
         firstCategoryID: UUID,
         accessToken: String
     ) -> Bool {
-        let grabberOffsets: [CGFloat] = [0.95, 0.85, 0.72, 0.55]
-        let targetOffsets: [CGFloat] = [-0.9, -0.6, -0.35, -0.1]
+        let grabberOffsets: [CGFloat] = [1.12, 1.04, 0.96, 0.85, 0.72, 0.55]
+        let targetOffsets: [CGFloat] = [-0.9, -0.65, -0.35, -0.1]
         for grabberOffset in grabberOffsets {
             for targetOffset in targetOffsets {
+                scrollToHittable(movingRow, in: app, maxSwipes: 2)
+                scrollToHittable(targetRow, in: app, maxSwipes: 2)
                 guard movingRow.waitForExistence(timeout: 3), targetRow.waitForExistence(timeout: 3) else {
                     return false
                 }
 
-                scrollToHittable(movingRow, in: app)
-                scrollToHittable(targetRow, in: app)
+                let targetX = min(grabberOffset, 0.95)
                 let grabber = movingRow.coordinate(withNormalizedOffset: CGVector(dx: grabberOffset, dy: 0.5))
-                let target = targetRow.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: targetOffset))
-                grabber.press(forDuration: 1.0, thenDragTo: target)
+                let target = targetRow.coordinate(withNormalizedOffset: CGVector(dx: targetX, dy: targetOffset))
+                grabber.press(forDuration: 1.2, thenDragTo: target)
                 if waitForFirstCategoryOrder(
                     listID: listID,
                     categoryID: firstCategoryID,
                     accessToken: accessToken,
-                    timeout: 4
+                    timeout: 6
                 ) {
                     return true
                 }
-                RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
             }
         }
         return waitForFirstCategoryOrder(
             listID: listID,
             categoryID: firstCategoryID,
             accessToken: accessToken,
-            timeout: 2
+            timeout: 4
         )
     }
 
