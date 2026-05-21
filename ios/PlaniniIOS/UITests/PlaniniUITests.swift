@@ -53,11 +53,13 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertEqual(listTitle.label, initialListName)
         captureScreenshot(named: "ios-ui-list-detail")
 
+        let initialKonservenCategoryID = try categoryID(
+            named: "Konserven",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
         XCTAssertTrue(app.staticTexts["Konserven"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Milch & Eier"].waitForExistence(timeout: 3))
-        let uncategorizedHeader = app.staticTexts["Uncategorized"]
-        scrollToElement(uncategorizedHeader, in: app, maxSwipes: 8)
-        XCTAssertTrue(uncategorizedHeader.waitForExistence(timeout: 3))
         let favoriteButton = app.buttons["favorite-list-button"]
         XCTAssertTrue(favoriteButton.waitForExistence(timeout: 3))
         XCTAssertTrue(favoriteButton.label.contains("Unfavorite"))
@@ -74,28 +76,28 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertEqual(listTitle.label, initialListName)
         captureScreenshot(named: "ios-ui-favorite-list")
 
-        let uncategorizedCountBadge = firstExistingElement(
+        let konservenCountBadge = firstExistingElement(
             [
-                app.staticTexts["section-count-badge-uncategorized"],
-                app.staticTexts["Uncategorized count, 1 item"],
-                app.otherElements["section-count-badge-uncategorized"],
-                app.otherElements["Uncategorized count, 1 item"],
+                app.staticTexts["section-count-badge-\(initialKonservenCategoryID.uuidString)"],
+                app.staticTexts["Konserven count, 1 item"],
+                app.otherElements["section-count-badge-\(initialKonservenCategoryID.uuidString)"],
+                app.otherElements["Konserven count, 1 item"],
             ],
             timeout: 3
         )
-        XCTAssertTrue(uncategorizedCountBadge.waitForExistence(timeout: 3))
-        XCTAssertEqual(uncategorizedCountBadge.label, "Uncategorized count, 1 item")
+        XCTAssertTrue(konservenCountBadge.waitForExistence(timeout: 3))
+        XCTAssertEqual(konservenCountBadge.label, "Konserven count, 1 item")
 
-        let quickAddUncategorized = firstExistingElement(
+        let quickAddKonserven = firstExistingElement(
             [
-                app.buttons["quick-add-category-uncategorized"],
-                app.buttons["Quick add uncategorized item"],
-                app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Quick add uncategorized")).firstMatch,
+                app.buttons["quick-add-category-\(initialKonservenCategoryID.uuidString)"],
+                app.buttons["Quick add to Konserven"],
+                app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Quick add to Konserven")).firstMatch,
             ],
             timeout: 3
         )
-        XCTAssertTrue(quickAddUncategorized.waitForExistence(timeout: 3))
-        XCTAssertTrue(openAddItemSheet(using: quickAddUncategorized, in: app))
+        XCTAssertTrue(quickAddKonserven.waitForExistence(timeout: 3))
+        XCTAssertTrue(openAddItemSheet(using: quickAddKonserven, in: app))
         XCTAssertTrue(app.buttons["add-item-save-button"].waitForExistence(timeout: 3))
         captureScreenshot(named: "ios-ui-category-quick-add")
         tapCancelButton(in: app)
@@ -547,9 +549,15 @@ final class PlaniniUITests: XCTestCase {
         } else {
             try bootstrapSession(email: userEmail)
         }
-        let offlineItemName = "Loose item"
+        let offlineItemName = "Tomaten"
         let offlineItemID = try itemID(
             named: offlineItemName,
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        try syncItemCheckedState(
+            itemID: offlineItemID,
+            checked: false,
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
@@ -634,6 +642,12 @@ final class PlaniniUITests: XCTestCase {
                 timeout: 20
             ),
             "Expected offline item toggle to sync after connection returns."
+        )
+        try syncItemCheckedState(
+            itemID: offlineItemID,
+            checked: false,
+            inListNamed: initialListName,
+            accessToken: session.accessToken
         )
         syncApp.terminate()
     }
@@ -1889,6 +1903,34 @@ final class PlaniniUITests: XCTestCase {
             body: [
                 "name": name,
                 "note": note,
+            ]
+        )
+        _ = try performRequest(request)
+    }
+
+    private func syncItemCheckedState(
+        itemID: UUID,
+        checked: Bool,
+        inListNamed listName: String,
+        accessToken: String
+    ) throws {
+        let listID = try listID(named: listName, accessToken: accessToken)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let request = jsonRequest(
+            path: "/api/v1/lists/\(listID.uuidString)/items/sync",
+            method: "POST",
+            token: accessToken,
+            body: [
+                "mutations": [
+                    [
+                        "mutation_id": UUID().uuidString,
+                        "operation": "set_checked",
+                        "item_id": itemID.uuidString,
+                        "checked": checked,
+                        "recorded_at": formatter.string(from: Date()),
+                    ],
+                ],
             ]
         )
         _ = try performRequest(request)
