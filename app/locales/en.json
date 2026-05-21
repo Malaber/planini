@@ -433,6 +433,13 @@
       "quick_add_uncategorized": "Quick add uncategorized item",
       "quick_add_to": "Quick add to {category}"
     },
+    "undo": {
+      "button": "Undo",
+      "item_added_back_named": "{name} added back to the list.",
+      "item_checked_named": "{name} checked.",
+      "item_unchecked_named": "{name} unchecked.",
+      "item_deleted_named": "{name} deleted."
+    },
     "item": {
       "item_section": "Item",
       "name": "Name",

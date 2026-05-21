@@ -949,12 +949,17 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func toggle(_ item: GroceryItemRecord) async -> Bool {
+        await setChecked(itemID: item.id, checked: item.checked == false)
+    }
+
+    @discardableResult
+    func setChecked(itemID: UUID, checked: Bool) async -> Bool {
         guard let backendURL, let authToken else { return false }
-        let suffix = item.checked ? "uncheck" : "check"
+        let suffix = checked ? "check" : "uncheck"
         do {
             _ = try await requestJSON(
                 backendURL: backendURL,
-                path: "/api/v1/items/\(item.id.uuidString)/\(suffix)",
+                path: "/api/v1/items/\(itemID.uuidString)/\(suffix)",
                 method: "POST",
                 body: [:],
                 token: authToken
@@ -1033,6 +1038,49 @@ final class MobileAppViewModel: ObservableObject {
                 body: nil,
                 token: authToken
             )
+            try await reloadItems()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult
+    func restoreDeleted(item: GroceryItemRecord) async -> Bool {
+        guard let backendURL, let authToken else { return false }
+
+        var body: [String: Any] = [
+            "name": item.name,
+            "sort_order": item.sortOrder,
+        ]
+        body["quantity_text"] = item.quantityText ?? NSNull()
+        body["note"] = item.note ?? NSNull()
+        body["category_id"] = item.categoryID?.uuidString ?? NSNull()
+
+        do {
+            let createdJSON = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/lists/\(item.listID.uuidString)/items",
+                method: "POST",
+                body: body,
+                token: authToken
+            )
+
+            if
+                item.checked,
+                let createdItem = GroceryItemRecord(json: createdJSON)
+            {
+                _ = try await requestJSON(
+                    backendURL: backendURL,
+                    path: "/api/v1/items/\(createdItem.id.uuidString)/check",
+                    method: "POST",
+                    body: [:],
+                    token: authToken
+                )
+            }
+
             try await reloadItems()
             watchSyncCoordinator.publishCurrentState()
             return true

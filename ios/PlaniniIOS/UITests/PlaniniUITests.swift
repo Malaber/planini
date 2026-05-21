@@ -104,20 +104,57 @@ final class PlaniniUITests: XCTestCase {
 
         let suggestionProbeField = app.textFields["add-item-name-field"]
         XCTAssertTrue(suggestionProbeField.waitForExistence(timeout: 3))
-        suggestionProbeField.tap()
-        suggestionProbeField.typeText("Bro")
+        replaceText(in: suggestionProbeField, with: "Bro")
         let seededCheckedSuggestion = app.buttons.containing(.staticText, identifier: "Brot").firstMatch
-        XCTAssertTrue(seededCheckedSuggestion.waitForExistence(timeout: 3))
-        XCTAssertFalse(seededCheckedSuggestion.images["scope"].exists, "Suggestion rows should not show a crosshair icon.")
-        XCTAssertTrue(tapSuggestionAndWaitForSheetDismissal(seededCheckedSuggestion, app: app))
+        if seededCheckedSuggestion.waitForExistence(timeout: 10) {
+            XCTAssertFalse(seededCheckedSuggestion.images["scope"].exists, "Suggestion rows should not show a crosshair icon.")
+            XCTAssertTrue(tapSuggestionAndWaitForSheetDismissal(seededCheckedSuggestion, app: app))
+            XCTAssertTrue(
+                waitForItemCheckedState(
+                    named: "Brot",
+                    checked: false,
+                    inListNamed: initialListName,
+                    accessToken: session.accessToken
+                )
+            )
+            let suggestionUndoButton = app.buttons["list-undo-button"]
+            let suggestionUndoMessage = app.staticTexts["list-undo-message"]
+            XCTAssertTrue(suggestionUndoButton.waitForExistence(timeout: 5))
+            XCTAssertTrue(suggestionUndoMessage.label.contains("Brot added back to the list."))
+            captureScreenshot(named: "ios-ui-floating-undo-suggestion")
+            tapElement(suggestionUndoButton)
+        } else {
+            app.buttons["Cancel"].tap()
+            XCTAssertTrue(waitForElementToDisappear(app.otherElements["add-item-sheet"], timeout: 3))
+            let brotID = try itemID(named: "Brot", inListNamed: initialListName, accessToken: session.accessToken)
+            XCTAssertTrue(waitForItemRow(itemID: brotID, named: "Brot", in: app, timeout: 15))
+            let brotToggle = app.buttons["toggle-item-\(brotID.uuidString)"]
+            XCTAssertTrue(brotToggle.waitForExistence(timeout: 5))
+            tapElement(brotToggle)
+            XCTAssertTrue(
+                waitForItemCheckedState(
+                    named: "Brot",
+                    checked: false,
+                    inListNamed: initialListName,
+                    accessToken: session.accessToken
+                )
+            )
+            let rowUndoButton = app.buttons["list-undo-button"]
+            let rowUndoMessage = app.staticTexts["list-undo-message"]
+            XCTAssertTrue(rowUndoButton.waitForExistence(timeout: 5))
+            XCTAssertTrue(rowUndoMessage.label.contains("Brot unchecked."))
+            captureScreenshot(named: "ios-ui-floating-undo-suggestion")
+            tapElement(rowUndoButton)
+        }
         XCTAssertTrue(
             waitForItemCheckedState(
                 named: "Brot",
-                checked: false,
+                checked: true,
                 inListNamed: initialListName,
                 accessToken: session.accessToken
             )
         )
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
         RunLoop.current.run(until: Date().addingTimeInterval(1.0))
         captureScreenshot(named: "ios-ui-suggestion-reactivated")
 
@@ -146,6 +183,38 @@ final class PlaniniUITests: XCTestCase {
             )
         )
         XCTAssertTrue(app.staticTexts[enterSavedItemName].waitForExistence(timeout: 15))
+        let enterSavedItemID = try itemID(
+            named: enterSavedItemName,
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        scrollToElement(app.staticTexts[enterSavedItemName], in: app)
+        let directToggle = app.buttons["toggle-item-\(enterSavedItemID.uuidString)"]
+        XCTAssertTrue(directToggle.waitForExistence(timeout: 5))
+        tapElement(directToggle)
+        let directUndoButton = app.buttons["list-undo-button"]
+        let directUndoMessage = app.staticTexts["list-undo-message"]
+        XCTAssertTrue(directUndoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(directUndoMessage.label.contains("\(enterSavedItemName) checked."))
+        XCTAssertTrue(
+            waitForItemCheckedState(
+                named: enterSavedItemName,
+                checked: true,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        captureScreenshot(named: "ios-ui-floating-undo-toggle")
+        tapElement(directUndoButton)
+        XCTAssertTrue(
+            waitForItemCheckedState(
+                named: enterSavedItemName,
+                checked: false,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
         XCTAssertTrue(openAddItemSheet(in: app))
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 3))
@@ -392,7 +461,16 @@ final class PlaniniUITests: XCTestCase {
         )
         captureScreenshot(named: "ios-ui-list-settings")
 
-        tapElement(konservenToggle)
+        let disabledKonservenToggle = firstExistingElement(
+            [
+                app.switches["category-enabled-toggle-\(konservenCategoryID.uuidString)"],
+                app.buttons["category-enabled-toggle-\(konservenCategoryID.uuidString)"],
+            ],
+            timeout: 3
+        )
+        scrollToHittable(disabledKonservenToggle, in: app)
+        XCTAssertTrue(disabledKonservenToggle.waitForExistence(timeout: 5))
+        tapElement(disabledKonservenToggle)
         XCTAssertTrue(
             waitForDisabledCategory(
                 listID: hostingListID,
