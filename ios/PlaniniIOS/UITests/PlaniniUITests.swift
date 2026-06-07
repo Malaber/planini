@@ -490,13 +490,6 @@ final class PlaniniUITests: XCTestCase {
         )
         let failedUndoNotice = app.otherElements["item-move-notice-\(updatedItemID.uuidString)"]
         XCTAssertTrue(failedUndoNotice.waitForExistence(timeout: 5))
-        let konservenCountBadge = sectionCountBadge(
-            sectionID: "category-\(sourceKonservenCategoryID.uuidString)",
-            title: "Konserven",
-            in: app
-        )
-        scrollToElement(konservenCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(konservenCountBadge, count: 1))
         try deleteItem(itemID: updatedItemID, accessToken: session.accessToken)
         let failedUndoButton = app.buttons["move-item-undo-button-\(updatedItemID.uuidString)"]
         scrollToHittable(failedUndoButton, in: app, maxSwipes: 12)
@@ -505,6 +498,13 @@ final class PlaniniUITests: XCTestCase {
         let failedUndoError = app.staticTexts["item-move-notice-error-\(updatedItemID.uuidString)"]
         XCTAssertTrue(failedUndoError.waitForExistence(timeout: 5))
         XCTAssertTrue(failedUndoNotice.exists)
+        let konservenCountBadge = sectionCountBadge(
+            sectionID: "category-\(sourceKonservenCategoryID.uuidString)",
+            title: "Konserven",
+            in: app
+        )
+        scrollToElement(konservenCountBadge, in: app, maxSwipes: 12)
+        XCTAssertTrue(waitForSectionCountBadge(konservenCountBadge, count: 1))
 
         XCTAssertTrue(tapTab("Lists", in: app))
         returnToListsRootIfNeeded(app)
