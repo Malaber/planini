@@ -479,37 +479,144 @@ def _collect_xcresult_failure_summaries(
     return _dedupe_lines(summaries)
 
 
-def _ios_ui_e2e_failure_summaries_from_xcresulttool(result_bundle_path: Path) -> list[str]:
+def _xcresulttool_json(
+    result_bundle_path: Path,
+    subcommand: str,
+    *,
+    test_id: str = "",
+) -> object | None:
     if result_bundle_path.exists() is False:
-        return []
+        return None
 
+    command = [
+        "xcrun",
+        "xcresulttool",
+        "get",
+        "test-results",
+        subcommand,
+        "--path",
+        str(result_bundle_path),
+        "--compact",
+    ]
+    if test_id:
+        command.extend(["--test-id", test_id])
     try:
         result = subprocess.run(
-            [
-                "xcrun",
-                "xcresulttool",
-                "get",
-                "test-results",
-                "summary",
-                "--path",
-                str(result_bundle_path),
-                "--format",
-                "json",
-            ],
+            command,
             capture_output=True,
             text=True,
             check=False,
         )
     except OSError:
-        return []
+        return None
     if result.returncode != 0 or not result.stdout.strip():
-        return []
+        return None
 
     try:
-        payload = json.loads(result.stdout)
+        return json.loads(result.stdout)
     except json.JSONDecodeError:
+        return None
+
+
+def _xcresult_failure_records(payload: object) -> list[tuple[str, str, str]]:
+    if isinstance(payload, list):
+        records: list[tuple[str, str, str]] = []
+        for item in payload:
+            records.extend(_xcresult_failure_records(item))
+        return records
+    if not isinstance(payload, dict):
         return []
-    return _collect_xcresult_failure_summaries(payload)
+
+    test_id = _string_field(payload, "testIdentifierURL", "testIdentifierString")
+    test_name = _string_field(payload, "testName", "name")
+    failure_text = _string_field(payload, "failureText", "failureMessage")
+    records = [(test_name, failure_text, test_id)] if test_id and failure_text else []
+    for value in payload.values():
+        records.extend(_xcresult_failure_records(value))
+
+    seen: set[tuple[str, str, str]] = set()
+    deduped: list[tuple[str, str, str]] = []
+    for record in records:
+        if record in seen:
+            continue
+        seen.add(record)
+        deduped.append(record)
+    return deduped
+
+
+def _collect_xcresult_failure_detail_context(payload: object) -> list[str]:
+    if isinstance(payload, list):
+        context: list[str] = []
+        for item in payload:
+            context.extend(_collect_xcresult_failure_detail_context(item))
+        return _dedupe_lines(context)
+    if not isinstance(payload, dict):
+        return []
+
+    labels = {
+        "Source Code Reference": "Source",
+        "Expression": "Expression",
+        "Test Value": "Value",
+    }
+    node_type = _string_field(payload, "nodeType")
+    values = _dedupe_lines(
+        [
+            _string_field(payload, "name"),
+            _string_field(payload, "details"),
+        ]
+    )
+    context = (
+        [f"{labels[node_type]}: {' - '.join(values)}"] if node_type in labels and values else []
+    )
+    for value in payload.values():
+        context.extend(_collect_xcresult_failure_detail_context(value))
+    return _dedupe_lines(context)
+
+
+def _collect_xcresult_failure_activity_context(
+    payload: object,
+    activity_path: tuple[str, ...] = (),
+) -> list[str]:
+    if isinstance(payload, list):
+        context: list[str] = []
+        for item in payload:
+            context.extend(_collect_xcresult_failure_activity_context(item, activity_path))
+        return _dedupe_lines(context)
+    if not isinstance(payload, dict):
+        return []
+
+    title = _string_field(payload, "title")
+    current_path = (*activity_path, title) if title else activity_path
+    context = []
+    if payload.get("isAssociatedWithFailure") is True and current_path:
+        context.append(f"Failure activity: {' > '.join(current_path[-5:])}")
+    for value in payload.values():
+        context.extend(_collect_xcresult_failure_activity_context(value, current_path))
+    return _dedupe_lines(context)
+
+
+def _ios_ui_e2e_failure_summaries_from_xcresulttool(result_bundle_path: Path) -> list[str]:
+    payload = _xcresulttool_json(result_bundle_path, "summary")
+    if payload is None:
+        return []
+
+    summaries = _collect_xcresult_failure_summaries(payload)
+    for test_name, failure_text, test_id in _xcresult_failure_records(payload):
+        label = test_name or test_id
+        summaries.append(f"{label}: {failure_text}")
+        details = _xcresulttool_json(result_bundle_path, "test-details", test_id=test_id)
+        if details is not None:
+            summaries.extend(
+                f"{label}: {context}"
+                for context in _collect_xcresult_failure_detail_context(details)
+            )
+        activities = _xcresulttool_json(result_bundle_path, "activities", test_id=test_id)
+        if activities is not None:
+            summaries.extend(
+                f"{label}: {context}"
+                for context in _collect_xcresult_failure_activity_context(activities)
+            )
+    return _dedupe_lines(summaries)
 
 
 def _ios_ui_e2e_failure_summaries(result_bundle_path: Path) -> list[str]:
