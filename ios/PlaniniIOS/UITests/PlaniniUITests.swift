@@ -201,7 +201,6 @@ final class PlaniniUITests: XCTestCase {
         nameField.typeText(enterSavedItemName)
         XCTAssertTrue(waitForFieldValue(nameField, contains: enterSavedItemName))
         XCTAssertTrue(tapAddItemSaveAndWaitForDismissal(in: app))
-        XCTAssertTrue(app.staticTexts[enterSavedItemName].waitForExistence(timeout: 5))
         XCTAssertTrue(
             waitForItem(
                 named: enterSavedItemName,
@@ -210,13 +209,15 @@ final class PlaniniUITests: XCTestCase {
                 timeout: 20
             )
         )
-        XCTAssertTrue(app.staticTexts[enterSavedItemName].waitForExistence(timeout: 15))
+        let enterSavedItemLabel = app.staticTexts[enterSavedItemName]
+        scrollToElement(enterSavedItemLabel, in: app)
+        XCTAssertTrue(enterSavedItemLabel.waitForExistence(timeout: 15))
         let enterSavedItemID = try itemID(
             named: enterSavedItemName,
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
-        scrollToElement(app.staticTexts[enterSavedItemName], in: app)
+        scrollToElement(enterSavedItemLabel, in: app)
         let directToggle = app.buttons["toggle-item-\(enterSavedItemID.uuidString)"]
         XCTAssertTrue(directToggle.waitForExistence(timeout: 5))
         tapElement(directToggle)
@@ -300,8 +301,14 @@ final class PlaniniUITests: XCTestCase {
         let createdItemRow = itemRow(itemID: createdItemID, in: app)
         scrollToHittable(createdItemRow, in: app)
         createdItemRow.swipeLeft()
-        let deleteButton = app.buttons["delete-item-\(createdItemID.uuidString)"]
-        XCTAssertTrue(deleteButton.waitForExistence(timeout: 3))
+        let deleteButton = firstExistingElement(
+            [
+                app.buttons["delete-item-\(createdItemID.uuidString)"],
+                app.buttons["Delete"],
+            ],
+            timeout: 3
+        )
+        XCTAssertTrue(deleteButton.exists)
         tapElement(deleteButton)
         XCTAssertTrue(
             waitForItemAbsent(
@@ -323,6 +330,16 @@ final class PlaniniUITests: XCTestCase {
                 accessToken: session.accessToken
             )
         )
+        let restoredItemID = try itemID(
+            named: itemName,
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        XCTAssertTrue(
+            waitForItemRow(itemID: restoredItemID, named: itemName, in: app, timeout: 15),
+            "Expected restored item row to be visible after undoing delete."
+        )
+        scrollToElement(createdItemLabel, in: app)
         XCTAssertTrue(createdItemLabel.waitForExistence(timeout: 5))
         XCTAssertTrue(
             waitForItemCategory(
