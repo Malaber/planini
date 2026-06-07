@@ -290,8 +290,9 @@ final class PlaniniUITests: XCTestCase {
         scrollToElement(hiddenForLaterHeader, in: app)
         XCTAssertTrue(hiddenForLaterHeader.waitForExistence(timeout: 5))
         let restoreHiddenButton = app.buttons["toggle-item-\(enterSavedItemID.uuidString)"]
-        scrollToElement(restoreHiddenButton, in: app)
+        scrollToHittable(restoreHiddenButton, in: app)
         XCTAssertTrue(restoreHiddenButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(restoreHiddenButton.isHittable)
         captureScreenshot(named: "ios-ui-item-hidden-for-later")
         tapElement(restoreHiddenButton)
         XCTAssertTrue(
