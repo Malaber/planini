@@ -219,4 +219,18 @@ public extension GroceryItemRecord {
             sortOrder: sortOrder
         )
     }
+
+    func applyingCheckedState(_ checked: Bool, recordedAt: Date) -> GroceryItemRecord {
+        GroceryItemRecord(
+            id: id,
+            listID: listID,
+            name: name,
+            quantityText: quantityText,
+            note: note,
+            categoryID: categoryID,
+            checked: checked,
+            checkedAt: checked ? recordedAt : nil,
+            sortOrder: sortOrder
+        )
+    }
 }
