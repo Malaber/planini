@@ -2806,13 +2806,82 @@ main {
     linear-gradient(180deg, rgba(248, 239, 230, 0.96), rgba(255, 255, 255, 0.94));
 }
 
+.support-shell {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.support-hero,
+.support-options {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.support-hero {
+  grid-template-columns: minmax(0, 1.5fr) minmax(18rem, 1fr);
+  align-items: start;
+}
+
+.support-copy h1 {
+  margin: 0.35rem 0 1rem;
+  font-size: clamp(2.4rem, 5vw, 4.6rem);
+  line-height: 0.94;
+}
+
+.support-tip h2,
+.support-card h2 {
+  margin-bottom: 0;
+}
+
+.support-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.support-card {
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.support-card:hover,
+.support-card:focus-visible {
+  transform: translateY(-3px);
+  border-color: var(--border-strong);
+  box-shadow: 0 24px 70px var(--shadow);
+}
+
+.support-card-accent {
+  background:
+    linear-gradient(180deg, rgba(248, 239, 230, 0.96), rgba(255, 255, 255, 0.94));
+}
+
+.support-destination {
+  color: var(--brand-navy);
+  overflow-wrap: anywhere;
+}
+
+.support-action {
+  justify-self: start;
+  margin-top: 0.25rem;
+}
+
 @media (max-width: 720px) {
   .dashboard-hero {
     grid-template-columns: 1fr;
   }
 
   .capabilities-hero,
-  .capabilities-grid {
+  .capabilities-grid,
+  .support-hero,
+  .support-options {
     grid-template-columns: 1fr;
   }
 
