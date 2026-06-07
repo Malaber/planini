@@ -349,11 +349,6 @@ final class PlaniniUITests: XCTestCase {
         captureScreenshot(named: "ios-ui-checked-item")
         let hostingListName = "Hosting errands"
         let hostingListID = try listID(named: hostingListName, accessToken: session.accessToken)
-        let sourceKonservenCategoryID = try categoryID(
-            named: "Konserven",
-            inListNamed: initialListName,
-            accessToken: session.accessToken
-        )
         let haushaltCategoryID = try categoryID(
             named: "Haushalt",
             inListNamed: hostingListName,
@@ -498,13 +493,8 @@ final class PlaniniUITests: XCTestCase {
         let failedUndoError = app.staticTexts["item-move-notice-error-\(updatedItemID.uuidString)"]
         XCTAssertTrue(failedUndoError.waitForExistence(timeout: 5))
         XCTAssertTrue(failedUndoNotice.exists)
-        let konservenCountBadge = sectionCountBadge(
-            sectionID: "category-\(sourceKonservenCategoryID.uuidString)",
-            title: "Konserven",
-            in: app
-        )
-        scrollToElement(konservenCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(konservenCountBadge, count: 1))
+        scrollToElement(checkedCountBadge, in: app, maxSwipes: 12)
+        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 1))
 
         XCTAssertTrue(tapTab("Lists", in: app))
         returnToListsRootIfNeeded(app)
