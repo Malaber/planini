@@ -88,9 +88,9 @@ jobs:
       - run: python -m invoke bootstrap-ci
       - run: python -m invoke install-js
       - name: Install browser dependencies
-        run: sudo npx playwright install-deps chromium
+        run: timeout 2m sudo npx playwright install-deps chromium
       - name: Install playwright browser
-        run: python -m invoke install-browser
+        run: timeout 2m python -m invoke install-browser
       - name: Run browser ui e2e (desktop + iphone)
         run: >-
           python -m invoke browser-e2e
