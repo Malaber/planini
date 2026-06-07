@@ -420,7 +420,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(moveNoticeMessage.label.contains("Hosting errands"))
         let checkedCountBadge = sectionCountBadge(sectionID: "checked", title: "Checked off", in: app)
         scrollToElement(checkedCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 1))
+        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 2))
         captureScreenshot(named: "ios-ui-moved-item-notice")
         let moveUndoButton = app.buttons["move-item-undo-button-\(seededItemID.uuidString)"]
         scrollToHittable(moveUndoButton, in: app, maxSwipes: 12)
@@ -458,7 +458,7 @@ final class PlaniniUITests: XCTestCase {
         )
         XCTAssertTrue(waitForItemRow(itemID: seededItemID, named: "Brot", in: app, timeout: 20))
         scrollToElement(checkedCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 2))
+        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 3))
 
         XCTAssertTrue(
             waitForItemRow(itemID: updatedItemID, named: updatedName, in: app, timeout: 20),
@@ -491,7 +491,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(failedUndoError.waitForExistence(timeout: 5))
         XCTAssertTrue(failedUndoNotice.exists)
         scrollToElement(checkedCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 1))
+        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 2))
 
         XCTAssertTrue(tapTab("Lists", in: app))
         returnToListsRootIfNeeded(app)
