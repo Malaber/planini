@@ -12,6 +12,9 @@ const deviceName = process.env.E2E_DEVICE ?? "desktop";
 const browserLocale = process.env.E2E_LOCALE ?? "en-US";
 const browserTimeZone = process.env.E2E_TIMEZONE ?? "Europe/Berlin";
 const browserChannel = process.env.E2E_BROWSER_CHANNEL?.trim() || undefined;
+const recordVideo = !["0", "false", "no"].includes(
+  (process.env.E2E_RECORD_VIDEO ?? "true").trim().toLowerCase(),
+);
 const knownDevices = new Map([["iphone", "iPhone 13"]]);
 const staleBlueAccentTokens = [
   "20, 42, 87",
@@ -48,14 +51,12 @@ async function ensureDir(dir) {
 function contextOptions() {
   const preset = knownDevices.get(deviceName);
   if (!preset) {
+    const viewport = { width: 1440, height: 1200 };
     return {
-      viewport: { width: 1440, height: 1200 },
+      viewport,
       locale: browserLocale,
       timezoneId: browserTimeZone,
-      recordVideo: {
-        dir: videoDir,
-        size: { width: 1440, height: 1200 },
-      },
+      ...(recordVideo ? { recordVideo: { dir: videoDir, size: viewport } } : {}),
     };
   }
 
@@ -65,10 +66,7 @@ function contextOptions() {
     ...device,
     locale: browserLocale,
     timezoneId: browserTimeZone,
-    recordVideo: {
-      dir: videoDir,
-      size: device.viewport,
-    },
+    ...(recordVideo ? { recordVideo: { dir: videoDir, size: device.viewport } } : {}),
   };
 }
 
@@ -1462,20 +1460,13 @@ async function main() {
   );
 
   let browser;
-  try {
-    browser = await chromium.launch(browserChannel ? { channel: browserChannel } : {});
-  } catch (error) {
-    throw new Error(
-      `Could not launch Playwright Chromium${browserChannel ? ` channel ${browserChannel}` : ""}. ` +
-        `If CI uses E2E_BROWSER_CHANNEL=chrome, ensure google-chrome is installed on the runner. ` +
-        `Original error: ${error.message}`,
-    );
-  }
-  const context = await browser.newContext(contextOptions());
-  const page = await context.newPage();
+  let page;
 
   try {
     logStep(`Launching browser flow against ${baseUrl}`);
+    browser = await chromium.launch(browserChannel ? { channel: browserChannel } : {});
+    const context = await browser.newContext(contextOptions());
+    page = await context.newPage();
     const authenticator = await createVirtualAuthenticator(page);
     await installSeededPasskey(authenticator, owner, rpId);
     await assertSupportPage(page);
@@ -1987,10 +1978,14 @@ async function main() {
     logStep("Browser UI e2e completed successfully");
   } catch (error) {
     logStep(`Browser UI e2e failed: ${error instanceof Error ? error.message : String(error)}`);
-    await screenshot(page, "ui-e2e-failure-main").catch(() => {});
+    if (page) {
+      await screenshot(page, "ui-e2e-failure-main").catch(() => {});
+    }
     throw error;
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 
   const summary = [
