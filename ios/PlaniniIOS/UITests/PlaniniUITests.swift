@@ -75,10 +75,10 @@ final class PlaniniUITests: XCTestCase {
 
         let konservenCountBadge = firstExistingElement(
             [
-                app.staticTexts.containing(
+                app.staticTexts.matching(
                     NSPredicate(format: "label BEGINSWITH %@", "\(visibleQuickAddSection.title) count,")
                 ).firstMatch,
-                app.otherElements.containing(
+                app.otherElements.matching(
                     NSPredicate(format: "label BEGINSWITH %@", "\(visibleQuickAddSection.title) count,")
                 ).firstMatch,
             ],
