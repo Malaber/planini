@@ -216,6 +216,39 @@ final class PlaniniUITests: XCTestCase {
         )
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
+        XCTAssertTrue(
+            tapItemToggleButton(
+                itemID: enterSavedItemID,
+                named: enterSavedItemName,
+                checked: true,
+                in: app,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        XCTAssertTrue(
+            tapItemToggleButton(
+                itemID: enterSavedItemID,
+                named: enterSavedItemName,
+                checked: false,
+                in: app,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        XCTAssertTrue(directUndoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(directUndoMessage.label.contains("\(enterSavedItemName) unchecked."))
+        tapElement(directUndoButton)
+        XCTAssertTrue(
+            waitForItemCheckedState(
+                named: enterSavedItemName,
+                checked: true,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
+
         XCTAssertTrue(openAddItemSheet(in: app))
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 3))
         XCTAssertTrue(nameField.waitForExistence(timeout: 3))
@@ -262,8 +295,49 @@ final class PlaniniUITests: XCTestCase {
             )
         )
 
+        let createdItemID = try itemID(
+            named: itemName,
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
         let createdItemLabel = app.staticTexts[itemName]
         scrollToElement(createdItemLabel, in: app)
+        let createdItemRow = itemRow(itemID: createdItemID, in: app)
+        scrollToHittable(createdItemRow, in: app)
+        createdItemRow.swipeLeft()
+        let deleteButton = app.buttons["delete-item-\(createdItemID.uuidString)"]
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 3))
+        tapElement(deleteButton)
+        XCTAssertTrue(
+            waitForItemAbsent(
+                named: itemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        let deleteUndoButton = app.buttons["list-undo-button"]
+        let deleteUndoMessage = app.staticTexts["list-undo-message"]
+        XCTAssertTrue(deleteUndoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(deleteUndoMessage.label.contains("\(itemName) deleted."))
+        captureScreenshot(named: "ios-ui-floating-undo-delete")
+        tapElement(deleteUndoButton)
+        XCTAssertTrue(
+            waitForItem(
+                named: itemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        XCTAssertTrue(createdItemLabel.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            waitForItemCategory(
+                named: itemName,
+                categoryNamed: "Milch & Eier",
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+
         tapElement(createdItemLabel)
         XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
         let undoButton = app.buttons["Undo"]
@@ -877,6 +951,24 @@ final class PlaniniUITests: XCTestCase {
         while Date() < deadline {
             if let items = try? fetchItems(inListNamed: listName, accessToken: accessToken),
                 items.contains(where: { $0.name == itemName })
+            {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        }
+        return false
+    }
+
+    private func waitForItemAbsent(
+        named itemName: String,
+        inListNamed listName: String,
+        accessToken: String,
+        timeout: TimeInterval = 8
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let items = try? fetchItems(inListNamed: listName, accessToken: accessToken),
+                items.contains(where: { $0.name == itemName }) == false
             {
                 return true
             }
