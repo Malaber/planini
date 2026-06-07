@@ -1209,6 +1209,7 @@ final class MobileAppViewModel: ObservableObject {
             removePendingItemEdit(itemID: item.id)
             let movedItem = GroceryItemRecord(json: saved)
                 ?? item.applyingEditPayload(payload).moving(to: targetListID)
+            itemReloadGeneration += 1
             if movedItem.listID == selectedListID {
                 upsertLocalItem(movedItem)
             } else {
