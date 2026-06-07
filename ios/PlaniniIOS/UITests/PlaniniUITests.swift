@@ -1,4 +1,7 @@
 import XCTest
+#if canImport(UIKit)
+import UIKit
+#endif
 
 final class PlaniniUITests: XCTestCase {
     private let seededEmail = "planini@schaedler.rocks"
@@ -65,7 +68,6 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(favoriteButton.waitForExistence(timeout: 3))
         XCTAssertTrue(favoriteButton.label.contains("Unfavorite"))
 
-        XCTAssertTrue(app.tabBars.buttons[initialListName].waitForExistence(timeout: 3))
         XCTAssertTrue(tapTab(initialListName, in: app))
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, initialListName)
@@ -564,7 +566,7 @@ final class PlaniniUITests: XCTestCase {
         expiredApp.launch()
 
         XCTAssertTrue(expiredApp.buttons["login-passkey-button"].waitForExistence(timeout: 15))
-        XCTAssertFalse(expiredApp.tabBars.firstMatch.exists)
+        XCTAssertFalse(tabCandidates(for: "Lists", in: expiredApp).contains { $0.exists })
         XCTAssertTrue(expiredApp.descendants(matching: .any)["login-last-account"].waitForExistence(timeout: 3))
         let alert = expiredApp.alerts["Error"]
         if alert.waitForExistence(timeout: 3) {
@@ -640,6 +642,25 @@ final class PlaniniUITests: XCTestCase {
             waitForElementToDisappear(app.staticTexts[updatedName], timeout: 20),
             "Expected live-deleted item to disappear without manual refresh."
         )
+    }
+
+    func testUsesNativeIPadCanvasWhenRunningOnIPad() throws {
+        #if canImport(UIKit)
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
+
+        let app = XCUIApplication()
+        configureLaunchLanguage(for: app)
+        app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
+        app.launch()
+
+        XCTAssertTrue(app.buttons["login-passkey-button"].waitForExistence(timeout: 10))
+        let screenSize = XCUIScreen.main.screenshot().image.size
+        XCTAssertGreaterThanOrEqual(app.frame.width, screenSize.width * 0.9)
+        XCTAssertGreaterThanOrEqual(app.frame.height, screenSize.height * 0.9)
+        #else
+        throw XCTSkip("UIKit unavailable")
+        #endif
     }
 
     func testPlaniniLinksOpenListsAndAcceptInvites() throws {
@@ -775,7 +796,7 @@ final class PlaniniUITests: XCTestCase {
             app.launchEnvironment["PLANINI_UI_TEST_OPEN_URL"] = openedLink.absoluteString
         }
         app.launch()
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(firstExistingElement(tabCandidates(for: "Lists", in: app), timeout: 10).exists)
         return app
     }
 
@@ -1320,20 +1341,24 @@ final class PlaniniUITests: XCTestCase {
         switch label {
         case "Lists":
             return [
-                app.tabBars.buttons["tab-lists"],
-                app.buttons["tab-lists"],
-                app.tabBars.buttons["Lists"],
-                app.tabBars.buttons["Listen"],
+                app.tabBars.buttons["tab-lists"].firstMatch,
+                app.buttons["tab-lists"].firstMatch,
+                app.tabBars.buttons["Lists"].firstMatch,
+                app.tabBars.buttons["Listen"].firstMatch,
+                app.buttons["Lists"].firstMatch,
+                app.buttons["Listen"].firstMatch,
             ]
         case "Settings":
             return [
-                app.tabBars.buttons["tab-settings"],
-                app.buttons["tab-settings"],
-                app.tabBars.buttons["Settings"],
-                app.tabBars.buttons["Einstellungen"],
+                app.tabBars.buttons["tab-settings"].firstMatch,
+                app.buttons["tab-settings"].firstMatch,
+                app.tabBars.buttons["Settings"].firstMatch,
+                app.tabBars.buttons["Einstellungen"].firstMatch,
+                app.buttons["Settings"].firstMatch,
+                app.buttons["Einstellungen"].firstMatch,
             ]
         default:
-            return [app.tabBars.buttons[label], app.buttons[label]]
+            return [app.tabBars.buttons[label].firstMatch, app.buttons[label].firstMatch]
         }
     }
 

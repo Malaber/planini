@@ -1130,6 +1130,7 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
                 "initial_list_name": "Browser Test Shop",
                 "access_token": "token-123",
                 "display_name": "Test User",
+                "attempts": 2,
             },
         ),
         ("stop", {"pid_path": "ios-ui-e2e-server.pid"}),

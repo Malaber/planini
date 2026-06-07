@@ -28,7 +28,7 @@ targets:
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
         SWIFT_VERSION: 5.10
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
         CODE_SIGN_ENTITLEMENTS: App/Planini.entitlements
         PROVISIONING_PROFILE_SPECIFIER: $(PLANINI_APP_PROFILE_NAME)
@@ -62,6 +62,15 @@ targets:
             Icon-40@3x.png \
             Icon-60@2x.png \
             Icon-60@3x.png \
+            Icon-iPad-20.png \
+            Icon-iPad-20@2x.png \
+            Icon-iPad-29.png \
+            Icon-iPad-29@2x.png \
+            Icon-iPad-40.png \
+            Icon-iPad-40@2x.png \
+            Icon-iPad-76.png \
+            Icon-iPad-76@2x.png \
+            Icon-iPad-83.5@2x.png \
             Icon-1024.png
           do
             if [ ! -f "${icon_dir}/${file}" ]; then

@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "1430"
-   version = "1.3">
+   version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
-      buildImplicitDependencies = "YES">
+      buildImplicitDependencies = "YES"
+      runPostActionsOnFailure = "NO">
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"
@@ -29,7 +30,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "7A3ABE956F63693B9585D08D"
-               BuildableName = "Planini Watch.app"
+               BuildableName = "PlaniniWatchApp.app"
                BlueprintName = "PlaniniWatchApp"
                ReferencedContainer = "container:PlaniniApp.xcodeproj">
             </BuildableReference>
@@ -43,7 +44,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "DEBF93F3E0CDE651B6065A38"
-               BuildableName = "Planini Watch Extension.appex"
+               BuildableName = "PlaniniWatchExtension.appex"
                BlueprintName = "PlaniniWatchExtension"
                ReferencedContainer = "container:PlaniniApp.xcodeproj">
             </BuildableReference>
@@ -57,7 +58,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "3180F3469A0A460B5E6E607B"
-               BuildableName = "Planini Watch Widgets.appex"
+               BuildableName = "PlaniniWatchWidgetExtension.appex"
                BlueprintName = "PlaniniWatchWidgetExtension"
                ReferencedContainer = "container:PlaniniApp.xcodeproj">
             </BuildableReference>
@@ -68,7 +69,8 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "NO">
+      shouldUseLaunchSchemeArgsEnv = "NO"
+      onlyGenerateCoverageForSpecifiedTargets = "NO">
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
@@ -78,6 +80,21 @@
             ReferencedContainer = "container:PlaniniApp.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
+      <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "2DDAD55DE417376D7015B238"
+               BuildableName = "PlaniniUITests.xctest"
+               BlueprintName = "PlaniniUITests"
+               ReferencedContainer = "container:PlaniniApp.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+      </Testables>
+      <CommandLineArguments>
+      </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "PLANINI_UI_TEST_ACCESS_TOKEN"
@@ -115,18 +132,6 @@
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
-      <Testables>
-         <TestableReference
-            skipped = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "2DDAD55DE417376D7015B238"
-               BuildableName = "PlaniniUITests.xctest"
-               BlueprintName = "PlaniniUITests"
-               ReferencedContainer = "container:PlaniniApp.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

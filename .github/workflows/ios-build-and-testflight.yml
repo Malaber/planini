@@ -105,9 +105,30 @@ jobs:
         run: python -m invoke check-ios-e2e
 
   ios_ui_e2e:
+    name: Native ${{ matrix.platform }} UI e2e
     runs-on: macos-latest
     env:
       PYTHON_VERSION: '3.14'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: iPhone
+            device_name: iPhone 17 Pro
+            database_url: sqlite+aiosqlite:///./tmp-ios-ui-e2e.db
+            artifact_dir: e2e-artifacts/ios-ui-e2e
+            artifact_name: ios-native-ui-e2e
+            port: 8018
+            log_path: ios-ui-e2e-server.log
+            pid_path: ios-ui-e2e-server.pid
+          - platform: iPad
+            device_name: iPad Pro 13-inch (M5)
+            database_url: sqlite+aiosqlite:///./tmp-ios-ipad-ui-e2e.db
+            artifact_dir: e2e-artifacts/ios-ipad-ui-e2e
+            artifact_name: ios-native-ipad-ui-e2e
+            port: 8019
+            log_path: ios-ipad-ui-e2e-server.log
+            pid_path: ios-ipad-ui-e2e-server.pid
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
@@ -123,17 +144,24 @@ jobs:
         run: python -m invoke bootstrap-ci
       - name: Install XcodeGen
         run: python -m invoke install-xcodegen
-      - name: Run native iOS UI e2e
-        run: python -m invoke check-ios-ui-e2e
+      - name: Run native ${{ matrix.platform }} UI e2e
+        run: >-
+          python -m invoke check-ios-ui-e2e
+          --device-name="${{ matrix.device_name }}"
+          --database-url="${{ matrix.database_url }}"
+          --artifact-dir="${{ matrix.artifact_dir }}"
+          --port="${{ matrix.port }}"
+          --log-path="${{ matrix.log_path }}"
+          --pid-path="${{ matrix.pid_path }}"
       - name: Upload native iOS UI artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: ios-native-ui-e2e
+          name: ${{ matrix.artifact_name }}
           retention-days: 2
           path: |
-            e2e-artifacts/ios-ui-e2e
-            ios-ui-e2e-server.log
+            ${{ matrix.artifact_dir }}
+            ${{ matrix.log_path }}
 
   upload_testflight:
     needs:
