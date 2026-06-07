@@ -11,7 +11,6 @@ const seedPath = process.env.E2E_SEED_PATH ?? "app/fixtures/review_seed_e2e.json
 const deviceName = process.env.E2E_DEVICE ?? "desktop";
 const browserLocale = process.env.E2E_LOCALE ?? "en-US";
 const browserTimeZone = process.env.E2E_TIMEZONE ?? "Europe/Berlin";
-const browserChannel = process.env.E2E_BROWSER_CHANNEL?.trim() || undefined;
 const knownDevices = new Map([["iphone", "iPhone 13"]]);
 const staleBlueAccentTokens = [
   "20, 42, 87",
@@ -839,19 +838,13 @@ async function runAdminPasskeyAddLinkFlow(page, seed, rpId) {
 
   const adminContext = await page.context().browser().newContext({
     viewport: { width: 1440, height: 1200 },
-    locale: browserLocale,
-    timezoneId: browserTimeZone,
   });
   const adminPage = await adminContext.newPage();
   const recipientContext = await page.context().browser().newContext({
     viewport: { width: 1440, height: 1200 },
-    locale: browserLocale,
-    timezoneId: browserTimeZone,
   });
   const replayContext = await page.context().browser().newContext({
     viewport: { width: 1440, height: 1200 },
-    locale: browserLocale,
-    timezoneId: browserTimeZone,
   });
 
   try {
@@ -1461,7 +1454,7 @@ async function main() {
     seededPrimaryList.items.map((item) => [item.name, Boolean(item.checked)]),
   );
 
-  const browser = await chromium.launch(browserChannel ? { channel: browserChannel } : {});
+  const browser = await chromium.launch();
   const context = await browser.newContext(contextOptions());
   const page = await context.newPage();
 
