@@ -11,6 +11,10 @@ const seedPath = process.env.E2E_SEED_PATH ?? "app/fixtures/review_seed_e2e.json
 const deviceName = process.env.E2E_DEVICE ?? "desktop";
 const browserLocale = process.env.E2E_LOCALE ?? "en-US";
 const browserTimeZone = process.env.E2E_TIMEZONE ?? "Europe/Berlin";
+const browserChannel = process.env.E2E_BROWSER_CHANNEL?.trim() || undefined;
+const recordVideo = !["0", "false", "no"].includes(
+  (process.env.E2E_RECORD_VIDEO ?? "true").trim().toLowerCase(),
+);
 const knownDevices = new Map([["iphone", "iPhone 13"]]);
 const staleBlueAccentTokens = [
   "20, 42, 87",
@@ -47,14 +51,12 @@ async function ensureDir(dir) {
 function contextOptions() {
   const preset = knownDevices.get(deviceName);
   if (!preset) {
+    const viewport = { width: 1440, height: 1200 };
     return {
-      viewport: { width: 1440, height: 1200 },
+      viewport,
       locale: browserLocale,
       timezoneId: browserTimeZone,
-      recordVideo: {
-        dir: videoDir,
-        size: { width: 1440, height: 1200 },
-      },
+      ...(recordVideo ? { recordVideo: { dir: videoDir, size: viewport } } : {}),
     };
   }
 
@@ -64,10 +66,7 @@ function contextOptions() {
     ...device,
     locale: browserLocale,
     timezoneId: browserTimeZone,
-    recordVideo: {
-      dir: videoDir,
-      size: device.viewport,
-    },
+    ...(recordVideo ? { recordVideo: { dir: videoDir, size: device.viewport } } : {}),
   };
 }
 
@@ -439,6 +438,29 @@ async function assertLinkPreviewMetadata(page, requestContext) {
     response.headers()["content-type"]?.startsWith("image/png"),
     "Expected link preview image to be served as image/png",
   );
+}
+
+async function assertSupportPage(page) {
+  logStep("Checking public support page contact options");
+  await page.goto(new URL("/support", baseUrl).toString(), { waitUntil: "networkidle" });
+  await expectVisible(
+    page.getByRole("heading", { name: "Need help with Planini?" }),
+    "Expected public support page heading",
+  );
+  await expectVisible(
+    page.getByRole("link", { name: "Support", exact: true }),
+    "Expected support header link",
+  );
+
+  const emailLink = page.locator('a[href="mailto:planini-support@schaedler.rocks"]');
+  await expectVisible(emailLink, "Expected direct support email option");
+  assert.equal(await emailLink.getAttribute("href"), "mailto:planini-support@schaedler.rocks");
+
+  const githubLink = page.locator('a[href="https://github.com/Malaber/planini/issues"]');
+  await expectVisible(githubLink, "Expected GitHub issue option");
+  assert.equal(await githubLink.getAttribute("target"), "_blank");
+  assert.equal(await githubLink.getAttribute("rel"), "noopener noreferrer");
+  await screenshot(page, "support-page");
 }
 
 async function screenshot(page, name) {
@@ -815,13 +837,19 @@ async function runAdminPasskeyAddLinkFlow(page, seed, rpId) {
 
   const adminContext = await page.context().browser().newContext({
     viewport: { width: 1440, height: 1200 },
+    locale: browserLocale,
+    timezoneId: browserTimeZone,
   });
   const adminPage = await adminContext.newPage();
   const recipientContext = await page.context().browser().newContext({
     viewport: { width: 1440, height: 1200 },
+    locale: browserLocale,
+    timezoneId: browserTimeZone,
   });
   const replayContext = await page.context().browser().newContext({
     viewport: { width: 1440, height: 1200 },
+    locale: browserLocale,
+    timezoneId: browserTimeZone,
   });
 
   try {
@@ -1431,14 +1459,17 @@ async function main() {
     seededPrimaryList.items.map((item) => [item.name, Boolean(item.checked)]),
   );
 
-  const browser = await chromium.launch();
-  const context = await browser.newContext(contextOptions());
-  const page = await context.newPage();
+  let browser;
+  let page;
 
   try {
     logStep(`Launching browser flow against ${baseUrl}`);
+    browser = await chromium.launch(browserChannel ? { channel: browserChannel } : {});
+    const context = await browser.newContext(contextOptions());
+    page = await context.newPage();
     const authenticator = await createVirtualAuthenticator(page);
     await installSeededPasskey(authenticator, owner, rpId);
+    await assertSupportPage(page);
     logStep("Signing in with the seeded owner passkey");
     await loginFromRoot(page, owner, "Households and Lists");
     await screenshot(page, "promotion-list-of-lists");
@@ -1947,16 +1978,20 @@ async function main() {
     logStep("Browser UI e2e completed successfully");
   } catch (error) {
     logStep(`Browser UI e2e failed: ${error instanceof Error ? error.message : String(error)}`);
-    await screenshot(page, "ui-e2e-failure-main").catch(() => {});
+    if (page) {
+      await screenshot(page, "ui-e2e-failure-main").catch(() => {});
+    }
     throw error;
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 
   const summary = [
     "## UI E2E",
     "",
-    `Browser UI flow passed for ${deviceName} using seeded real database data and passkey auth for route rendering, login gating, multi-passkey enrollment and deletion, add/edit flows, fuzzy duplicate suggestions, undo toasts, category alias search, category disabling, admin navigation, websocket updates, and household invite acceptance.`,
+    `Browser UI flow passed for ${deviceName} using seeded real database data and passkey auth for public support contacts, route rendering, login gating, multi-passkey enrollment and deletion, add/edit flows, fuzzy duplicate suggestions, undo toasts, category alias search, category disabling, admin navigation, websocket updates, and household invite acceptance.`,
     "",
   ].join("\n");
   await fs.writeFile(path.join(artifactDir, "summary.md"), summary);
