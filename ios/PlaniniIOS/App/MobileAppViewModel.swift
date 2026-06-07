@@ -73,7 +73,7 @@ private struct MobileListData: Codable {
 
 private struct PendingItemEdit: Codable, Equatable {
     let listID: UUID
-    let itemID: UUID
+    var itemID: UUID
     var payload: GroceryItemEditPayload
     var updatedAt: Date
 }
@@ -81,9 +81,36 @@ private struct PendingItemEdit: Codable, Equatable {
 private struct PendingItemToggle: Codable, Equatable {
     let mutationID: String
     let listID: UUID
-    let itemID: UUID
+    var itemID: UUID
     var checked: Bool
     var recordedAt: Date
+}
+
+private struct PendingItemCreate: Codable, Equatable {
+    let mutationID: String
+    let clientItemID: String
+    let listID: UUID
+    let itemID: UUID
+    let name: String
+    let quantityText: String?
+    let note: String?
+    let categoryID: UUID?
+    let sortOrder: Int
+    let recordedAt: Date
+
+    var localItem: GroceryItemRecord {
+        GroceryItemRecord(
+            id: itemID,
+            listID: listID,
+            name: name,
+            quantityText: quantityText,
+            note: note,
+            categoryID: categoryID,
+            checked: false,
+            checkedAt: nil,
+            sortOrder: sortOrder
+        )
+    }
 }
 
 struct LinkedListNavigationRequest: Equatable {
@@ -97,6 +124,7 @@ final class MobileAppViewModel: ObservableObject {
     private static let authTokenKey = "planini.authToken"
     private static let displayNameKey = "planini.displayName"
     private static let quickAddItemKey = "planini.quickAddItemName"
+    private static let pendingItemCreatesKey = "planini.pendingItemCreates"
     private static let pendingItemEditsKey = "planini.pendingItemEdits"
     private static let pendingItemTogglesKey = "planini.pendingItemToggles"
     private static let cachedListsKey = "planini.cachedLists"
@@ -136,6 +164,7 @@ final class MobileAppViewModel: ObservableObject {
     private let isSimulatorBuild: Bool
     private var didAttemptLaunchBootstrap = false
     private var itemReloadGeneration = 0
+    private var pendingItemCreates: [PendingItemCreate]
     private var pendingItemEdits: [PendingItemEdit]
     private var pendingItemToggles: [PendingItemToggle]
     private var itemEditSaveRevisions: [UUID: Int] = [:]
@@ -196,6 +225,7 @@ final class MobileAppViewModel: ObservableObject {
             displayName = nil
             quickAddItemName = SharedAppState.defaultQuickAddItemName
         }
+        pendingItemCreates = Self.loadPendingItemCreates(from: userDefaults)
         pendingItemEdits = Self.loadPendingItemEdits(from: userDefaults)
         pendingItemToggles = Self.loadPendingItemToggles(from: userDefaults)
         watchSyncCoordinator.setStateProvider { [weak self] in
@@ -971,6 +1001,7 @@ final class MobileAppViewModel: ObservableObject {
         }
 
         applyListData(listData)
+        await flushPendingItemCreates()
         await flushPendingItemEdits()
         await flushPendingItemToggles()
         updateLiveUpdatesConnection()
@@ -980,13 +1011,36 @@ final class MobileAppViewModel: ObservableObject {
     @discardableResult
     func addItem(name: String, quantity: String, note: String, categoryID: UUID?) async -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let backendURL, let authToken, let selectedListID, trimmed.isEmpty == false else {
+        guard let selectedListID, trimmed.isEmpty == false else {
             return false
+        }
+        let quantityText = quantity.isEmpty ? nil : quantity
+        let noteText = note.isEmpty ? nil : note
+
+        func queueOfflineCreate() {
+            queuePendingItemCreate(
+                listID: selectedListID,
+                name: trimmed,
+                quantityText: quantityText,
+                note: noteText,
+                categoryID: categoryID
+            )
+            showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
+        }
+
+        guard
+            offlineStatusMessage == nil,
+            pendingItemCreates.contains(where: { $0.listID == selectedListID }) == false,
+            let backendURL,
+            let authToken
+        else {
+            queueOfflineCreate()
+            return true
         }
 
         var body: [String: Any] = ["name": trimmed]
-        body["quantity_text"] = quantity.isEmpty ? NSNull() : quantity
-        body["note"] = note.isEmpty ? NSNull() : note
+        body["quantity_text"] = quantityText ?? NSNull()
+        body["note"] = noteText ?? NSNull()
         body["category_id"] = categoryID?.uuidString ?? NSNull()
 
         do {
@@ -1002,10 +1056,11 @@ final class MobileAppViewModel: ObservableObject {
             watchSyncCoordinator.publishCurrentState()
             return true
         } catch {
-            if handleSessionExpired(error) == false {
-                errorMessage = error.localizedDescription
+            if handleSessionExpired(error) {
+                return false
             }
-            return false
+            queueOfflineCreate()
+            return true
         }
     }
 
@@ -1390,7 +1445,11 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     private func applyListData(_ listData: MobileListData) {
-        items = applyPendingItemToggles(to: applyPendingItemEdits(to: listData.items))
+        items = applyPendingItemToggles(
+            to: applyPendingItemEdits(
+                to: applyPendingItemCreates(to: listData.items)
+            )
+        )
         categories = listData.categories
         categoryOrder = listData.categoryOrder
         disabledCategoryIDs = Set(listData.disabledCategoryIDs)
@@ -1492,6 +1551,11 @@ final class MobileAppViewModel: ObservableObject {
         return try? JSONDecoder().decode(MobileListData.self, from: data)
     }
 
+    private static func loadPendingItemCreates(from userDefaults: UserDefaults) -> [PendingItemCreate] {
+        guard let data = userDefaults.data(forKey: pendingItemCreatesKey) else { return [] }
+        return (try? JSONDecoder().decode([PendingItemCreate].self, from: data)) ?? []
+    }
+
     private static func loadPendingItemEdits(from userDefaults: UserDefaults) -> [PendingItemEdit] {
         guard let data = userDefaults.data(forKey: pendingItemEditsKey) else { return [] }
         return (try? JSONDecoder().decode([PendingItemEdit].self, from: data)) ?? []
@@ -1502,6 +1566,11 @@ final class MobileAppViewModel: ObservableObject {
         return (try? JSONDecoder().decode([PendingItemToggle].self, from: data)) ?? []
     }
 
+    private func savePendingItemCreates() {
+        guard let data = try? JSONEncoder().encode(pendingItemCreates) else { return }
+        userDefaults.set(data, forKey: Self.pendingItemCreatesKey)
+    }
+
     private func savePendingItemEdits() {
         guard let data = try? JSONEncoder().encode(pendingItemEdits) else { return }
         userDefaults.set(data, forKey: Self.pendingItemEditsKey)
@@ -1510,6 +1579,33 @@ final class MobileAppViewModel: ObservableObject {
     private func savePendingItemToggles() {
         guard let data = try? JSONEncoder().encode(pendingItemToggles) else { return }
         userDefaults.set(data, forKey: Self.pendingItemTogglesKey)
+    }
+
+    private func queuePendingItemCreate(
+        listID: UUID,
+        name: String,
+        quantityText: String?,
+        note: String?,
+        categoryID: UUID?
+    ) {
+        let itemID = UUID()
+        let create = PendingItemCreate(
+            mutationID: UUID().uuidString,
+            clientItemID: itemID.uuidString,
+            listID: listID,
+            itemID: itemID,
+            name: name,
+            quantityText: quantityText,
+            note: note,
+            categoryID: categoryID,
+            sortOrder: 0,
+            recordedAt: Date()
+        )
+        pendingItemCreates.append(create)
+        savePendingItemCreates()
+        upsertLocalItem(create.localItem)
+        cacheCurrentListData()
+        watchSyncCoordinator.publishCurrentState()
     }
 
     private func queuePendingItemEdit(listID: UUID, itemID: UUID, payload: GroceryItemEditPayload) {
@@ -1547,6 +1643,11 @@ final class MobileAppViewModel: ObservableObject {
         applyLocalToggle(itemID: itemID, checked: checked, recordedAt: recordedAt)
     }
 
+    private func removePendingItemCreates(mutationIDs: Set<String>) {
+        pendingItemCreates.removeAll { mutationIDs.contains($0.mutationID) }
+        savePendingItemCreates()
+    }
+
     private func removePendingItemEdit(itemID: UUID) {
         pendingItemEdits.removeAll { $0.itemID == itemID }
         savePendingItemEdits()
@@ -1555,6 +1656,19 @@ final class MobileAppViewModel: ObservableObject {
     private func removePendingItemToggles(mutationIDs: Set<String>) {
         pendingItemToggles.removeAll { mutationIDs.contains($0.mutationID) }
         savePendingItemToggles()
+    }
+
+    private func applyPendingItemCreates(to loadedItems: [GroceryItemRecord]) -> [GroceryItemRecord] {
+        guard let selectedListID else { return loadedItems }
+        var mergedItems = loadedItems
+        for create in pendingItemCreates where create.listID == selectedListID {
+            if let index = mergedItems.firstIndex(where: { $0.id == create.itemID }) {
+                mergedItems[index] = create.localItem
+            } else {
+                mergedItems.append(create.localItem)
+            }
+        }
+        return mergedItems
     }
 
     private func applyPendingItemEdits(to loadedItems: [GroceryItemRecord]) -> [GroceryItemRecord] {
@@ -1602,6 +1716,96 @@ final class MobileAppViewModel: ObservableObject {
         } else {
             items.append(item)
         }
+    }
+
+    private func flushPendingItemCreates() async {
+        guard let backendURL, let authToken else { return }
+        let createsByListID = Dictionary(grouping: pendingItemCreates, by: \.listID)
+        for (listID, creates) in createsByListID {
+            let sortedCreates = creates.sorted { $0.recordedAt < $1.recordedAt }
+            let body: [String: Any] = [
+                "mutations": sortedCreates.map { create in
+                    [
+                        "mutation_id": create.mutationID,
+                        "type": "create",
+                        "client_item_id": create.clientItemID,
+                        "recorded_at": Self.iso8601String(from: create.recordedAt),
+                        "payload": [
+                            "name": create.name,
+                            "quantity_text": create.quantityText ?? NSNull(),
+                            "note": create.note ?? NSNull(),
+                            "category_id": create.categoryID?.uuidString ?? NSNull(),
+                            "sort_order": create.sortOrder,
+                        ] as [String: Any],
+                    ] as [String: Any]
+                },
+            ]
+
+            do {
+                let response = try await requestJSON(
+                    backendURL: backendURL,
+                    path: "/api/v1/lists/\(listID.uuidString)/items/sync",
+                    method: "POST",
+                    body: body,
+                    token: authToken
+                )
+                let appliedMutationIDs = Set(response["applied_mutation_ids"] as? [String] ?? [])
+                let clientItemIDs = response["client_item_ids"] as? [String: String] ?? [:]
+                remapPendingItemReferences(clientItemIDs: clientItemIDs, creates: sortedCreates)
+                removePendingItemCreates(mutationIDs: appliedMutationIDs)
+                if selectedListID == listID {
+                    let localItemIDs = Set(
+                        sortedCreates
+                            .filter { clientItemIDs[$0.clientItemID] != nil }
+                            .map(\.itemID)
+                    )
+                    items.removeAll { localItemIDs.contains($0.id) }
+                    if let itemPayloads = response["items"] as? [[String: Any]] {
+                        itemPayloads.compactMap(GroceryItemRecord.init).forEach(upsertLocalItem)
+                    }
+                }
+            } catch {
+                if handleSessionExpired(error) {
+                    return
+                }
+                netLog.error(
+                    "Pending iPhone item create sync failed: \(error.localizedDescription, privacy: .public)"
+                )
+                showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
+                return
+            }
+        }
+        watchSyncCoordinator.publishCurrentState()
+    }
+
+    private func remapPendingItemReferences(
+        clientItemIDs: [String: String],
+        creates: [PendingItemCreate]
+    ) {
+        let serverIDsByLocalID = Dictionary(
+            uniqueKeysWithValues: creates.compactMap { create -> (UUID, UUID)? in
+                guard
+                    let serverIDText = clientItemIDs[create.clientItemID],
+                    let serverID = UUID(uuidString: serverIDText)
+                else {
+                    return nil
+                }
+                return (create.itemID, serverID)
+            }
+        )
+        guard serverIDsByLocalID.isEmpty == false else { return }
+        for index in pendingItemEdits.indices {
+            if let serverID = serverIDsByLocalID[pendingItemEdits[index].itemID] {
+                pendingItemEdits[index].itemID = serverID
+            }
+        }
+        for index in pendingItemToggles.indices {
+            if let serverID = serverIDsByLocalID[pendingItemToggles[index].itemID] {
+                pendingItemToggles[index].itemID = serverID
+            }
+        }
+        savePendingItemEdits()
+        savePendingItemToggles()
     }
 
     private func flushPendingItemEdits() async {

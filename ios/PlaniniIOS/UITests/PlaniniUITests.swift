@@ -25,7 +25,6 @@ final class PlaniniUITests: XCTestCase {
         } else {
             try bootstrapSession(email: userEmail)
         }
-
         let app = XCUIApplication()
         configureLaunchLanguage(for: app)
         app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
@@ -650,6 +649,7 @@ final class PlaniniUITests: XCTestCase {
         } else {
             try bootstrapSession(email: userEmail)
         }
+        let offlineCreatedName = "Offline UI \(UUID().uuidString.prefix(8))"
 
         let app = XCUIApplication()
         configureLaunchLanguage(for: app)
@@ -707,6 +707,24 @@ final class PlaniniUITests: XCTestCase {
             offlineApp.alerts["Error"].waitForExistence(timeout: 2),
             "Expected offline item toggle to avoid the generic error popup."
         )
+        XCTAssertTrue(
+            openAddItemSheet(in: offlineApp),
+            "Expected add-item sheet to remain available while offline."
+        )
+        let offlineNameField = offlineApp.textFields["add-item-name-field"]
+        XCTAssertTrue(offlineNameField.waitForExistence(timeout: 3))
+        offlineNameField.tap()
+        XCTAssertTrue(prepareKeyboardForTyping(in: offlineApp, timeout: 3))
+        offlineNameField.typeText(offlineCreatedName)
+        XCTAssertTrue(tapAddItemSaveAndWaitForDismissal(in: offlineApp))
+        XCTAssertTrue(
+            offlineApp.staticTexts[offlineCreatedName].waitForExistence(timeout: 5),
+            "Expected offline-created item to appear immediately."
+        )
+        XCTAssertFalse(
+            offlineApp.alerts["Error"].waitForExistence(timeout: 2),
+            "Expected offline item creation to avoid the generic error popup."
+        )
         captureScreenshot(named: "ios-ui-offline-cache-banner")
         offlineApp.terminate()
 
@@ -734,6 +752,15 @@ final class PlaniniUITests: XCTestCase {
             ),
             "Expected offline item toggle to sync after connection returns."
         )
+        XCTAssertTrue(
+            waitForItem(
+                named: offlineCreatedName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            ),
+            "Expected offline-created item to sync after connection returns."
+        )
         let offlineItemID = try itemID(
             named: offlineItemName,
             inListNamed: initialListName,
@@ -745,6 +772,12 @@ final class PlaniniUITests: XCTestCase {
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
+        let offlineCreatedItemID = try itemID(
+            named: offlineCreatedName,
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        try deleteItem(itemID: offlineCreatedItemID, accessToken: session.accessToken)
         syncApp.terminate()
     }
 

@@ -120,7 +120,7 @@ struct RootView: View {
                         }
                 }
             } else {
-                appTabs
+                authenticatedApp
             }
         }
         .sheet(isPresented: $showingReviewerOnboarding) {
@@ -144,12 +144,6 @@ struct RootView: View {
                 presentedError = AppErrorAlert(message: newValue)
             } else {
                 presentedError = nil
-            }
-        }
-        .safeAreaInset(edge: .top) {
-            if viewModel.authToken != nil, let offlineStatusMessage = viewModel.offlineStatusMessage {
-                OfflineStatusBanner(message: offlineStatusMessage)
-                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .alert(item: $presentedError) { error in
@@ -236,6 +230,16 @@ struct RootView: View {
             .accessibilityIdentifier("tab-settings")
         }
         .accessibilityIdentifier("main-tab-view")
+    }
+
+    private var authenticatedApp: some View {
+        VStack(spacing: 0) {
+            if let offlineStatusMessage = viewModel.offlineStatusMessage {
+                OfflineStatusBanner(message: offlineStatusMessage)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            appTabs
+        }
     }
 
     private func handleIncomingURL(_ url: URL) {
