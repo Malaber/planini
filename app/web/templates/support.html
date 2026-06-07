@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="support-shell">
+  <section class="support-hero">
+    <div class="support-copy">
+      <p class="dashboard-kicker">{{ t("support.kicker") }}</p>
+      <h1>{{ t("support.title") }}</h1>
+      <p class="dashboard-intro">{{ t("support.intro") }}</p>
+    </div>
+
+    <aside class="dashboard-card dashboard-card-accent support-tip">
+      <p class="dashboard-label">{{ t("support.helpful_label") }}</p>
+      <h2>{{ t("support.helpful_title") }}</h2>
+      <p class="dashboard-helper">{{ t("support.helpful_body") }}</p>
+    </aside>
+  </section>
+
+  <section class="support-options" aria-label="{{ t("support.options_aria") }}">
+    <a
+      class="dashboard-card support-card"
+      href="mailto:planini-support@schaedler.rocks"
+    >
+      <p class="dashboard-label">{{ t("support.email_label") }}</p>
+      <h2>{{ t("support.email_title") }}</h2>
+      <p class="dashboard-helper">{{ t("support.email_body") }}</p>
+      <strong class="support-destination">planini-support@schaedler.rocks</strong>
+      <span class="primary-button support-action">{{ t("support.email_action") }}</span>
+    </a>
+
+    <a
+      class="dashboard-card support-card support-card-accent"
+      href="https://github.com/Malaber/planini/issues"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      <p class="dashboard-label">{{ t("support.github_label") }}</p>
+      <h2>{{ t("support.github_title") }}</h2>
+      <p class="dashboard-helper">{{ t("support.github_body") }}</p>
+      <strong class="support-destination">github.com/Malaber/planini/issues</strong>
+      <span class="primary-button support-action">{{ t("support.github_action") }}</span>
+    </a>
+  </section>
+</section>
+{% endblock %}

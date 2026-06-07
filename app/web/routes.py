@@ -272,6 +272,7 @@ async def llms_txt(request: Request) -> PlainTextResponse:
         "## Public endpoints",
         f"- {_absolute_url(request, '/capabilities')}",
         f"- {_absolute_url(request, '/capabilities/live-demo')}",
+        f"- {_absolute_url(request, '/support')}",
         f"- {canonical_root}login",
         f"- {_absolute_url(request, '/manifest.webmanifest')}",
         f"- {_absolute_url(request, '/robots.txt')}",
@@ -286,6 +287,7 @@ async def sitemap_xml(request: Request) -> FastAPIResponse:
         _absolute_url(request, "/"),
         _absolute_url(request, "/capabilities"),
         _absolute_url(request, "/capabilities/live-demo"),
+        _absolute_url(request, "/support"),
         _absolute_url(request, "/login"),
         _absolute_url(request, "/settings"),
         _absolute_url(request, "/manifest.webmanifest"),
@@ -300,6 +302,16 @@ async def sitemap_xml(request: Request) -> FastAPIResponse:
         "</urlset>"
     )
     return FastAPIResponse(content=body, media_type="application/xml")
+
+
+@router.get("/support", response_class=HTMLResponse, response_model=None)
+async def support_page(request: Request, db: AsyncSession = Depends(get_db)) -> Response:
+    user = await _get_session_user(request, db)
+    return templates.TemplateResponse(
+        request,
+        "support.html",
+        _template_context(request, user),
+    )
 
 
 @router.get("/capabilities", response_class=HTMLResponse, response_model=None)
