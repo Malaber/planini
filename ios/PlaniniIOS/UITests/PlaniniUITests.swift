@@ -152,6 +152,37 @@ final class PlaniniUITests: XCTestCase {
             )
         )
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
+
+        let seededCheckedItemID = try itemID(
+            named: "Brot",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        XCTAssertTrue(
+            tapItemToggleButton(
+                itemID: seededCheckedItemID,
+                named: "Brot",
+                checked: false,
+                in: app,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        let uncheckUndoButton = app.buttons["list-undo-button"]
+        let uncheckUndoMessage = app.staticTexts["list-undo-message"]
+        XCTAssertTrue(uncheckUndoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(uncheckUndoMessage.label.contains("Brot unchecked."))
+        tapElement(uncheckUndoButton)
+        XCTAssertTrue(
+            waitForItemCheckedState(
+                named: "Brot",
+                checked: true,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
+
         RunLoop.current.run(until: Date().addingTimeInterval(1.0))
         captureScreenshot(named: "ios-ui-suggestion-reactivated")
 
@@ -207,39 +238,6 @@ final class PlaniniUITests: XCTestCase {
             waitForItemCheckedState(
                 named: enterSavedItemName,
                 checked: false,
-                inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
-        )
-        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
-
-        XCTAssertTrue(
-            tapItemToggleButton(
-                itemID: enterSavedItemID,
-                named: enterSavedItemName,
-                checked: true,
-                in: app,
-                inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
-        )
-        XCTAssertTrue(
-            tapItemToggleButton(
-                itemID: enterSavedItemID,
-                named: enterSavedItemName,
-                checked: false,
-                in: app,
-                inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
-        )
-        XCTAssertTrue(directUndoButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(directUndoMessage.label.contains("\(enterSavedItemName) unchecked."))
-        tapElement(directUndoButton)
-        XCTAssertTrue(
-            waitForItemCheckedState(
-                named: enterSavedItemName,
-                checked: true,
                 inListNamed: initialListName,
                 accessToken: session.accessToken
             )
