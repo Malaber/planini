@@ -1,0 +1,142 @@
+{
+  "metadata": {
+    "description": "Polished seed data for repeatable iOS App Store screenshots."
+  },
+  "users": [
+    {
+      "email": "planini@schaedler.rocks",
+      "display_name": "Alex",
+      "is_admin": false
+    }
+  ],
+  "categories": [
+    {
+      "name": "Produce",
+      "color": "#7ed957",
+      "aliases": ["Fruit", "Vegetables"]
+    },
+    {
+      "name": "Bakery",
+      "color": "#fb923c",
+      "aliases": ["Bread"]
+    },
+    {
+      "name": "Dairy",
+      "color": "#d8b4e2",
+      "aliases": ["Milk"]
+    },
+    {
+      "name": "Pantry",
+      "color": "#d6b08b",
+      "aliases": ["Pasta"]
+    },
+    {
+      "name": "Home",
+      "color": "#64748b",
+      "aliases": ["Household"]
+    }
+  ],
+  "households": [
+    {
+      "name": "Our home",
+      "owner_email": "planini@schaedler.rocks",
+      "members": [
+        {
+          "email": "planini@schaedler.rocks",
+          "role": "owner"
+        }
+      ],
+      "lists": [
+        {
+          "name": "Weekly groceries",
+          "created_by_email": "planini@schaedler.rocks",
+          "category_order": ["Produce", "Bakery", "Dairy", "Pantry"],
+          "items": [
+            {
+              "name": "Strawberries",
+              "category": "Produce",
+              "quantity_text": "2 baskets",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Avocados",
+              "category": "Produce",
+              "quantity_text": "3",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Sourdough bread",
+              "category": "Bakery",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Oat milk",
+              "category": "Dairy",
+              "quantity_text": "2 cartons",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Fresh pasta",
+              "category": "Pantry",
+              "quantity_text": "500 g",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Olive oil",
+              "category": "Pantry",
+              "checked": true,
+              "checked_by_email": "planini@schaedler.rocks",
+              "created_by_email": "planini@schaedler.rocks"
+            }
+          ]
+        },
+        {
+          "name": "Dinner with friends",
+          "created_by_email": "planini@schaedler.rocks",
+          "category_order": ["Produce", "Home", "Pantry"],
+          "items": [
+            {
+              "name": "Fresh flowers",
+              "category": "Produce",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Sparkling water",
+              "category": "Pantry",
+              "quantity_text": "6 bottles",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Cloth napkins",
+              "category": "Home",
+              "created_by_email": "planini@schaedler.rocks"
+            }
+          ]
+        },
+        {
+          "name": "Weekend brunch",
+          "created_by_email": "planini@schaedler.rocks",
+          "category_order": ["Produce", "Bakery", "Dairy"],
+          "items": [
+            {
+              "name": "Blueberries",
+              "category": "Produce",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Croissants",
+              "category": "Bakery",
+              "quantity_text": "4",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Greek yogurt",
+              "category": "Dairy",
+              "created_by_email": "planini@schaedler.rocks"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

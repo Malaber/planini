@@ -125,6 +125,8 @@ jobs:
         run: python -m invoke install-xcodegen
       - name: Run native iOS UI e2e
         run: python -m invoke check-ios-ui-e2e
+      - name: Capture App Store iPhone screenshots
+        run: python -m invoke check-ios-marketing-screenshots
       - name: Upload native iOS UI artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -133,7 +135,9 @@ jobs:
           retention-days: 2
           path: |
             e2e-artifacts/ios-ui-e2e
+            e2e-artifacts/ios-marketing-screenshots
             ios-ui-e2e-server.log
+            ios-marketing-screenshots-server.log
 
   upload_testflight:
     needs:

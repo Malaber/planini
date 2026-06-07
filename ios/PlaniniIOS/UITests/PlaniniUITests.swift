@@ -8,6 +8,41 @@ final class PlaniniUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testMarketingScreenshots() throws {
+        try assertLocalTestBackend()
+
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let marketingListName = configuredInitialListName
+        let app = launchedApp(session: session, initialListName: marketingListName)
+        let listTitle = app.staticTexts["list-detail-title"]
+        XCTAssertTrue(
+            openInitialListDetail(in: app, listTitle: listTitle, listName: marketingListName),
+            "Expected marketing list to open."
+        )
+        XCTAssertEqual(listTitle.label, marketingListName)
+        captureScreenshot(named: "app-store-iphone-02-weekly-groceries")
+
+        XCTAssertTrue(tapTab("Lists", in: app))
+        returnToListsRootIfNeeded(app, listName: marketingListName)
+        let marketingListRow = app.buttons["list-row-\(marketingListName)"]
+        XCTAssertTrue(marketingListRow.waitForExistence(timeout: 10))
+        captureScreenshot(named: "app-store-iphone-01-lists")
+
+        app.staticTexts[marketingListName].tap()
+        XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
+        XCTAssertTrue(openAddItemSheet(in: app))
+        let nameField = app.textFields["add-item-name-field"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 5))
+        nameField.typeText("Dark chocolate")
+        XCTAssertTrue(waitForFieldValue(nameField, contains: "Dark chocolate"))
+        captureScreenshot(named: "app-store-iphone-03-add-item")
+    }
+
     func testListViewFlow() throws {
         try assertLocalTestBackend()
         let loginApp = XCUIApplication()
@@ -16,7 +51,6 @@ final class PlaniniUITests: XCTestCase {
         loginApp.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
         loginApp.launch()
         XCTAssertTrue(loginApp.buttons["login-passkey-button"].waitForExistence(timeout: 10))
-        captureScreenshot(named: "promotion-login-dialogue")
         assertReviewerOnboardingAvailable(in: loginApp)
         loginApp.terminate()
 
@@ -46,7 +80,6 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(initialListRow.waitForExistence(timeout: 10))
         let initialListNameText = app.staticTexts[initialListName]
         XCTAssertTrue(initialListNameText.waitForExistence(timeout: 3))
-        captureScreenshot(named: "promotion-list-of-lists")
         initialListNameText.tap()
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, initialListName)
@@ -274,7 +307,6 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(closeButton.waitForExistence(timeout: 3))
         XCTAssertLessThan(undoButton.frame.midX, closeButton.frame.midX)
         XCTAssertLessThan(redoButton.frame.midX, closeButton.frame.midX)
-        captureScreenshot(named: "promotion-edit-item-dialogue")
 
         let editNameField = app.textFields["edit-item-name-field"]
         editNameField.tap()
@@ -344,7 +376,6 @@ final class PlaniniUITests: XCTestCase {
             "Expected tapping the item check button to mark the item checked."
         )
         captureScreenshot(named: "ios-ui-checked-item")
-        captureScreenshot(named: "promotion-filled-list")
 
         let hostingListName = "Hosting errands"
         let hostingListID = try listID(named: hostingListName, accessToken: session.accessToken)
@@ -700,6 +731,10 @@ final class PlaniniUITests: XCTestCase {
             return seededEmail
         }
         return configuredEmail
+    }
+
+    private var configuredInitialListName: String {
+        environmentValue("PLANINI_UI_TEST_INITIAL_LIST_NAME") ?? initialListName
     }
 
     private var injectedSession: UITestSession? {
@@ -1281,21 +1316,23 @@ final class PlaniniUITests: XCTestCase {
     private func openInitialListDetail(
         in app: XCUIApplication,
         listTitle: XCUIElement,
+        listName: String? = nil,
         timeout: TimeInterval = 45
     ) -> Bool {
+        let expectedListName = listName ?? initialListName
         let deadline = Date().addingTimeInterval(timeout)
-        let initialListRow = app.buttons["list-row-\(initialListName)"]
+        let initialListRow = app.buttons["list-row-\(expectedListName)"]
 
         while Date() < deadline {
-            if listTitle.exists && listTitle.label == initialListName {
+            if listTitle.exists && listTitle.label == expectedListName {
                 return true
             }
 
             if tapTab("Lists", in: app, timeout: 1) {
-                returnToListsRootIfNeeded(app)
+                returnToListsRootIfNeeded(app, listName: expectedListName)
                 if initialListRow.waitForExistence(timeout: 2) {
                     initialListRow.tap()
-                    if listTitle.waitForExistence(timeout: 5), listTitle.label == initialListName {
+                    if listTitle.waitForExistence(timeout: 5), listTitle.label == expectedListName {
                         return true
                     }
                 }
@@ -1304,7 +1341,7 @@ final class PlaniniUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
 
-        return listTitle.exists && listTitle.label == initialListName
+        return listTitle.exists && listTitle.label == expectedListName
     }
 
     private func tapTab(_ label: String, in app: XCUIApplication, timeout: TimeInterval = 5) -> Bool {
@@ -2010,8 +2047,9 @@ final class PlaniniUITests: XCTestCase {
         ].contains(nsError.code)
     }
 
-    private func returnToListsRootIfNeeded(_ app: XCUIApplication) {
-        if app.buttons["list-row-\(initialListName)"].waitForExistence(timeout: 1) {
+    private func returnToListsRootIfNeeded(_ app: XCUIApplication, listName: String? = nil) {
+        let expectedListName = listName ?? initialListName
+        if app.buttons["list-row-\(expectedListName)"].waitForExistence(timeout: 1) {
             return
         }
 

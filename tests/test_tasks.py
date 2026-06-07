@@ -208,6 +208,70 @@ def test_write_ios_ui_e2e_summary_includes_failure_summaries(tmp_path: Path, mon
     assert f"- {tasks.DEFAULT_IOS_UI_E2E_RESULT_BUNDLE}" in summary
 
 
+def test_validate_ios_screenshot_sizes_accepts_expected_png_size(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    artifact_path = tmp_path / "e2e-artifacts" / "ios-marketing-screenshots"
+    artifact_path.mkdir(parents=True)
+    png_header = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + tasks.struct.pack(">II", 1284, 2778)
+    (artifact_path / "app-store-iphone-01-login.png").write_bytes(png_header)
+
+    tasks._validate_ios_screenshot_sizes(
+        "e2e-artifacts/ios-marketing-screenshots",
+        (1284, 2778),
+    )
+
+
+def test_validate_ios_screenshot_sizes_rejects_wrong_png_size(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    artifact_path = tmp_path / "e2e-artifacts" / "ios-marketing-screenshots"
+    artifact_path.mkdir(parents=True)
+    png_header = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + tasks.struct.pack(">II", 1206, 2622)
+    (artifact_path / "app-store-iphone-01-login.png").write_bytes(png_header)
+
+    try:
+        tasks._validate_ios_screenshot_sizes(
+            "e2e-artifacts/ios-marketing-screenshots",
+            (1284, 2778),
+        )
+    except tasks.Exit as exc:
+        assert "Expected iOS screenshots sized 1284x2778" in str(exc)
+        assert "app-store-iphone-01-login.png: 1206x2622" in str(exc)
+    else:
+        raise AssertionError("expected wrong screenshot dimensions to fail")
+
+
+def test_validate_ios_screenshot_sizes_rejects_missing_and_invalid_pngs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    artifact_path = tmp_path / "e2e-artifacts" / "ios-marketing-screenshots"
+    artifact_path.mkdir(parents=True)
+
+    try:
+        tasks._validate_ios_screenshot_sizes(
+            "e2e-artifacts/ios-marketing-screenshots",
+            (1284, 2778),
+        )
+    except tasks.Exit as exc:
+        assert "No iOS screenshots found" in str(exc)
+    else:
+        raise AssertionError("expected missing screenshots to fail")
+
+    invalid_path = artifact_path / "invalid.png"
+    invalid_path.write_bytes(b"not a png")
+    try:
+        tasks._validate_ios_screenshot_sizes(
+            "e2e-artifacts/ios-marketing-screenshots",
+            (1284, 2778),
+        )
+    except tasks.Exit as exc:
+        assert f"Invalid PNG screenshot: {invalid_path}" == str(exc)
+    else:
+        raise AssertionError("expected invalid PNG to fail")
+
+
 def test_ios_simulator_destination_pins_latest_os_and_arm64_on_apple_silicon(
     monkeypatch,
 ) -> None:
@@ -216,6 +280,73 @@ def test_ios_simulator_destination_pins_latest_os_and_arm64_on_apple_silicon(
     assert tasks._ios_simulator_destination("iPhone 17 Pro") == (
         "platform=iOS Simulator,name=iPhone 17 Pro,OS=latest,arch=arm64"
     )
+
+
+def test_ensure_ios_simulator_device_reuses_existing_or_creates_missing(monkeypatch) -> None:
+    env = {"DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"}
+    boots: list[tuple[dict[str, str], str]] = []
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: env)
+    monkeypatch.setattr(
+        tasks,
+        "_boot_simulator",
+        lambda simulator_env, udid: boots.append((simulator_env, udid)),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_list_available_simulators",
+        lambda simulator_env: {"existing": {"name": "iPhone 14 Plus"}},
+    )
+    tasks._ensure_ios_simulator_device("iPhone 14 Plus")
+    assert boots == [(env, "existing")]
+
+    monkeypatch.setattr(tasks, "_list_available_simulators", lambda simulator_env: {})
+    monkeypatch.setattr(
+        tasks,
+        "_simctl_json",
+        lambda simulator_env, *args: {
+            "devicetypes": [
+                {
+                    "name": "iPhone 14 Plus",
+                    "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-14-Plus",
+                }
+            ]
+        },
+    )
+    calls: list[tuple[list[str], dict[str, str]]] = []
+    monkeypatch.setattr(
+        tasks,
+        "_run_command",
+        lambda command, env: calls.append((command, env)),
+    )
+    monkeypatch.setattr(tasks, "_find_simulator_udid", lambda simulator_env, name: "created")
+
+    tasks._ensure_ios_simulator_device("iPhone 14 Plus")
+
+    assert calls == [
+        (
+            [
+                "xcrun",
+                "simctl",
+                "create",
+                "iPhone 14 Plus",
+                "com.apple.CoreSimulator.SimDeviceType.iPhone-14-Plus",
+            ],
+            env,
+        )
+    ]
+    assert boots == [(env, "existing"), (env, "created")]
+
+
+def test_ensure_ios_simulator_device_reports_missing_type(monkeypatch) -> None:
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: {})
+    monkeypatch.setattr(tasks, "_list_available_simulators", lambda env: {})
+    monkeypatch.setattr(tasks, "_simctl_json", lambda env, *args: {"devicetypes": []})
+    try:
+        tasks._ensure_ios_simulator_device("iPhone 14 Plus")
+    except tasks.Exit as exc:
+        assert str(exc) == "iOS simulator device type is unavailable: iPhone 14 Plus"
+    else:
+        raise AssertionError("expected missing device type to fail")
 
 
 def test_stop_app_waits_for_exit_before_removing_pid_file(tmp_path: Path, monkeypatch) -> None:
@@ -889,6 +1020,7 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
         "_ios_simulator_destination",
         lambda device_name: f"platform=iOS Simulator,name={device_name},OS=latest",
     )
+    monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda device_name: None)
     artifact_path = tmp_path / "e2e-artifacts" / "ios-ui-e2e"
     result_bundle_path = artifact_path / tasks.DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
     result_bundle_path.mkdir(parents=True)
@@ -906,8 +1038,14 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
         },
     )
     summaries: list[str] = []
+    validations: list[tuple[str, tuple[int, int]]] = []
     monkeypatch.setattr(
         tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: summaries.append(artifact_dir)
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_validate_ios_screenshot_sizes",
+        lambda artifact_dir, expected_size: validations.append((artifact_dir, expected_size)),
     )
 
     tasks.run_ios_ui_e2e.body(
@@ -920,6 +1058,8 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
         initial_list_name="Browser Test Shop",
         access_token="token-123",
         display_name="Test User",
+        expected_width=1284,
+        expected_height=2778,
     )
 
     assert calls == [
@@ -947,6 +1087,7 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
         )
     ]
     assert summaries == ["e2e-artifacts/ios-ui-e2e"]
+    assert validations == [("e2e-artifacts/ios-ui-e2e", (1284, 2778))]
     assert not result_bundle_path.exists()
 
 
@@ -960,6 +1101,7 @@ def test_run_ios_ui_e2e_retries_once_before_succeeding(monkeypatch, tmp_path: Pa
             return next(results)
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda device_name: None)
     monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
     monkeypatch.setattr(tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: None)
 
@@ -981,6 +1123,7 @@ def test_run_ios_ui_e2e_prints_failure_summary_before_exiting(
             return RunResult(exited=65)
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda device_name: None)
     monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
     monkeypatch.setattr(tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: None)
     monkeypatch.setattr(
@@ -1136,11 +1279,55 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
     ]
 
 
+def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_size(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr(
+        tasks,
+        "_reset_sqlite_database_file",
+        lambda database_url: calls.append(("reset", {"database_url": database_url})),
+    )
+    monkeypatch.setattr(tasks, "start_app", lambda c, **kwargs: calls.append(("start", kwargs)))
+    monkeypatch.setattr(tasks, "wait_for_app", lambda c, **kwargs: calls.append(("wait", kwargs)))
+    monkeypatch.setattr(
+        tasks,
+        "_bootstrap_ios_ui_test_session",
+        lambda **kwargs: calls.append(("bootstrap", kwargs))
+        or {"access_token": "token-123", "display_name": "Alex"},
+    )
+    monkeypatch.setattr(
+        tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
+    )
+    monkeypatch.setattr(tasks, "run_ios_ui_e2e", lambda c, **kwargs: calls.append(("run", kwargs)))
+    monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: calls.append(("stop", kwargs)))
+
+    tasks.check_ios_marketing_screenshots.body(None)
+
+    run_call = next(call for call in calls if call[0] == "run")
+    assert calls[0] == (
+        "reset",
+        {"database_url": "sqlite+aiosqlite:///./tmp-ios-marketing-screenshots.db"},
+    )
+    assert next(call for call in calls if call[0] == "start")[1]["seed_path"] == (
+        "app/fixtures/ios_marketing_seed.json"
+    )
+    assert run_call[1]["artifact_dir"] == "e2e-artifacts/ios-marketing-screenshots"
+    assert run_call[1]["device_name"] == "iPhone 14 Plus"
+    assert run_call[1]["initial_list_name"] == "Weekly groceries"
+    assert run_call[1]["only_testing"] == "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
+    assert run_call[1]["expected_width"] == 1284
+    assert run_call[1]["expected_height"] == 2778
+    assert calls[-1] == ("stop", {"pid_path": "ios-marketing-screenshots-server.pid"})
+
+
 def test_check_ios_ci_runs_only_mac_native_e2e_prerequisites() -> None:
     assert [pre.body.__name__ for pre in tasks.check_ios_ci.pre] == [
         "install_xcodegen",
         "check_ios_e2e",
         "check_ios_ui_e2e",
+        "check_ios_marketing_screenshots",
     ]
 
 

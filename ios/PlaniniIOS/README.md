@@ -23,6 +23,7 @@ Useful native iOS Invoke targets:
 - `.venv/bin/inv check-ios-package`
 - `.venv/bin/inv run-ios-e2e`
 - `.venv/bin/inv check-ios-e2e`
+- `.venv/bin/inv check-ios-marketing-screenshots`
 - `.venv/bin/inv generate-ios-project`
 - `.venv/bin/inv build-ios-simulator`
 - `.venv/bin/inv run-ios-simulators-fresh`
@@ -103,7 +104,13 @@ Apple passkeys still validate against the shared review host.
    - installs the iPhone app and watch app
    - launches the iPhone app with the local backend/bootstrap env vars
    - launches the watch app after the iPhone app starts
-6. Launch from Xcode and verify:
+6. **Capture repeatable App Store screenshots (macOS):**
+   ```bash
+   .venv/bin/inv check-ios-marketing-screenshots
+   ```
+   This uses a fresh polished fixture and an iPhone 14 Plus simulator, then
+   verifies every generated screenshot is the App Store-ready `1284x2778` size.
+7. Launch from Xcode and verify:
    - the configured backend matches the build settings you generated the app with
    - passkey login succeeds for the selected backend
    - list switching works

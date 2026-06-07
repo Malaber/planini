@@ -7,6 +7,7 @@ import shlex
 import shutil
 import signal
 import sqlite3
+import struct
 import subprocess
 import sys
 import time
@@ -61,6 +62,18 @@ DEFAULT_IOS_UI_E2E_ARTIFACT_DIR = "e2e-artifacts/ios-ui-e2e"
 DEFAULT_IOS_UI_E2E_RESULT_BUNDLE = "PlaniniUITests.xcresult"
 DEFAULT_IOS_UI_E2E_DEVICE = "iPhone 17 Pro"
 DEFAULT_IOS_UI_E2E_INITIAL_LIST = "Browser Test Shop"
+DEFAULT_IOS_MARKETING_SCREENSHOT_PORT = 8019
+DEFAULT_IOS_MARKETING_SCREENSHOT_DATABASE_URL = (
+    "sqlite+aiosqlite:///./tmp-ios-marketing-screenshots.db"
+)
+DEFAULT_IOS_MARKETING_SCREENSHOT_LOG_PATH = "ios-marketing-screenshots-server.log"
+DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH = "ios-marketing-screenshots-server.pid"
+DEFAULT_IOS_MARKETING_SCREENSHOT_ARTIFACT_DIR = "e2e-artifacts/ios-marketing-screenshots"
+DEFAULT_IOS_MARKETING_SCREENSHOT_SEED_PATH = "app/fixtures/ios_marketing_seed.json"
+DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE = "iPhone 14 Plus"
+DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST = "Weekly groceries"
+DEFAULT_IOS_MARKETING_SCREENSHOT_TEST = "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
+DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE = (1284, 2778)
 DEFAULT_IOS_SIMULATOR_DESTINATION = "generic/platform=iOS Simulator"
 DEFAULT_IOS_APP_BACKEND_URL = "https://planini.malaber.de"
 DEFAULT_IOS_APP_BUNDLE_IDENTIFIER = "de.malaber.planini"
@@ -543,6 +556,69 @@ def _ios_simulator_destination(device_name: str) -> str:
     if platform.machine().lower() == "arm64":
         destination_parts.append("arch=arm64")
     return ",".join(destination_parts)
+
+
+def _ensure_ios_simulator_device(device_name: str) -> None:
+    env = _ios_toolchain_env()
+    existing_udid = next(
+        (
+            udid
+            for udid, device in _list_available_simulators(env).items()
+            if device.get("name") == device_name
+        ),
+        None,
+    )
+    if existing_udid is not None:
+        _boot_simulator(env, existing_udid)
+        return
+
+    device_types_payload = _simctl_json(env, "list", "devicetypes", "-j")
+    device_types = device_types_payload.get("devicetypes", [])
+    device_type_id = next(
+        (
+            device_type.get("identifier")
+            for device_type in device_types
+            if isinstance(device_type, dict) and device_type.get("name") == device_name
+        ),
+        None,
+    )
+    if not isinstance(device_type_id, str):
+        raise Exit(f"iOS simulator device type is unavailable: {device_name}")
+
+    _run_command(
+        ["xcrun", "simctl", "create", device_name, device_type_id],
+        env=env,
+    )
+    _boot_simulator(env, _find_simulator_udid(env, device_name))
+
+
+def _png_dimensions(path: Path) -> tuple[int, int]:
+    header = path.read_bytes()[:24]
+    if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        raise Exit(f"Invalid PNG screenshot: {path}")
+    return struct.unpack(">II", header[16:24])
+
+
+def _validate_ios_screenshot_sizes(
+    artifact_dir: str,
+    expected_size: tuple[int, int],
+) -> None:
+    screenshots = sorted((ROOT / artifact_dir).glob("*.png"))
+    if not screenshots:
+        raise Exit(f"No iOS screenshots found in {ROOT / artifact_dir}")
+
+    invalid_sizes = [
+        f"{path.name}: {width}x{height}"
+        for path in screenshots
+        for width, height in [_png_dimensions(path)]
+        if (width, height) != expected_size
+    ]
+    if invalid_sizes:
+        expected_width, expected_height = expected_size
+        raise Exit(
+            f"Expected iOS screenshots sized {expected_width}x{expected_height}; "
+            f"found {', '.join(invalid_sizes)}"
+        )
 
 
 def _bootstrap_ios_ui_test_session(*, base_url: str, user_email: str) -> dict[str, str]:
@@ -1757,6 +1833,9 @@ def run_ios_e2e(
         "artifact_dir": "Directory used to store native iOS UI screenshots.",
         "device_name": "Simulator device name used for XCUITest.",
         "initial_list_name": "Seeded list name that should open first inside the app.",
+        "only_testing": "Optional XCTest identifier to run instead of the full UI test bundle.",
+        "expected_width": "Optional expected screenshot width in pixels.",
+        "expected_height": "Optional expected screenshot height in pixels.",
     }
 )
 def run_ios_ui_e2e(
@@ -1770,6 +1849,9 @@ def run_ios_ui_e2e(
     access_token="",
     display_name="",
     attempts=1,
+    only_testing="PlaniniUITests",
+    expected_width=0,
+    expected_height=0,
 ) -> None:
     artifact_path = ROOT / artifact_dir
     artifact_path.mkdir(parents=True, exist_ok=True)
@@ -1787,6 +1869,7 @@ def run_ios_ui_e2e(
         access_token=access_token or None,
         display_name=display_name or None,
     )
+    _ensure_ios_simulator_device(device_name)
     command = " ".join(
         [
             "cd ios/PlaniniIOS &&",
@@ -1799,7 +1882,7 @@ def run_ios_ui_e2e(
             "-quiet",
             "-parallel-testing-enabled NO",
             "-maximum-parallel-testing-workers 1",
-            "-only-testing:PlaniniUITests",
+            f"-only-testing:{shlex.quote(only_testing)}",
             "test",
         ]
     )
@@ -1824,6 +1907,11 @@ def run_ios_ui_e2e(
 
     _write_ios_ui_e2e_summary(artifact_dir)
     assert result is not None
+    if result.exited == 0 and int(expected_width) > 0 and int(expected_height) > 0:
+        _validate_ios_screenshot_sizes(
+            artifact_dir,
+            (int(expected_width), int(expected_height)),
+        )
     if result.exited != 0:
         failure_summaries = _ios_ui_e2e_failure_summaries(result_bundle_path)
         if failure_summaries:
@@ -2036,11 +2124,66 @@ def check_ios_ui_e2e(
         stop_app(c, pid_path=pid_path)
 
 
+@task
+def check_ios_marketing_screenshots(
+    c,
+    seed_path=DEFAULT_IOS_MARKETING_SCREENSHOT_SEED_PATH,
+    database_url=DEFAULT_IOS_MARKETING_SCREENSHOT_DATABASE_URL,
+    webauthn_rp_id="localhost",
+    user_email=DEFAULT_IOS_E2E_USER_EMAIL,
+    artifact_dir=DEFAULT_IOS_MARKETING_SCREENSHOT_ARTIFACT_DIR,
+    device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE,
+    initial_list_name=DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST,
+    host=DEFAULT_HOST,
+    port=DEFAULT_IOS_MARKETING_SCREENSHOT_PORT,
+    log_path=DEFAULT_IOS_MARKETING_SCREENSHOT_LOG_PATH,
+    pid_path=DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH,
+) -> None:
+    """Capture clean, App Store-sized iPhone screenshots from a fresh fixture."""
+    _reset_sqlite_database_file(database_url)
+    start_app(
+        c,
+        seed_path=seed_path,
+        database_url=database_url,
+        webauthn_rp_id=webauthn_rp_id,
+        host=host,
+        port=port,
+        log_path=log_path,
+        pid_path=pid_path,
+        ui_test_bootstrap_enabled=True,
+    )
+    try:
+        wait_for_app(c, url=f"http://{host}:{port}/health")
+        session = _bootstrap_ios_ui_test_session(
+            base_url=f"http://localhost:{port}",
+            user_email=user_email,
+        )
+        generate_ios_app_icons.body(c)
+        generate_ios_project.body(c)
+        run_ios_ui_e2e(
+            c,
+            base_url=f"http://localhost:{port}",
+            bootstrap_base_url=f"http://localhost:{port}",
+            user_email=user_email,
+            artifact_dir=artifact_dir,
+            device_name=device_name,
+            initial_list_name=initial_list_name,
+            access_token=session["access_token"],
+            display_name=session["display_name"],
+            only_testing=DEFAULT_IOS_MARKETING_SCREENSHOT_TEST,
+            expected_width=DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE[0],
+            expected_height=DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE[1],
+        )
+    finally:
+        stop_app(c, pid_path=pid_path)
+
+
 @task(
     pre=[
         install_xcodegen,
         check_ios_e2e,
         check_ios_ui_e2e,
+        check_ios_marketing_screenshots,
     ]
 )
 def check_ios_ci(c) -> None:

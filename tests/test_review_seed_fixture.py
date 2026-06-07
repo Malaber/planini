@@ -90,3 +90,27 @@ def test_review_e2e_seed_fixture_contains_private_passkey_material() -> None:
     assert users["planini@schaedler.rocks"]["passkey"]["user_handle_b64"]
     assert users["preview-invitee@example.com"]["passkey"]["private_key_pkcs8_b64"]
     assert users["preview-invitee@example.com"]["passkey"]["user_handle_b64"]
+
+
+def test_ios_marketing_seed_fixture_contains_only_polished_screenshot_data() -> None:
+    fixture_path = Path("app/fixtures/ios_marketing_seed.json")
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    households = payload["households"]
+    grocery_lists = [
+        grocery_list for household in households for grocery_list in household["lists"]
+    ]
+    visible_names = [
+        payload["users"][0]["display_name"],
+        *(household["name"] for household in households),
+        *(grocery_list["name"] for grocery_list in grocery_lists),
+        *(item["name"] for grocery_list in grocery_lists for item in grocery_list["items"]),
+    ]
+
+    assert payload["users"][0]["email"] == "planini@schaedler.rocks"
+    assert [grocery_list["name"] for grocery_list in grocery_lists] == [
+        "Weekly groceries",
+        "Dinner with friends",
+        "Weekend brunch",
+    ]
+    assert all("test" not in name.lower() for name in visible_names)
+    assert all("updated" not in name.lower() for name in visible_names)

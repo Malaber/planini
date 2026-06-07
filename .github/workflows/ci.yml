@@ -163,6 +163,8 @@ jobs:
         run: python -m invoke install-xcodegen
       - name: Run native iOS UI e2e
         run: python -m invoke check-ios-ui-e2e
+      - name: Capture App Store iPhone screenshots
+        run: python -m invoke check-ios-marketing-screenshots
       - name: Upload native iOS UI artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -171,13 +173,19 @@ jobs:
           retention-days: 2
           path: |
             e2e-artifacts/ios-ui-e2e
+            e2e-artifacts/ios-marketing-screenshots
             ios-ui-e2e-server.log
+            ios-marketing-screenshots-server.log
       - name: Add native iOS UI summary
         if: always()
         run: |
           if [ -f e2e-artifacts/ios-ui-e2e/summary.md ]; then
             echo "### Native iOS UI e2e" >> "$GITHUB_STEP_SUMMARY"
             cat e2e-artifacts/ios-ui-e2e/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f e2e-artifacts/ios-marketing-screenshots/summary.md ]; then
+            echo "### App Store iPhone screenshots" >> "$GITHUB_STEP_SUMMARY"
+            cat e2e-artifacts/ios-marketing-screenshots/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
   version:
