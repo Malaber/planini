@@ -120,7 +120,7 @@ struct RootView: View {
                         }
                 }
             } else {
-                appTabs
+                authenticatedApp
             }
         }
         .sheet(isPresented: $showingReviewerOnboarding) {
@@ -142,6 +142,8 @@ struct RootView: View {
             guard showingReviewerOnboarding == false else { return }
             if let newValue, newValue.isEmpty == false {
                 presentedError = AppErrorAlert(message: newValue)
+            } else {
+                presentedError = nil
             }
         }
         .alert(item: $presentedError) { error in
@@ -153,6 +155,7 @@ struct RootView: View {
                 }
             )
         }
+        .animation(.easeInOut(duration: 0.2), value: viewModel.offlineStatusMessage)
         .task(id: selectedTab) {
             guard selectedTab == .favorite else { return }
             await viewModel.showFavoriteList()
@@ -229,6 +232,16 @@ struct RootView: View {
         .accessibilityIdentifier("main-tab-view")
     }
 
+    private var authenticatedApp: some View {
+        VStack(spacing: 0) {
+            if let offlineStatusMessage = viewModel.offlineStatusMessage {
+                OfflineStatusBanner(message: offlineStatusMessage)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            appTabs
+        }
+    }
+
     private func handleIncomingURL(_ url: URL) {
         if MobileAppViewModel.passkeyAddToken(from: url.absoluteString) != nil {
             passkeyAddLinkInput = url.absoluteString
@@ -239,6 +252,27 @@ struct RootView: View {
         Task {
             await viewModel.handleIncomingPlaniniLink(url.absoluteString)
         }
+    }
+}
+
+private struct OfflineStatusBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "wifi.slash")
+                .imageScale(.medium)
+            Text(message)
+                .font(.footnote.weight(.semibold))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.yellow.opacity(0.22))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("offline-status-banner")
     }
 }
 
