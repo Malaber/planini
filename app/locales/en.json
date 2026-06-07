@@ -3,6 +3,7 @@
     "app_name": "Planini",
     "app_tagline": "Households and grocery lists",
     "home_aria": "Planini home",
+    "support": "Support",
     "settings": "Settings",
     "admin": "Admin",
     "logout": "Logout",
@@ -200,6 +201,23 @@
     "unavailable": "This invite link is no longer available.",
     "accepted": "You joined {household}. Redirecting now...",
     "accept_failed": "Could not accept the invite."
+  },
+  "support": {
+    "kicker": "Planini support",
+    "title": "Need help with Planini?",
+    "intro": "Choose the route that fits your question. Send us an email for direct help, or open a GitHub issue for bugs and feature ideas.",
+    "helpful_label": "A useful message",
+    "helpful_title": "Tell us what happened",
+    "helpful_body": "Include what you expected, what happened instead, and the device or browser you were using. Please leave passwords, passkeys, and private list contents out.",
+    "options_aria": "Support contact options",
+    "email_label": "Direct support",
+    "email_title": "Write us an email",
+    "email_body": "Best for account questions, private context, or anything you would rather not post publicly.",
+    "email_action": "Open email",
+    "github_label": "Public feedback",
+    "github_title": "Open a GitHub issue",
+    "github_body": "Best for reproducible bugs, feature requests, and ideas that others can discuss and follow.",
+    "github_action": "Open GitHub issues"
   },
   "capabilities": {
     "kicker": "Feature roundup",
