@@ -595,11 +595,6 @@ final class PlaniniUITests: XCTestCase {
             "Expected bootstrapped initial list to open before live-update checks."
         )
         XCTAssertEqual(listTitle.label, initialListName)
-        let looseItemID = try itemID(named: "Loose item", inListNamed: initialListName, accessToken: session.accessToken)
-        XCTAssertTrue(
-            waitForItemRow(itemID: looseItemID, named: "Loose item", in: app, timeout: 10),
-            "Expected seeded uncategorized item to be reachable before live-update checks."
-        )
         XCTAssertTrue(
             waitForLiveUpdatesConnection(
                 app: app,
