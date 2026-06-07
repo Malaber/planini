@@ -91,6 +91,7 @@ struct RootView: View {
     @State private var selectedTab: AppTab = .favorite
     @State private var presentedError: AppErrorAlert?
     @State private var showingReviewerOnboarding = false
+    @State private var showingAccountRegistration = false
     @State private var passkeyAddLinkInput = ""
     @State private var listNavigationPath: [UUID] = []
 
@@ -124,7 +125,16 @@ struct RootView: View {
             }
         }
         .sheet(isPresented: $showingReviewerOnboarding) {
-            ReviewerOnboardingSheet(initialPasskeyAddInput: passkeyAddLinkInput)
+            ReviewerOnboardingSheet(
+                initialPasskeyAddInput: passkeyAddLinkInput,
+                showsPasskeyAddSection: true
+            )
+        }
+        .sheet(isPresented: $showingAccountRegistration) {
+            ReviewerOnboardingSheet(
+                initialPasskeyAddInput: "",
+                showsPasskeyAddSection: false
+            )
         }
         .onOpenURL { url in
             handleIncomingURL(url)
@@ -139,7 +149,7 @@ struct RootView: View {
             listNavigationPath = [request.listID]
         }
         .onChange(of: viewModel.errorMessage) { newValue in
-            guard showingReviewerOnboarding == false else { return }
+            guard showingReviewerOnboarding == false, showingAccountRegistration == false else { return }
             if let newValue, newValue.isEmpty == false {
                 presentedError = AppErrorAlert(message: newValue)
             }
@@ -187,6 +197,14 @@ struct RootView: View {
                 }
                 .disabled(viewModel.isAuthenticating)
                 .accessibilityIdentifier("login-passkey-button")
+
+                Button {
+                    showingAccountRegistration = true
+                } label: {
+                    Label(l10n.t("ios.onboarding.create_account"), systemImage: "person.crop.circle.badge.plus")
+                }
+                .disabled(viewModel.isAuthenticating)
+                .accessibilityIdentifier("login-create-account-button")
             }
         }
     }
@@ -253,6 +271,7 @@ private struct ReviewerOnboardingSheet: View {
     }
 
     let initialPasskeyAddInput: String
+    let showsPasskeyAddSection: Bool
 
     @State private var passkeyAddInput: String
     @State private var registrationDisplayName = ""
@@ -261,55 +280,58 @@ private struct ReviewerOnboardingSheet: View {
     @State private var addPasskeyErrorMessage: String?
     @State private var registrationErrorMessage: String?
 
-    init(initialPasskeyAddInput: String) {
+    init(initialPasskeyAddInput: String, showsPasskeyAddSection: Bool) {
         self.initialPasskeyAddInput = initialPasskeyAddInput
+        self.showsPasskeyAddSection = showsPasskeyAddSection
         _passkeyAddInput = State(initialValue: initialPasskeyAddInput)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section(l10n.t("ios.onboarding.add_passkey")) {
-                    TextField(l10n.t("ios.onboarding.passkey_add_link_or_key"), text: $passkeyAddInput, axis: .vertical)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .accessibilityIdentifier("passkey-add-link-field")
+                if showsPasskeyAddSection {
+                    Section(l10n.t("ios.onboarding.add_passkey")) {
+                        TextField(l10n.t("ios.onboarding.passkey_add_link_or_key"), text: $passkeyAddInput, axis: .vertical)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .accessibilityIdentifier("passkey-add-link-field")
 
-                    Button {
-                        closeKeyboard()
-                        Task {
-                            busyAction = .addPasskey
-                            addPasskeyErrorMessage = nil
-                            registrationErrorMessage = nil
-                            viewModel.errorMessage = nil
-                            let added = await viewModel.addPasskeyFromLinkInput(passkeyAddInput)
-                            busyAction = nil
-                            if added {
-                                AppHaptics.confirmation()
-                                dismiss()
+                        Button {
+                            closeKeyboard()
+                            Task {
+                                busyAction = .addPasskey
+                                addPasskeyErrorMessage = nil
+                                registrationErrorMessage = nil
+                                viewModel.errorMessage = nil
+                                let added = await viewModel.addPasskeyFromLinkInput(passkeyAddInput)
+                                busyAction = nil
+                                if added {
+                                    AppHaptics.confirmation()
+                                    dismiss()
+                                } else {
+                                    addPasskeyErrorMessage = viewModel.errorMessage
+                                        ?? l10n.t("ios.onboarding.could_not_add_passkey")
+                                }
+                            }
+                        } label: {
+                            if busyAction == .addPasskey {
+                                HStack {
+                                    ProgressView()
+                                    Text(l10n.t("ios.onboarding.adding_passkey"))
+                                }
                             } else {
-                                addPasskeyErrorMessage = viewModel.errorMessage
-                                    ?? l10n.t("ios.onboarding.could_not_add_passkey")
+                                Label(l10n.t("ios.onboarding.add_passkey"), systemImage: "person.badge.key")
                             }
                         }
-                    } label: {
-                        if busyAction == .addPasskey {
-                            HStack {
-                                ProgressView()
-                                Text(l10n.t("ios.onboarding.adding_passkey"))
-                            }
-                        } else {
-                            Label(l10n.t("ios.onboarding.add_passkey"), systemImage: "person.badge.key")
-                        }
-                    }
-                    .disabled(busyAction != nil || trimmedPasskeyAddInput.isEmpty)
-                    .accessibilityIdentifier("passkey-add-submit-button")
+                        .disabled(busyAction != nil || trimmedPasskeyAddInput.isEmpty)
+                        .accessibilityIdentifier("passkey-add-submit-button")
 
-                    if let addPasskeyErrorMessage, addPasskeyErrorMessage.isEmpty == false {
-                        Label(addPasskeyErrorMessage, systemImage: "exclamationmark.triangle")
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .accessibilityIdentifier("passkey-add-error")
+                        if let addPasskeyErrorMessage, addPasskeyErrorMessage.isEmpty == false {
+                            Label(addPasskeyErrorMessage, systemImage: "exclamationmark.triangle")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("passkey-add-error")
+                        }
                     }
                 }
 
@@ -373,7 +395,9 @@ private struct ReviewerOnboardingSheet: View {
                     }
                 }
             }
-            .navigationTitle(l10n.t("ios.onboarding.sign_in_help"))
+            .navigationTitle(
+                l10n.t(showsPasskeyAddSection ? "ios.onboarding.sign_in_help" : "ios.onboarding.create_account")
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -385,7 +409,9 @@ private struct ReviewerOnboardingSheet: View {
         .onChange(of: initialPasskeyAddInput) { newValue in
             passkeyAddInput = newValue
         }
-        .accessibilityIdentifier("reviewer-onboarding-sheet")
+        .accessibilityIdentifier(
+            showsPasskeyAddSection ? "reviewer-onboarding-sheet" : "account-registration-sheet"
+        )
     }
 
     private var trimmedPasskeyAddInput: String {

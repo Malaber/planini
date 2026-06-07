@@ -17,6 +17,7 @@ final class PlaniniUITests: XCTestCase {
         loginApp.launch()
         XCTAssertTrue(loginApp.buttons["login-passkey-button"].waitForExistence(timeout: 10))
         captureScreenshot(named: "promotion-login-dialogue")
+        assertAccountRegistrationAvailable(in: loginApp)
         assertReviewerOnboardingAvailable(in: loginApp)
         loginApp.terminate()
 
@@ -1630,6 +1631,36 @@ final class PlaniniUITests: XCTestCase {
 
         tapCancelButton(in: app)
         XCTAssertTrue(waitForElementToDisappear(onboardingSheet, timeout: 5))
+        XCTAssertTrue(app.buttons["login-passkey-button"].waitForExistence(timeout: 3))
+    }
+
+    private func assertAccountRegistrationAvailable(in app: XCUIApplication) {
+        let createAccountButton = app.buttons["login-create-account-button"]
+        XCTAssertTrue(createAccountButton.waitForExistence(timeout: 3))
+        tapElement(createAccountButton)
+
+        let registrationSheet = app.otherElements["account-registration-sheet"]
+        XCTAssertTrue(registrationSheet.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.textFields["passkey-add-link-field"].exists)
+
+        let submitButton = app.buttons["registration-submit-button"]
+        XCTAssertFalse(submitButton.isEnabled)
+
+        let nameField = app.textFields["registration-display-name-field"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        nameField.tap()
+        nameField.typeText("New iOS User")
+
+        let emailField = app.textFields["registration-email-field"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 3))
+        emailField.tap()
+        emailField.typeText("new-ios-user@example.com")
+
+        XCTAssertTrue(submitButton.isEnabled)
+        captureScreenshot(named: "ios-ui-account-registration")
+
+        tapCancelButton(in: app)
+        XCTAssertTrue(waitForElementToDisappear(registrationSheet, timeout: 5))
         XCTAssertTrue(app.buttons["login-passkey-button"].waitForExistence(timeout: 3))
     }
 
