@@ -1461,7 +1461,16 @@ async function main() {
     seededPrimaryList.items.map((item) => [item.name, Boolean(item.checked)]),
   );
 
-  const browser = await chromium.launch(browserChannel ? { channel: browserChannel } : {});
+  let browser;
+  try {
+    browser = await chromium.launch(browserChannel ? { channel: browserChannel } : {});
+  } catch (error) {
+    throw new Error(
+      `Could not launch Playwright Chromium${browserChannel ? ` channel ${browserChannel}` : ""}. ` +
+        `If CI uses E2E_BROWSER_CHANNEL=chrome, ensure google-chrome is installed on the runner. ` +
+        `Original error: ${error.message}`,
+    );
+  }
   const context = await browser.newContext(contextOptions());
   const page = await context.newPage();
 
