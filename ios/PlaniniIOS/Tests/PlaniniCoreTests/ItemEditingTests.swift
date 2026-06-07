@@ -86,6 +86,39 @@ struct ItemEditingTests {
         #expect(edited.sortOrder == 7)
     }
 
+    @Test func checkedStateCanApplyToExistingItemWithoutChangingDetails() {
+        let itemID = UUID()
+        let listID = UUID()
+        let categoryID = UUID()
+        let item = GroceryItemRecord(
+            id: itemID,
+            listID: listID,
+            name: "Old",
+            quantityText: "3",
+            note: "fresh",
+            categoryID: categoryID,
+            checked: false,
+            checkedAt: nil,
+            sortOrder: 7
+        )
+        let recordedAt = Date(timeIntervalSince1970: 200)
+
+        let checked = item.applyingCheckedState(true, recordedAt: recordedAt)
+        let unchecked = checked.applyingCheckedState(false, recordedAt: Date(timeIntervalSince1970: 300))
+
+        #expect(checked.id == itemID)
+        #expect(checked.listID == listID)
+        #expect(checked.name == "Old")
+        #expect(checked.quantityText == "3")
+        #expect(checked.note == "fresh")
+        #expect(checked.categoryID == categoryID)
+        #expect(checked.checked == true)
+        #expect(checked.checkedAt == recordedAt)
+        #expect(checked.sortOrder == 7)
+        #expect(unchecked.checked == false)
+        #expect(unchecked.checkedAt == nil)
+    }
+
     @Test func editPayloadInitializesFromExistingItem() {
         let categoryID = UUID()
         let item = GroceryItemRecord(
