@@ -1873,6 +1873,7 @@ def run_ios_e2e(
         "artifact_dir": "Directory used to store native iOS UI screenshots.",
         "device_name": "Simulator device name used for XCUITest.",
         "initial_list_name": "Seeded list name that should open first inside the app.",
+        "only_testing": "Xcode test target, class, or method passed to -only-testing.",
     }
 )
 def run_ios_ui_e2e(
@@ -1886,6 +1887,7 @@ def run_ios_ui_e2e(
     access_token="",
     display_name="",
     attempts=1,
+    only_testing="PlaniniUITests",
 ) -> None:
     artifact_path = ROOT / artifact_dir
     artifact_path.mkdir(parents=True, exist_ok=True)
@@ -1915,7 +1917,7 @@ def run_ios_ui_e2e(
             "-quiet",
             "-parallel-testing-enabled NO",
             "-maximum-parallel-testing-workers 1",
-            "-only-testing:PlaniniUITests",
+            f"-only-testing:{shlex.quote(only_testing)}",
             "test",
         ]
     )
@@ -2102,6 +2104,7 @@ def check_ios_e2e(
         "log_path": "File used for uvicorn logs.",
         "pid_path": "File used to store the started server PID.",
         "attempts": "Maximum xcodebuild attempts for transient simulator startup failures.",
+        "only_testing": "Xcode test target, class, or method passed to -only-testing.",
     }
 )
 def check_ios_ui_e2e(
@@ -2118,6 +2121,7 @@ def check_ios_ui_e2e(
     log_path=DEFAULT_IOS_UI_E2E_LOG_PATH,
     pid_path=DEFAULT_IOS_UI_E2E_PID_PATH,
     attempts=2,
+    only_testing="PlaniniUITests",
 ) -> None:
     _reset_sqlite_database_file(database_url)
     start_app(
@@ -2150,6 +2154,7 @@ def check_ios_ui_e2e(
             access_token=session["access_token"],
             display_name=session["display_name"],
             attempts=attempts,
+            only_testing=only_testing,
         )
     finally:
         stop_app(c, pid_path=pid_path)

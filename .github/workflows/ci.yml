@@ -161,6 +161,7 @@ jobs:
             port: 8018
             log_path: ios-ui-e2e-server.log
             pid_path: ios-ui-e2e-server.pid
+            only_testing: PlaniniUITests
           - platform: iPad
             device_name: iPad Pro 13-inch (M5)
             database_url: sqlite+aiosqlite:///./tmp-ios-ipad-ui-e2e.db
@@ -169,6 +170,7 @@ jobs:
             port: 8019
             log_path: ios-ipad-ui-e2e-server.log
             pid_path: ios-ipad-ui-e2e-server.pid
+            only_testing: PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -193,6 +195,7 @@ jobs:
           --port="${{ matrix.port }}"
           --log-path="${{ matrix.log_path }}"
           --pid-path="${{ matrix.pid_path }}"
+          --only-testing="${{ matrix.only_testing }}"
       - name: Upload native iOS UI artifacts
         if: always()
         uses: actions/upload-artifact@v6

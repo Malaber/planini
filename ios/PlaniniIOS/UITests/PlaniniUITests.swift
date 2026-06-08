@@ -274,7 +274,12 @@ final class PlaniniUITests: XCTestCase {
             sortOption: "A-Z",
             screenshotName: "ios-ui-category-picker"
         )
-        XCTAssertTrue(app.buttons["add-item-category-link"].label.contains("Milch & Eier"))
+        XCTAssertTrue(
+            waitForElementLabel(
+                app.buttons["add-item-category-link"].firstMatch,
+                containing: "Milch & Eier"
+            )
+        )
 
         let noteField = app.textFields["add-item-note-field"]
         noteField.tap()
