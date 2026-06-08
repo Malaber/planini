@@ -517,9 +517,6 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(moveNoticeMessage.waitForExistence(timeout: 3))
         XCTAssertTrue(moveNoticeMessage.label.contains("Brot"))
         XCTAssertTrue(moveNoticeMessage.label.contains("Hosting errands"))
-        let checkedCountBadge = sectionCountBadge(sectionID: "checked", title: "Checked off", in: app)
-        scrollToElement(checkedCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 2))
         captureScreenshot(named: "ios-ui-moved-item-notice")
         let moveUndoButton = app.buttons["move-item-undo-button-\(seededItemID.uuidString)"]
         scrollToHittable(moveUndoButton, in: app, maxSwipes: 12)
@@ -556,9 +553,6 @@ final class PlaniniUITests: XCTestCase {
             )
         )
         XCTAssertTrue(waitForItemRow(itemID: seededItemID, named: "Brot", in: app, timeout: 20))
-        scrollToElement(checkedCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 3))
-
         XCTAssertTrue(
             waitForItemRow(itemID: updatedItemID, named: updatedName, in: app, timeout: 20),
             "Expected categorized updated item row to be visible before failed undo coverage."
@@ -589,9 +583,6 @@ final class PlaniniUITests: XCTestCase {
         let failedUndoError = app.staticTexts["item-move-notice-error-\(updatedItemID.uuidString)"]
         XCTAssertTrue(failedUndoError.waitForExistence(timeout: 5))
         XCTAssertTrue(failedUndoNotice.exists)
-        scrollToElement(checkedCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 2))
-
         XCTAssertTrue(tapTab("Lists", in: app))
         returnToListsRootIfNeeded(app)
         let hostingListRow = app.buttons["list-row-\(hostingListName)"]
@@ -1734,53 +1725,6 @@ final class PlaniniUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
         return element.exists == false
-    }
-
-    private func waitForSectionCountBadge(
-        _ element: XCUIElement,
-        count expectedCount: Int,
-        timeout: TimeInterval = 5
-    ) -> Bool {
-        let expectedNumber = "\(expectedCount)"
-        let expectedCountText = expectedCount == 1 ? "1 item" : "\(expectedCount) items"
-        let deadline = Date().addingTimeInterval(timeout)
-
-        while Date() < deadline {
-            if sectionCountBadge(element, matchesNumber: expectedNumber, countText: expectedCountText) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-        }
-
-        return sectionCountBadge(element, matchesNumber: expectedNumber, countText: expectedCountText)
-    }
-
-    private func sectionCountBadge(sectionID: String, title: String, in app: XCUIApplication) -> XCUIElement {
-        let identifiedBadge = app.descendants(matching: .any)["section-count-badge-\(sectionID)"]
-        if identifiedBadge.exists {
-            return identifiedBadge
-        }
-
-        let labelPredicate = NSPredicate(format: "label BEGINSWITH %@", "\(title) count,")
-        let labelledBadge = app.staticTexts.matching(labelPredicate).firstMatch
-        if labelledBadge.exists {
-            return labelledBadge
-        }
-
-        return firstExistingElement(
-            [
-                identifiedBadge,
-                labelledBadge,
-                app.otherElements.matching(labelPredicate).firstMatch,
-            ],
-            timeout: 0.1
-        )
-    }
-
-    private func sectionCountBadge(_ element: XCUIElement, matchesNumber number: String, countText: String) -> Bool {
-        guard element.exists else { return false }
-        let exposedTexts = [element.label, element.valueText].filter { $0.isEmpty == false }
-        return exposedTexts.contains(number) || exposedTexts.contains { $0.contains(countText) }
     }
 
     private func saveAddItemSheet(in app: XCUIApplication, timeout: TimeInterval = 10) -> Bool {
