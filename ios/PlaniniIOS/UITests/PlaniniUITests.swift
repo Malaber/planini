@@ -1194,7 +1194,7 @@ final class PlaniniUITests: XCTestCase {
                 checked: checked,
                 inListNamed: listName,
                 accessToken: accessToken,
-                timeout: 2
+                timeout: min(5, max(0.5, deadline.timeIntervalSinceNow))
             ) {
                 return true
             }
