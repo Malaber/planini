@@ -1324,11 +1324,13 @@ final class PlaniniUITests: XCTestCase {
             }
 
             if button.exists {
-                scrollToHittable(button, in: app, maxSwipes: 2)
-                if button.isHittable {
-                    button.tap()
-                } else {
-                    tapElement(button)
+                if button.isSelected != checked {
+                    scrollToHittable(button, in: app, maxSwipes: 2)
+                    if button.isHittable {
+                        button.tap()
+                    } else {
+                        tapElement(button)
+                    }
                 }
             } else {
                 _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
@@ -1339,7 +1341,7 @@ final class PlaniniUITests: XCTestCase {
                 checked: checked,
                 inListNamed: listName,
                 accessToken: accessToken,
-                timeout: 2
+                timeout: 5
             ) {
                 return true
             }
