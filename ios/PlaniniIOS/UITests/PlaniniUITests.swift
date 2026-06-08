@@ -2052,7 +2052,7 @@ final class PlaniniUITests: XCTestCase {
             guard sheet.exists else {
                 return true
             }
-            let saveButton = sheet.buttons["add-item-save-button"]
+            let saveButton = app.buttons["add-item-save-button"]
             if saveButton.exists && saveButton.isEnabled {
                 tapElement(saveButton)
             }
