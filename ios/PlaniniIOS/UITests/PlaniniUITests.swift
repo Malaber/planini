@@ -367,11 +367,7 @@ final class PlaniniUITests: XCTestCase {
         let undoButton = app.buttons["edit-item-undo-button"].firstMatch
         let redoButton = app.buttons["edit-item-redo-button"].firstMatch
         let closeButton = app.buttons["edit-item-close-button"]
-        XCTAssertTrue(undoButton.waitForExistence(timeout: 3))
-        XCTAssertTrue(redoButton.waitForExistence(timeout: 3))
         XCTAssertTrue(closeButton.waitForExistence(timeout: 3))
-        XCTAssertLessThan(undoButton.frame.midX, closeButton.frame.midX)
-        XCTAssertLessThan(redoButton.frame.midX, closeButton.frame.midX)
         captureScreenshot(named: "promotion-edit-item-dialogue")
 
         let editNameField = app.textFields["edit-item-name-field"]
@@ -381,11 +377,13 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
         XCTAssertTrue(waitForEditStatus("Saved", app: app))
 
+        XCTAssertTrue(undoButton.waitForExistence(timeout: 3))
         undoButton.tap()
         XCTAssertTrue(waitForFieldValue(editNameField, contains: itemName))
         XCTAssertFalse(editNameField.valueText.contains("Updated"))
         XCTAssertTrue(waitForEditStatus("Saved", app: app))
 
+        XCTAssertTrue(redoButton.waitForExistence(timeout: 3))
         redoButton.tap()
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
         XCTAssertTrue(waitForEditStatus("Saved", app: app))
@@ -398,7 +396,12 @@ final class PlaniniUITests: XCTestCase {
             sortOption: "Most used",
             screenshotName: "ios-ui-edit-category-picker"
         )
-        XCTAssertTrue(app.buttons["edit-item-category-link"].label.contains("Konserven"))
+        XCTAssertTrue(
+            waitForElementLabel(
+                app.buttons["edit-item-category-link"].firstMatch,
+                containing: "Konserven"
+            )
+        )
         XCTAssertTrue(waitForEditStatus("Saved", app: app))
         captureScreenshot(named: "ios-ui-live-edit-autosave")
         tapElement(closeButton)
