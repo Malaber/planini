@@ -52,6 +52,7 @@ struct ItemEditingTests {
     @Test func editPayloadCanApplyToExistingItemWithoutChangingStateFields() {
         let itemID = UUID()
         let listID = UUID()
+        let movedListID = UUID()
         let checkedAt = Date(timeIntervalSince1970: 100)
         let item = GroceryItemRecord(
             id: itemID,
@@ -84,6 +85,17 @@ struct ItemEditingTests {
         #expect(edited.checked == true)
         #expect(edited.checkedAt == checkedAt)
         #expect(edited.sortOrder == 7)
+
+        let moved = edited.moving(to: movedListID)
+        #expect(moved.id == itemID)
+        #expect(moved.listID == movedListID)
+        #expect(moved.name == "New")
+        #expect(moved.quantityText == "3")
+        #expect(moved.note == "fresh")
+        #expect(moved.categoryID == categoryID)
+        #expect(moved.checked == true)
+        #expect(moved.checkedAt == checkedAt)
+        #expect(moved.sortOrder == 7)
     }
 
     @Test func checkedStateCanApplyToExistingItemWithoutChangingDetails() {
