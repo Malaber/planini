@@ -2045,24 +2045,7 @@ final class PlaniniUITests: XCTestCase {
     }
 
     private func tapAddItemSaveAndWaitForDismissal(in app: XCUIApplication, timeout: TimeInterval = 12) -> Bool {
-        let sheet = app.otherElements["add-item-sheet"]
-        let deadline = Date().addingTimeInterval(timeout)
-
-        while Date() < deadline {
-            guard sheet.exists else {
-                return true
-            }
-            let saveButton = app.buttons["add-item-save-button"]
-            if saveButton.exists && saveButton.isEnabled {
-                tapElement(saveButton)
-            }
-            if waitForElementToDisappear(sheet, timeout: 2) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-        }
-
-        return !sheet.exists
+        saveAddItemSheet(in: app, timeout: timeout)
     }
 
     private func waitForItemRow(
