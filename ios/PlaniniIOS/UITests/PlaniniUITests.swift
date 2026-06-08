@@ -348,7 +348,6 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(waitForElementToDisappear(hiddenForLaterHeader, timeout: 8))
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
-        let enterSavedItemLabel = app.staticTexts[enterSavedItemName]
         scrollToListTop(in: app)
         scrollToElement(enterSavedItemLabel, in: app)
         tapElement(enterSavedItemLabel)
