@@ -1197,6 +1197,7 @@ final class PlaniniUITests: XCTestCase {
     ) -> Bool {
         let button = app.buttons["toggle-item-\(itemID.uuidString)"]
         let editSheet = app.otherElements["edit-item-sheet"]
+        let desiredActionPrefix = checked ? "Uncheck " : "Check "
         let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
@@ -1216,11 +1217,9 @@ final class PlaniniUITests: XCTestCase {
             }
 
             if button.exists {
-                scrollToHittable(button, in: app, maxSwipes: 2)
-                if button.isHittable {
+                scrollToHittable(button, in: app, maxSwipes: 8)
+                if button.isHittable && button.label.hasPrefix(desiredActionPrefix) == false {
                     button.tap()
-                } else {
-                    tapElement(button)
                 }
             } else {
                 _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
