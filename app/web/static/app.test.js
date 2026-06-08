@@ -82,6 +82,10 @@ import {
   syncItemMoveSelect,
   applyOfflineSyncResult,
   flushOfflineMutations,
+  createMovedItemNotice,
+  dismissMovedItemNotice,
+  showMovedItemNotice,
+  restoreMovedItem,
   restoreHiddenItem,
   applyCategoryReorder,
   categoryDropPosition,
@@ -808,6 +812,7 @@ function createState(items) {
     itemEditSaveTimerId: null,
     items: new Map(items.map((item) => [item.id, item])),
     lists: [{ id: "list-1", name: "Weekly" }],
+    movedItemNotices: new Map(),
     offlineSyncInFlight: null,
     pendingMutations: [],
   };
@@ -1763,6 +1768,7 @@ test("live item editing moves to another list from the autosave dialog", async (
     { id: "list-2", name: "Errands" },
   ];
   const calls = [];
+  const originalItem = state.items.get("item-1");
 
   setDomGlobals({ window });
   setGlobalProperty("document", document);
@@ -1775,7 +1781,7 @@ test("live item editing moves to another list from the autosave dialog", async (
       ok: true,
       status: 200,
       json: async () => ({
-        ...state.items.get("item-1"),
+        ...originalItem,
         ...payload,
       }),
     };
@@ -1803,9 +1809,127 @@ test("live item editing moves to another list from the autosave dialog", async (
     ]);
     assert.equal(state.items.has("item-1"), false);
     assert.equal(document.querySelector("[data-item-edit-overlay]").hidden, true);
-    assert.equal(document.querySelector("[data-list-success]").textContent, "Item moved to another list.Go to list");
-    assert.equal(document.querySelector("[data-list-success] a").getAttribute("href"), "/lists/list-2");
+    assert.equal(document.querySelector("[data-list-success]").hidden, true);
+
+    const notice = document.querySelector("[data-moved-item-notice='item-1']");
+    assert.equal(notice.textContent, "Milk moved to Errands.UndoGo to list");
+    assert.equal(notice.querySelector("a").getAttribute("href"), "/lists/list-2");
+
+    const restoredItem = await restoreMovedItem(root, state, "item-1");
+    assert.equal(restoredItem.list_id, "list-1");
+    assert.equal(state.items.get("item-1").note, "organic");
+    assert.equal(document.querySelector("[data-moved-item-notice='item-1']"), null);
+    assert.equal(document.querySelector("[data-list-success]").textContent, "Milk moved back.");
+    assert.deepEqual(calls[1], {
+      url: "/api/v1/items/item-1",
+      method: "PATCH",
+      payload: {
+        name: "Milk",
+        quantity_text: null,
+        note: "organic",
+        category_id: null,
+        list_id: "list-1",
+      },
+    });
   } finally {
+    state.movedItemNotices.forEach((notice) => {
+      window.clearTimeout(notice.timerId);
+      window.clearTimeout(notice.removalTimerId);
+    });
+    restoreDomGlobals(originals);
+    setGlobalProperty("document", originals.document);
+    setGlobalProperty("fetch", originals.fetch);
+    setGlobalProperty("navigator", originals.navigator);
+    setGlobalProperty("window", originals.window);
+  }
+});
+
+test("moved item notices dismiss, fallback, and keep undo available after restore errors", async () => {
+  const { document, root, window } = createListRoot();
+  const originals = {
+    FormData: globalThis.FormData,
+    HTMLElement: globalThis.HTMLElement,
+    HTMLFormElement: globalThis.HTMLFormElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+    document: globalThis.document,
+    fetch: globalThis.fetch,
+    navigator: globalThis.navigator,
+    window: globalThis.window,
+  };
+  const sourceItem = {
+    id: "item-1",
+    name: "Milk",
+    checked: false,
+    checked_at: null,
+    category_id: null,
+    note: null,
+    quantity_text: null,
+    sort_order: 3,
+  };
+  const movedItem = {
+    ...sourceItem,
+    list_id: "list-2",
+    name: "",
+    quantity_text: "2",
+    note: "",
+    category_id: "cat-1",
+  };
+  const state = createState([sourceItem]);
+  delete state.movedItemNotices;
+  let didScroll = false;
+
+  setDomGlobals({ window });
+  setGlobalProperty("document", document);
+  setGlobalProperty("window", window);
+  setGlobalProperty("navigator", { onLine: true });
+  window.HTMLElement.prototype.scrollIntoView = () => {
+    didScroll = true;
+  };
+
+  try {
+    const notice = createMovedItemNotice(root, state, sourceItem, movedItem, "list-2");
+    showMovedItemNotice(root, state, notice);
+    assert.equal(didScroll, true);
+    assert.equal(document.querySelector("[data-moved-item-notice='item-1']").textContent, "Milk moved to another list.UndoGo to list");
+
+    const activeNotice = state.movedItemNotices.get("item-1");
+    activeNotice.timerId = window.setTimeout(() => {}, 1);
+    activeNotice.removalTimerId = window.setTimeout(() => {}, 1);
+    showMovedItemNotice(root, state, notice);
+    dismissMovedItemNotice(root, state, "item-1", false);
+    assert.equal(document.querySelector("[data-moved-item-notice='item-1']"), null);
+
+    showMovedItemNotice(root, state, notice);
+    dismissMovedItemNotice(root, state, "item-1", true);
+    assert.equal(document.querySelector("[data-moved-item-notice='item-1']").classList.contains("is-expiring"), true);
+    await new Promise((resolve) => window.setTimeout(resolve, 280));
+    assert.equal(document.querySelector("[data-moved-item-notice='item-1']"), null);
+
+    state.movedItemNotices.set("missing-dom", {
+      ...notice,
+      id: "missing-dom",
+      timerId: null,
+      removalTimerId: null,
+    });
+    dismissMovedItemNotice(root, state, "missing-dom", true);
+    await new Promise((resolve) => window.setTimeout(resolve, 280));
+    assert.equal(state.movedItemNotices.has("missing-dom"), false);
+
+    await assert.rejects(() => restoreMovedItem(root, state, "missing"), /Could not find that item/);
+
+    showMovedItemNotice(root, state, notice);
+    setGlobalProperty("fetch", async () => {
+      throw new Error("move failed");
+    });
+    await assert.rejects(() => restoreMovedItem(root, state, "item-1"), /move failed/);
+    assert.equal(state.movedItemNotices.has("item-1"), true);
+    assert.notEqual(state.movedItemNotices.get("item-1").timerId, null);
+  } finally {
+    state.movedItemNotices?.forEach((notice) => {
+      window.clearTimeout(notice.timerId);
+      window.clearTimeout(notice.removalTimerId);
+    });
     restoreDomGlobals(originals);
     setGlobalProperty("document", originals.document);
     setGlobalProperty("fetch", originals.fetch);

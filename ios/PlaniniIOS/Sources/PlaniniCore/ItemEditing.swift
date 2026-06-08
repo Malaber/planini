@@ -220,6 +220,20 @@ public extension GroceryItemRecord {
         )
     }
 
+    func moving(to listID: UUID) -> GroceryItemRecord {
+        GroceryItemRecord(
+            id: id,
+            listID: listID,
+            name: name,
+            quantityText: quantityText,
+            note: note,
+            categoryID: categoryID,
+            checked: checked,
+            checkedAt: checkedAt,
+            sortOrder: sortOrder
+        )
+    }
+
     func applyingCheckedState(_ checked: Bool, recordedAt: Date) -> GroceryItemRecord {
         GroceryItemRecord(
             id: id,
