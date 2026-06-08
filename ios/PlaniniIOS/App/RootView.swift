@@ -1980,6 +1980,7 @@ private struct ItemRow: View {
             } label: {
                 Label(l10n.t("common.delete"), systemImage: "trash")
             }
+            .accessibilityIdentifier("delete-item-\(item.id.uuidString)")
 
             Button {
                 onEdit()
