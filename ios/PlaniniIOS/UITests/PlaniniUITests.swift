@@ -153,6 +153,37 @@ final class PlaniniUITests: XCTestCase {
             )
         )
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
+
+        let seededCheckedItemID = try itemID(
+            named: "Brot",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        XCTAssertTrue(
+            tapItemToggleButton(
+                itemID: seededCheckedItemID,
+                named: "Brot",
+                checked: false,
+                in: app,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        let uncheckUndoButton = app.buttons["list-undo-button"]
+        let uncheckUndoMessage = app.staticTexts["list-undo-message"]
+        XCTAssertTrue(uncheckUndoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(uncheckUndoMessage.label.contains("Brot unchecked."))
+        tapElement(uncheckUndoButton)
+        XCTAssertTrue(
+            waitForItemCheckedState(
+                named: "Brot",
+                checked: true,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
+
         RunLoop.current.run(until: Date().addingTimeInterval(1.0))
         captureScreenshot(named: "ios-ui-suggestion-reactivated")
 
@@ -171,7 +202,6 @@ final class PlaniniUITests: XCTestCase {
         nameField.typeText(enterSavedItemName)
         XCTAssertTrue(waitForFieldValue(nameField, contains: enterSavedItemName))
         XCTAssertTrue(tapAddItemSaveAndWaitForDismissal(in: app))
-        XCTAssertTrue(app.staticTexts[enterSavedItemName].waitForExistence(timeout: 5))
         XCTAssertTrue(
             waitForItem(
                 named: enterSavedItemName,
@@ -180,16 +210,25 @@ final class PlaniniUITests: XCTestCase {
                 timeout: 20
             )
         )
-        XCTAssertTrue(app.staticTexts[enterSavedItemName].waitForExistence(timeout: 15))
+        let enterSavedItemLabel = app.staticTexts[enterSavedItemName]
+        scrollToElement(enterSavedItemLabel, in: app)
+        XCTAssertTrue(enterSavedItemLabel.waitForExistence(timeout: 15))
         let enterSavedItemID = try itemID(
             named: enterSavedItemName,
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
-        scrollToElement(app.staticTexts[enterSavedItemName], in: app)
-        let directToggle = app.buttons["toggle-item-\(enterSavedItemID.uuidString)"]
-        XCTAssertTrue(directToggle.waitForExistence(timeout: 5))
-        tapElement(directToggle)
+        scrollToElement(enterSavedItemLabel, in: app)
+        XCTAssertTrue(
+            tapItemToggleButton(
+                itemID: enterSavedItemID,
+                named: enterSavedItemName,
+                checked: true,
+                in: app,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
         let directUndoButton = app.buttons["list-undo-button"]
         let directUndoMessage = app.staticTexts["list-undo-message"]
         XCTAssertTrue(directUndoButton.waitForExistence(timeout: 5))
@@ -267,7 +306,57 @@ final class PlaniniUITests: XCTestCase {
 
         let createdItemRow = itemRow(itemID: createdItemID, in: app)
         scrollToHittable(createdItemRow, in: app)
-        tapElement(createdItemRow)
+        createdItemRow.swipeLeft()
+        let deleteButton = firstExistingElement(
+            [
+                app.buttons["delete-item-\(createdItemID.uuidString)"],
+                app.buttons["Delete"],
+            ],
+            timeout: 3
+        )
+        XCTAssertTrue(deleteButton.exists)
+        tapElement(deleteButton)
+        XCTAssertTrue(
+            waitForItemAbsent(
+                named: itemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        let deleteUndoButton = app.buttons["list-undo-button"]
+        let deleteUndoMessage = app.staticTexts["list-undo-message"]
+        XCTAssertTrue(deleteUndoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(deleteUndoMessage.label.contains("\(itemName) deleted."))
+        captureScreenshot(named: "ios-ui-floating-undo-delete")
+        tapElement(deleteUndoButton)
+        XCTAssertTrue(
+            waitForItem(
+                named: itemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        let restoredItemID = try itemID(
+            named: itemName,
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        XCTAssertTrue(
+            waitForItemRow(itemID: restoredItemID, named: itemName, in: app, timeout: 15),
+            "Expected restored item row to be visible after undoing delete."
+        )
+        XCTAssertTrue(
+            waitForItemCategory(
+                named: itemName,
+                categoryNamed: "Milch & Eier",
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+
+        let restoredItemRow = itemRow(itemID: restoredItemID, in: app)
+        scrollToHittable(restoredItemRow, in: app)
+        tapElement(restoredItemRow)
         XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
         let undoButton = app.buttons["Undo"]
         let redoButton = app.buttons["Redo"]
