@@ -1889,29 +1889,51 @@ final class PlaniniUITests: XCTestCase {
     }
 
     private func tapTab(_ label: String, in app: XCUIApplication, timeout: TimeInterval = 5) -> Bool {
-        let tabButton = firstExistingElement(tabCandidates(for: label, in: app), timeout: timeout)
-        guard tabButton.exists else {
-            return false
+        let candidates = tabCandidates(for: label, in: app)
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            for tabButton in candidates where tabButton.exists && tabButton.isHittable {
+                if tabButton.isSelected {
+                    return true
+                }
+                tabButton.tap()
+                if waitForTabSelection(tabButton, timeout: 2) {
+                    return true
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
-        tapElement(tabButton)
-        return true
+
+        return candidates.contains { $0.exists && $0.isSelected }
+    }
+
+    private func waitForTabSelection(_ tabButton: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if tabButton.exists && tabButton.isSelected {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return tabButton.exists && tabButton.isSelected
     }
 
     private func tabCandidates(for label: String, in app: XCUIApplication) -> [XCUIElement] {
         switch label {
         case "Lists":
             return [
-                app.tabBars.buttons["tab-lists"],
-                app.buttons["tab-lists"],
                 app.tabBars.buttons["Lists"],
                 app.tabBars.buttons["Listen"],
+                app.tabBars.buttons["tab-lists"],
+                app.buttons["tab-lists"],
             ]
         case "Settings":
             return [
-                app.tabBars.buttons["tab-settings"],
-                app.buttons["tab-settings"],
                 app.tabBars.buttons["Settings"],
                 app.tabBars.buttons["Einstellungen"],
+                app.tabBars.buttons["tab-settings"],
+                app.buttons["tab-settings"],
             ]
         default:
             return [app.tabBars.buttons[label], app.buttons[label]]
