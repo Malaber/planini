@@ -696,6 +696,15 @@ final class MobileAppViewModel: ObservableObject {
         pendingItemEdits.contains { $0.itemID == itemID }
     }
 
+    func moveTargetLists(for item: GroceryItemRecord) -> [GroceryListSummary] {
+        guard let sourceList = lists.first(where: { $0.id == item.listID }) else {
+            return lists.filter { $0.archived == false }
+        }
+        return lists.filter {
+            $0.archived == false && $0.householdID == sourceList.householdID
+        }
+    }
+
     func reloadAllData() async throws {
         guard let backendURL, let authToken else { return }
 
@@ -1216,6 +1225,46 @@ final class MobileAppViewModel: ObservableObject {
                 showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
             }
             return true
+        }
+    }
+
+    @discardableResult
+    func move(
+        item: GroceryItemRecord,
+        to targetListID: UUID,
+        payload: GroceryItemEditPayload
+    ) async -> GroceryItemRecord? {
+        guard payload.isValid else { return nil }
+        guard targetListID != item.listID else { return item }
+        guard let backendURL, let authToken else {
+            errorMessage = "Move items while online so both lists stay in sync."
+            return nil
+        }
+
+        var body = payload.jsonBody
+        body["list_id"] = targetListID.uuidString
+
+        do {
+            let saved = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/items/\(item.id.uuidString)",
+                method: "PATCH",
+                body: body,
+                token: authToken
+            )
+            removePendingItemEdit(itemID: item.id)
+            let movedItem = GroceryItemRecord(json: saved)
+                ?? item.applyingEditPayload(payload).moving(to: targetListID)
+            if movedItem.listID == selectedListID {
+                upsertLocalItem(movedItem)
+            } else {
+                items.removeAll { $0.id == item.id }
+            }
+            watchSyncCoordinator.publishCurrentState()
+            return movedItem
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
         }
     }
 

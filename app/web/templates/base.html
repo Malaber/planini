@@ -55,8 +55,9 @@
           <span>{{ t("common.app_tagline") }}</span>
         </span>
       </a>
-      {% if is_authenticated %}
       <div class="app-header-actions">
+        <a class="admin-link" href="/support">{{ t("common.support") }}</a>
+        {% if is_authenticated %}
         <a class="admin-link" href="/settings">{{ t("common.settings") }}</a>
         {% if is_admin %}
         <a class="admin-link" href="/admin">{{ t("common.admin") }}</a>
@@ -64,8 +65,8 @@
         <form method="post" action="/logout">
           <button class="logout-button" type="submit">{{ t("common.logout") }}</button>
         </form>
+        {% endif %}
       </div>
-      {% endif %}
     </header>
     <main>{% block content %}{% endblock %}</main>
     <script>
