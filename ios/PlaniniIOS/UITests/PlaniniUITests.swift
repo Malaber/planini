@@ -18,6 +18,9 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(loginApp.buttons["login-passkey-button"].waitForExistence(timeout: 10))
         captureScreenshot(named: "promotion-login-dialogue")
         assertAccountRegistrationAvailable(in: loginApp)
+        loginApp.terminate()
+        loginApp.launch()
+        XCTAssertTrue(loginApp.buttons["login-passkey-button"].waitForExistence(timeout: 10))
         assertReviewerOnboardingAvailable(in: loginApp)
         loginApp.terminate()
 
