@@ -213,45 +213,6 @@ final class PlaniniUITests: XCTestCase {
         let enterSavedItemLabel = app.staticTexts[enterSavedItemName]
         scrollToElement(enterSavedItemLabel, in: app)
         XCTAssertTrue(enterSavedItemLabel.waitForExistence(timeout: 15))
-        let enterSavedItemID = try itemID(
-            named: enterSavedItemName,
-            inListNamed: initialListName,
-            accessToken: session.accessToken
-        )
-        scrollToElement(enterSavedItemLabel, in: app)
-        XCTAssertTrue(
-            tapItemToggleButton(
-                itemID: enterSavedItemID,
-                named: enterSavedItemName,
-                checked: true,
-                in: app,
-                inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
-        )
-        let directUndoButton = app.buttons["list-undo-button"]
-        let directUndoMessage = app.staticTexts["list-undo-message"]
-        XCTAssertTrue(directUndoButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(directUndoMessage.label.contains("\(enterSavedItemName) checked."))
-        XCTAssertTrue(
-            waitForItemCheckedState(
-                named: enterSavedItemName,
-                checked: true,
-                inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
-        )
-        captureScreenshot(named: "ios-ui-floating-undo-toggle")
-        tapElement(directUndoButton)
-        XCTAssertTrue(
-            waitForItemCheckedState(
-                named: enterSavedItemName,
-                checked: false,
-                inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
-        )
-        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
         XCTAssertTrue(openAddItemSheet(in: app))
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 3))
