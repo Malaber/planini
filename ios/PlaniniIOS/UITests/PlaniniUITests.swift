@@ -1156,47 +1156,33 @@ final class PlaniniUITests: XCTestCase {
     ) -> Bool {
         let button = app.buttons["toggle-item-\(itemID.uuidString)"]
         let editSheet = app.otherElements["edit-item-sheet"]
-        let desiredButtonLabel = checked ? "Uncheck \(itemName)" : "Check \(itemName)"
         let deadline = Date().addingTimeInterval(timeout)
 
-        while Date() < deadline {
-            if waitForItemCheckedState(
-                named: itemName,
-                checked: checked,
-                inListNamed: listName,
-                accessToken: accessToken,
-                timeout: 0.5
-            ) {
-                return true
-            }
+        if waitForItemCheckedState(
+            named: itemName,
+            checked: checked,
+            inListNamed: listName,
+            accessToken: accessToken,
+            timeout: 0.5
+        ) {
+            return true
+        }
 
-            if editSheet.exists {
-                app.buttons["Done"].tap()
-                _ = waitForElementToDisappear(editSheet, timeout: 3)
-            }
+        if editSheet.exists {
+            app.buttons["Done"].tap()
+            _ = waitForElementToDisappear(editSheet, timeout: 3)
+        }
 
-            if button.exists {
-                scrollToHittable(button, in: app, maxSwipes: 2)
-                if button.label != desiredButtonLabel {
-                    if button.isHittable {
-                        button.tap()
-                    } else {
-                        tapElement(button)
-                    }
-                }
-            } else {
-                _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
-            }
+        if button.exists == false {
+            _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
+        }
+        guard button.exists else { return false }
 
-            if waitForItemCheckedState(
-                named: itemName,
-                checked: checked,
-                inListNamed: listName,
-                accessToken: accessToken,
-                timeout: 2
-            ) {
-                return true
-            }
+        scrollToHittable(button, in: app, maxSwipes: 2)
+        if button.isHittable {
+            button.tap()
+        } else {
+            tapElement(button)
         }
 
         return waitForItemCheckedState(
@@ -1204,7 +1190,7 @@ final class PlaniniUITests: XCTestCase {
             checked: checked,
             inListNamed: listName,
             accessToken: accessToken,
-            timeout: 0.5
+            timeout: max(0.5, deadline.timeIntervalSinceNow)
         )
     }
 
