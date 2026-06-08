@@ -212,8 +212,9 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
         let enteredRow = itemRow(itemID: enterSavedItemID, in: app)
-        scrollToElement(enteredRow, in: app)
+        scrollToHittable(enteredRow, in: app)
         XCTAssertTrue(enteredRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(enteredRow.isHittable)
         enteredRow.swipeRight()
         if waitForItemHiddenState(
             named: enterSavedItemName,
@@ -256,8 +257,9 @@ final class PlaniniUITests: XCTestCase {
         )
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
-        scrollToElement(enteredRow, in: app)
+        scrollToHittable(enteredRow, in: app)
         XCTAssertTrue(enteredRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(enteredRow.isHittable)
         enteredRow.swipeRight()
         if waitForItemHiddenState(
             named: enterSavedItemName,
