@@ -2259,13 +2259,13 @@ final class PlaniniUITests: XCTestCase {
 
     private func tapAddItemSaveAndWaitForDismissal(in app: XCUIApplication, timeout: TimeInterval = 12) -> Bool {
         let sheet = app.otherElements["add-item-sheet"]
+        let saveButton = app.buttons["add-item-save-button"]
         let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
             guard sheet.exists else {
                 return true
             }
-            let saveButton = sheet.buttons["add-item-save-button"]
             if saveButton.exists && saveButton.isEnabled {
                 tapElement(saveButton)
             }
