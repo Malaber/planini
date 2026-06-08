@@ -1156,6 +1156,7 @@ final class PlaniniUITests: XCTestCase {
     ) -> Bool {
         let button = app.buttons["toggle-item-\(itemID.uuidString)"]
         let editSheet = app.otherElements["edit-item-sheet"]
+        let desiredButtonLabel = checked ? "Uncheck \(itemName)" : "Check \(itemName)"
         let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
@@ -1176,10 +1177,12 @@ final class PlaniniUITests: XCTestCase {
 
             if button.exists {
                 scrollToHittable(button, in: app, maxSwipes: 2)
-                if button.isHittable {
-                    button.tap()
-                } else {
-                    tapElement(button)
+                if button.label != desiredButtonLabel {
+                    if button.isHittable {
+                        button.tap()
+                    } else {
+                        tapElement(button)
+                    }
                 }
             } else {
                 _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
