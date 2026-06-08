@@ -364,8 +364,8 @@ final class PlaniniUITests: XCTestCase {
         scrollToHittable(restoredItemRow, in: app)
         tapElement(restoredItemRow)
         XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
-        let undoButton = app.buttons["edit-item-undo-button"].firstMatch
-        let redoButton = app.buttons["edit-item-redo-button"].firstMatch
+        let undoButton = app.buttons["Undo"].firstMatch
+        let redoButton = app.buttons["Redo"].firstMatch
         let closeButton = app.buttons["edit-item-close-button"]
         XCTAssertTrue(closeButton.waitForExistence(timeout: 3))
         captureScreenshot(named: "promotion-edit-item-dialogue")
