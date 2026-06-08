@@ -218,9 +218,16 @@ final class PlaniniUITests: XCTestCase {
             accessToken: session.accessToken
         )
         scrollToElement(enterSavedItemLabel, in: app)
-        let directToggle = app.buttons["toggle-item-\(enterSavedItemID.uuidString)"]
-        XCTAssertTrue(directToggle.waitForExistence(timeout: 5))
-        tapElement(directToggle)
+        XCTAssertTrue(
+            tapItemToggleButton(
+                itemID: enterSavedItemID,
+                named: enterSavedItemName,
+                checked: true,
+                in: app,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
         let directUndoButton = app.buttons["list-undo-button"]
         let directUndoMessage = app.staticTexts["list-undo-message"]
         XCTAssertTrue(directUndoButton.waitForExistence(timeout: 5))
