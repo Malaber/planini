@@ -45,6 +45,8 @@ struct LiveBackendE2ETests {
         )
         let list = try #require(lists.first { $0["name"] as? String == fixture.primaryListName })
         let listID = try #require(list["id"] as? String)
+        let moveTargetList = try #require(lists.first { ($0["id"] as? String) != listID })
+        let moveTargetListID = try #require(moveTargetList["id"] as? String)
 
         let categoriesPayload = try await client.jsonArray(
             path: "/api/v1/lists/\(listID)/categories",
@@ -192,6 +194,32 @@ struct LiveBackendE2ETests {
         )
         let gemueseSection = try #require(updatedSections.first { $0.title == "Gemuese" })
         #expect(gemueseSection.items.contains(where: { $0.name == updatedName }))
+
+        let moved = try await client.jsonObject(
+            path: "/api/v1/items/\(itemID)",
+            method: "PATCH",
+            body: [
+                "list_id": moveTargetListID,
+            ],
+            token: accessToken
+        )
+        #expect((moved["list_id"] as? String)?.lowercased() == moveTargetListID.lowercased())
+
+        let targetItemsAfterMove = try await client.jsonArray(
+            path: "/api/v1/lists/\(moveTargetListID)/items",
+            token: accessToken
+        )
+        #expect(targetItemsAfterMove.contains(where: { ($0["id"] as? String) == itemID }))
+
+        let movedBack = try await client.jsonObject(
+            path: "/api/v1/items/\(itemID)",
+            method: "PATCH",
+            body: [
+                "list_id": listID,
+            ],
+            token: accessToken
+        )
+        #expect((movedBack["list_id"] as? String)?.lowercased() == listID.lowercased())
 
         let checked = try await client.jsonObject(
             path: "/api/v1/items/\(itemID)/check",

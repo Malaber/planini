@@ -5,6 +5,8 @@ const OFFLINE_MUTATION_ID_PREFIX = "local-mutation-";
 const ITEM_HIDE_DURATION_MS = 4 * 60 * 60 * 1000;
 const ITEM_SWIPE_TRIGGER_PX = 72;
 const ITEM_SWIPE_LIMIT_PX = 132;
+const UNDO_ACTION_DURATION_MS = 10000;
+const MOVED_ITEM_NOTICE_FADE_MS = 260;
 const SUPPORTED_LANGUAGE_OPTIONS = [
   { value: "", label: "Browser default" },
   { value: "en", label: "English" },
@@ -2111,7 +2113,7 @@ function showUndoToast(root, state, messageText, undoAction) {
   toast.classList.add("is-active");
   state.undoTimerId = window.setTimeout(() => {
     hideUndoToast(root, state);
-  }, 10000);
+  }, UNDO_ACTION_DURATION_MS);
 }
 
 async function runUndoAction(root, state, undoAction) {
@@ -2119,6 +2121,141 @@ async function runUndoAction(root, state, undoAction) {
     await undoAction();
   } catch (error) {
     setListMessage(root, "error", error instanceof Error ? error.message : translate("list_detail.undo_failed", {}, "Could not undo action."));
+  }
+}
+
+function clearMovedItemNoticeTimers(notice) {
+  if (!notice) {
+    return;
+  }
+  if (notice.timerId) {
+    window.clearTimeout(notice.timerId);
+  }
+  if (notice.removalTimerId) {
+    window.clearTimeout(notice.removalTimerId);
+  }
+  notice.timerId = null;
+  notice.removalTimerId = null;
+}
+
+function movedItemNoticeRenderItem(notice) {
+  return {
+    id: `moved-notice-${notice.id}`,
+    name: notice.itemName,
+    category_id: notice.categoryId || null,
+    checked: Boolean(notice.checked),
+    checked_at: notice.checkedAt || null,
+    hidden_until: null,
+    sort_order: notice.sortOrder || 0,
+    movedNotice: notice,
+  };
+}
+
+function dismissMovedItemNotice(root, state, itemId, animate = true) {
+  const notice = state.movedItemNotices?.get(itemId);
+  if (!notice) {
+    return;
+  }
+
+  clearMovedItemNoticeTimers(notice);
+  if (!animate) {
+    state.movedItemNotices.delete(itemId);
+    renderItems(root, state);
+    return;
+  }
+
+  notice.isExpiring = true;
+  const noticeNode = root.querySelector(`[data-moved-item-notice="${itemId}"]`);
+  if (noticeNode instanceof HTMLElement) {
+    noticeNode.classList.add("is-expiring");
+  }
+  notice.removalTimerId = window.setTimeout(() => {
+    state.movedItemNotices.delete(itemId);
+    renderItems(root, state);
+  }, MOVED_ITEM_NOTICE_FADE_MS);
+}
+
+function scheduleMovedItemNoticeDismiss(root, state, notice) {
+  clearMovedItemNoticeTimers(notice);
+  notice.timerId = window.setTimeout(() => {
+    dismissMovedItemNotice(root, state, notice.id, true);
+  }, UNDO_ACTION_DURATION_MS);
+}
+
+function movedItemNoticeTargetName(state, targetListId) {
+  return state.lists?.find((list) => list.id === targetListId)?.name || translate("list_detail.another_list", {}, "another list");
+}
+
+function createMovedItemNotice(root, state, sourceItem, movedItem, targetListId) {
+  const sourceListId = sourceItem.list_id || root.dataset.listId || "";
+  return {
+    id: movedItem.id,
+    sourceListId,
+    targetListId,
+    targetListName: movedItemNoticeTargetName(state, targetListId),
+    itemName: movedItem.name || sourceItem.name,
+    categoryId: sourceItem.category_id || null,
+    checked: Boolean(sourceItem.checked),
+    checkedAt: sourceItem.checked_at || null,
+    sortOrder: sourceItem.sort_order || 0,
+    restorePayload: {
+      name: movedItem.name || sourceItem.name,
+      quantity_text: movedItem.quantity_text || null,
+      note: movedItem.note || null,
+      category_id: movedItem.category_id || null,
+      list_id: sourceListId,
+    },
+  };
+}
+
+function showMovedItemNotice(root, state, notice) {
+  if (!state.movedItemNotices) {
+    state.movedItemNotices = new Map();
+  }
+  const existingNotice = state.movedItemNotices.get(notice.id);
+  clearMovedItemNoticeTimers(existingNotice);
+  state.movedItemNotices.set(notice.id, {
+    ...notice,
+    isExpiring: false,
+    timerId: null,
+    removalTimerId: null,
+  });
+  renderItems(root, state);
+
+  const activeNotice = state.movedItemNotices.get(notice.id);
+  if (activeNotice) {
+    scheduleMovedItemNoticeDismiss(root, state, activeNotice);
+  }
+
+  const noticeNode = root.querySelector(`[data-moved-item-notice="${notice.id}"]`);
+  if (noticeNode instanceof HTMLElement && typeof noticeNode.scrollIntoView === "function") {
+    noticeNode.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
+async function restoreMovedItem(root, state, itemId) {
+  const notice = state.movedItemNotices?.get(itemId);
+  if (!notice) {
+    throw new Error(translate("list_detail.item_not_found", {}, "Could not find that item."));
+  }
+
+  clearMovedItemNoticeTimers(notice);
+  try {
+    const restoredItem = await moveItemWithOfflineFallback(root, state, itemId, notice.restorePayload);
+    state.movedItemNotices.delete(itemId);
+    upsertItem(state, restoredItem);
+    renderItems(root, state);
+    persistOfflineListState(root, state);
+    setListMessage(
+      root,
+      "success",
+      translate("list_detail.item_move_undone_named", { name: restoredItem.name }, "{name} moved back.")
+    );
+    highlightItem(root, state, restoredItem.id);
+    return restoredItem;
+  } catch (error) {
+    scheduleMovedItemNoticeDismiss(root, state, notice);
+    throw error;
   }
 }
 
@@ -3008,10 +3145,14 @@ async function moveEditingItemToList(root, state, targetListId) {
       list_id: targetListId,
     });
     removeItem(state, movedItem.id);
-    renderItems(root, state);
     persistOfflineListState(root, state);
     setItemEditPanelOpen(root, state, null);
-    showItemMovedMessage(root, targetListId);
+    showMovedItemNotice(
+      root,
+      state,
+      createMovedItemNotice(root, state, existingItem, movedItem, targetListId)
+    );
+    setListMessage(root, "", "");
     return true;
   } catch (error) {
     syncItemMoveSelect(root, state, existingListId);
@@ -3740,6 +3881,46 @@ function getActiveGroupOrder(state, items) {
   return orderedKeys.filter((groupKey) => groupKeys.has(groupKey));
 }
 
+function createMovedItemNoticeElement(root, state, notice) {
+  const article = document.createElement("article");
+  article.className = `item-card item-move-notice${notice.isExpiring ? " is-expiring" : ""}`;
+  article.dataset.movedItemNotice = notice.id;
+
+  const copy = document.createElement("div");
+  copy.className = "item-move-notice-copy";
+
+  const message = document.createElement("p");
+  message.textContent = translate(
+    "list_detail.item_moved_named",
+    { name: notice.itemName, list: notice.targetListName },
+    "{name} moved to {list}."
+  );
+  copy.appendChild(message);
+  article.appendChild(copy);
+
+  const actions = document.createElement("div");
+  actions.className = "item-move-notice-actions";
+
+  const undoButton = document.createElement("button");
+  undoButton.type = "button";
+  undoButton.dataset.movedItemUndo = notice.id;
+  undoButton.textContent = translate("common.undo", {}, "Undo");
+  actions.appendChild(undoButton);
+
+  const targetLink = document.createElement("a");
+  targetLink.href = `/lists/${encodeURIComponent(notice.targetListId)}`;
+  targetLink.textContent = translate("list_detail.go_to_list", {}, "Go to list");
+  actions.appendChild(targetLink);
+
+  article.appendChild(actions);
+
+  const timer = document.createElement("div");
+  timer.className = "item-move-notice-timer";
+  article.appendChild(timer);
+
+  return article;
+}
+
 function renderItems(root, state) {
   const container = root.querySelector("[data-item-list]");
   const emptyState = root.querySelector("[data-item-empty]");
@@ -3749,13 +3930,15 @@ function renderItems(root, state) {
 
   const renderNow = Date.now();
   const decoratedItems = [...state.items.values()].map((item) => decorateItem(state, item));
-  const activeItems = decoratedItems
+  const movedNoticeItems = [...(state.movedItemNotices?.values() || [])].map(movedItemNoticeRenderItem);
+  const renderableItems = decoratedItems.concat(movedNoticeItems);
+  const activeItems = renderableItems
     .filter((item) => !item.checked && !isItemHidden(item, renderNow))
     .sort((left, right) => compareActiveItems(state, left, right));
-  const hiddenItems = decoratedItems
+  const hiddenItems = renderableItems
     .filter((item) => !item.checked && isItemHidden(item, renderNow))
     .sort((left, right) => compareActiveItems(state, left, right));
-  const checkedItems = decoratedItems
+  const checkedItems = renderableItems
     .filter((item) => item.checked)
     .sort(compareCheckedItems);
 
@@ -3824,6 +4007,11 @@ function renderItems(root, state) {
     section.appendChild(heading);
 
     items.forEach((item) => {
+      if (item.movedNotice) {
+        section.appendChild(createMovedItemNoticeElement(root, state, item.movedNotice));
+        return;
+      }
+
       const article = document.createElement("article");
       article.className = `item-card${item.checked ? " is-checked" : ""}${
         state.highlightedItemId === item.id ? " is-highlighted" : ""
@@ -3940,6 +4128,11 @@ function renderItems(root, state) {
     section.appendChild(heading);
 
     hiddenItems.forEach((item) => {
+      if (item.movedNotice) {
+        section.appendChild(createMovedItemNoticeElement(root, state, item.movedNotice));
+        return;
+      }
+
       const article = document.createElement("article");
       article.className = `item-card is-hidden${
         state.highlightedItemId === item.id ? " is-highlighted" : ""
@@ -4025,6 +4218,11 @@ function renderItems(root, state) {
     section.appendChild(heading);
 
     checkedItems.forEach((item) => {
+      if (item.movedNotice) {
+        section.appendChild(createMovedItemNoticeElement(root, state, item.movedNotice));
+        return;
+      }
+
       const article = document.createElement("article");
       article.className = `item-card is-checked${
         state.highlightedItemId === item.id ? " is-highlighted" : ""
@@ -4498,6 +4696,7 @@ async function initListDetail() {
     items: new Map(),
     lists: [],
     listName: "",
+    movedItemNotices: new Map(),
     nextDemoId: 1,
     offlineSyncInFlight: null,
     openItemMenuId: null,
@@ -4866,7 +5065,7 @@ async function initListDetail() {
     }
 
     const actionTarget = eventTarget.closest(
-      "[data-item-toggle], [data-item-hide], [data-item-unhide], [data-item-menu-toggle], [data-item-reuse], [data-settings-category-move], [data-settings-category-toggle]"
+      "[data-item-toggle], [data-item-hide], [data-item-unhide], [data-item-menu-toggle], [data-item-reuse], [data-moved-item-undo], [data-settings-category-move], [data-settings-category-toggle]"
     );
     const target = actionTarget instanceof HTMLElement ? actionTarget : null;
     const toggleId = target?.dataset.itemToggle || "";
@@ -4874,6 +5073,7 @@ async function initListDetail() {
     const unhideId = target?.dataset.itemUnhide || "";
     const menuToggleId = target?.dataset.itemMenuToggle || "";
     const reuseItemId = target?.dataset.itemReuse || "";
+    const movedItemUndoId = target?.dataset.movedItemUndo || "";
     const categoryMove = target?.dataset.settingsCategoryMove || "";
     const categoryToggleId = target?.dataset.settingsCategoryToggle || "";
     const categoryId = target?.dataset.categoryId || "";
@@ -4902,6 +5102,7 @@ async function initListDetail() {
       !unhideId &&
       !menuToggleId &&
       !reuseItemId &&
+      !movedItemUndoId &&
       !categoryMove &&
       !categoryToggleId
     ) {
@@ -4991,6 +5192,11 @@ async function initListDetail() {
 
         setItemPanelOpen(root, false);
         highlightItem(root, state, reuseItemId);
+        return;
+      }
+
+      if (movedItemUndoId) {
+        await restoreMovedItem(root, state, movedItemUndoId);
         return;
       }
 
@@ -5621,6 +5827,10 @@ export {
   flushOfflineMutations,
   hideUndoToast,
   showUndoToast,
+  createMovedItemNotice,
+  dismissMovedItemNotice,
+  showMovedItemNotice,
+  restoreMovedItem,
   normalizeItemName,
   normalizeSearchText,
   boundedEditDistance,
