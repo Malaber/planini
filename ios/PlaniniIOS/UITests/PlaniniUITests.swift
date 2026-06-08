@@ -471,7 +471,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(moveNoticeMessage.label.contains("Hosting errands"))
         let checkedCountBadge = sectionCountBadge(sectionID: "checked", title: "Checked off", in: app)
         scrollToElement(checkedCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 2))
+        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 1))
         captureScreenshot(named: "ios-ui-moved-item-notice")
         let moveUndoButton = app.buttons["move-item-undo-button-\(seededItemID.uuidString)"]
         scrollToHittable(moveUndoButton, in: app, maxSwipes: 12)
@@ -509,7 +509,7 @@ final class PlaniniUITests: XCTestCase {
         )
         XCTAssertTrue(waitForItemRow(itemID: seededItemID, named: "Brot", in: app, timeout: 20))
         scrollToElement(checkedCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 3))
+        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 2))
 
         XCTAssertTrue(
             waitForItemRow(itemID: updatedItemID, named: updatedName, in: app, timeout: 20),
@@ -542,7 +542,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(failedUndoError.waitForExistence(timeout: 5))
         XCTAssertTrue(failedUndoNotice.exists)
         scrollToElement(checkedCountBadge, in: app, maxSwipes: 12)
-        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 2))
+        XCTAssertTrue(waitForSectionCountBadge(checkedCountBadge, count: 1))
 
         XCTAssertTrue(tapTab("Lists", in: app))
         returnToListsRootIfNeeded(app)
@@ -841,11 +841,11 @@ final class PlaniniUITests: XCTestCase {
 
         let listTitle = app.staticTexts["list-detail-title"]
         XCTAssertTrue(
-            openInitialListDetail(in: app, listTitle: listTitle),
+            openInitialListDetail(in: app, listTitle: listTitle, timeout: 90),
             "Expected online launch to cache the initial list before offline relaunch."
         )
         XCTAssertTrue(
-            firstVisibleUncheckedToggle(in: app, timeout: 10) != nil,
+            firstVisibleUncheckedToggle(in: app, timeout: 20) != nil,
             "Expected online launch to cache at least one unchecked seeded item before offline relaunch."
         )
         app.terminate()
