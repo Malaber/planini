@@ -850,6 +850,91 @@ main {
   box-shadow: inset 0 0 0 2px var(--brand-aqua);
 }
 
+.item-move-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 4.6rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(217, 197, 179, 0.92);
+  border-radius: 18px;
+  background: rgba(255, 250, 244, 0.96);
+  color: var(--text);
+  cursor: default;
+  box-shadow: 0 12px 24px rgba(76, 53, 36, 0.1);
+  animation: item-move-notice-enter 180ms ease both;
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+.item-move-notice.is-expiring {
+  opacity: 0;
+  transform: translateY(-0.35rem) scale(0.985);
+}
+
+.item-move-notice-copy {
+  min-width: 0;
+}
+
+.item-move-notice-copy p {
+  font-weight: 800;
+}
+
+.item-move-notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 0 0 auto;
+}
+
+.item-move-notice-actions button,
+.item-move-notice-actions a {
+  border: 1px solid rgba(181, 150, 118, 0.5);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text);
+  cursor: pointer;
+  padding: 0.65rem 0.95rem;
+  font: inherit;
+  font-weight: 800;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.item-move-notice-actions button:hover,
+.item-move-notice-actions a:hover {
+  border-color: var(--brand-aqua);
+  background: #fff;
+}
+
+.item-move-notice-timer {
+  position: absolute;
+  left: 0.8rem;
+  right: 0.8rem;
+  bottom: 0.35rem;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand-lime), var(--brand-aqua));
+  transform-origin: left center;
+  animation: list-toast-countdown linear forwards;
+  animation-duration: var(--undo-duration, 10s);
+}
+
+@keyframes item-move-notice-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-0.35rem) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .item-card h3,
 .item-card p {
   margin: 0;
@@ -2217,6 +2302,19 @@ main {
   .item-card-content {
     gap: 0.55rem;
     padding: 0.62rem 0.8rem;
+  }
+
+  .item-move-notice {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    margin: 0.45rem 0.75rem;
+    border-radius: 16px;
+  }
+
+  .item-move-notice-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .item-main {
