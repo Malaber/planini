@@ -20,6 +20,92 @@ private struct AddItemPresentation: Identifiable {
     let categoryID: UUID?
 }
 
+private struct ItemMoveNotice: Identifiable, Equatable {
+    let id: UUID
+    let sourceListID: UUID
+    let targetListID: UUID
+    let targetListName: String
+    let sourceItem: GroceryItemRecord
+    let movedItem: GroceryItemRecord
+    var isExpiring = false
+    var restoreErrorMessage: String?
+
+    var itemName: String {
+        movedItem.name
+    }
+}
+
+private enum ListRowContent: Identifiable, Equatable {
+    case item(GroceryItemRecord)
+    case moveNotice(ItemMoveNotice)
+
+    var id: String {
+        switch self {
+        case let .item(item):
+            return item.id.uuidString
+        case let .moveNotice(notice):
+            return "move-notice-\(notice.id.uuidString)"
+        }
+    }
+
+    var sortOrder: Int {
+        switch self {
+        case let .item(item):
+            return item.sortOrder
+        case let .moveNotice(notice):
+            return notice.sourceItem.sortOrder
+        }
+    }
+
+    var name: String {
+        switch self {
+        case let .item(item):
+            return item.name
+        case let .moveNotice(notice):
+            return notice.itemName
+        }
+    }
+}
+
+private struct ListDisplaySection: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let colorHex: String?
+    let kind: GroceryItemSectionKind
+    var rows: [ListRowContent]
+
+    var itemCount: Int {
+        rows.reduce(0) { count, row in
+            if case .item = row {
+                return count + 1
+            }
+            return count
+        }
+    }
+
+    init(
+        id: String,
+        title: String,
+        colorHex: String?,
+        kind: GroceryItemSectionKind,
+        rows: [ListRowContent]
+    ) {
+        self.id = id
+        self.title = title
+        self.colorHex = colorHex
+        self.kind = kind
+        self.rows = rows
+    }
+
+    init(section: GroceryItemSection) {
+        id = section.id
+        title = section.title
+        colorHex = section.colorHex
+        kind = section.kind
+        rows = section.items.map(ListRowContent.item)
+    }
+}
+
 private typealias ListUndoAction = @MainActor () async -> Bool
 
 private struct ListUndoToast: Identifiable {
@@ -980,6 +1066,9 @@ private struct ListDetailScreen: View {
     @State private var displayedListID: UUID
     @State private var editingItem: GroceryItemRecord?
     @State private var addItemPresentation: AddItemPresentation?
+    @State private var highlightedItemID: UUID?
+    @State private var moveNotice: ItemMoveNotice?
+    @State private var moveNoticeDismissTask: Task<Void, Never>?
     @State private var undoToast: ListUndoToast?
     @State private var undoDismissTask: Task<Void, Never>?
     @State private var isRunningUndo = false
@@ -1003,9 +1092,24 @@ private struct ListDetailScreen: View {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private var visibleItemIDs: [UUID] {
-        viewModel.sections.flatMap { section in
-            section.items.map(\.id)
+    private var displaySections: [ListDisplaySection] {
+        var sections = viewModel.sections.map(ListDisplaySection.init)
+        guard let moveNotice else { return sections }
+
+        let noticeSection = displaySection(for: moveNotice)
+        if let index = sections.firstIndex(where: { $0.id == noticeSection.id }) {
+            sections[index].rows.append(.moveNotice(moveNotice))
+            sections[index].rows.sort(by: compareRows)
+            return sections
+        }
+
+        sections.insert(noticeSection, at: insertionIndex(for: noticeSection, in: sections))
+        return sections
+    }
+
+    private var visibleRowIDs: [String] {
+        displaySections.flatMap { section in
+            section.rows.map(\.id)
         }
     }
 
@@ -1036,7 +1140,7 @@ private struct ListDetailScreen: View {
                 }
             }
 
-            if viewModel.sections.isEmpty {
+            if displaySections.isEmpty {
                 Section {
                     EmptyStateView(
                         title: l10n.t("ios.list.empty_title"),
@@ -1045,13 +1149,23 @@ private struct ListDetailScreen: View {
                     )
                 }
             } else {
-                ForEach(viewModel.sections) { section in
+                ForEach(displaySections) { section in
                     Section {
-                        ForEach(section.items) { item in
-                            ItemRow(item: item) {
-                                editingItem = item
-                            } onUndoableAction: { message, action in
-                                showUndoToast(message: message, action: action)
+                        ForEach(section.rows) { row in
+                            switch row {
+                            case let .item(item):
+                                ItemRow(item: item) {
+                                    editingItem = item
+                                } onUndoableAction: { message, action in
+                                    showUndoToast(message: message, action: action)
+                                }
+                                .background(rowHighlight(for: item))
+                            case let .moveNotice(notice):
+                                ItemMoveNoticeRow(notice: notice) {
+                                    undoMove(notice)
+                                }
+                                .opacity(notice.isExpiring ? 0 : 1)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                             }
                         }
                     } header: {
@@ -1135,7 +1249,9 @@ private struct ListDetailScreen: View {
             displayedListID = newValue
         }
         .sheet(item: $editingItem) { item in
-            EditItemSheet(item: item)
+            EditItemSheet(item: item) { notice in
+                showMoveNotice(notice)
+            }
         }
         .sheet(item: $addItemPresentation) { presentation in
             AddItemSheet(initialCategoryID: presentation.categoryID) { message, action in
@@ -1158,12 +1274,106 @@ private struct ListDetailScreen: View {
         .sheet(isPresented: $showingListSettings) {
             ListSettingsSheet(listID: displayedListID)
         }
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: visibleItemIDs)
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: visibleRowIDs)
+        .animation(.easeInOut(duration: 0.22), value: highlightedItemID)
+        .animation(.easeInOut(duration: 0.22), value: moveNotice)
         .animation(.spring(response: 0.28, dampingFraction: 0.9), value: undoToast?.id)
         .onDisappear {
+            moveNoticeDismissTask?.cancel()
             undoDismissTask?.cancel()
         }
         .accessibilityIdentifier("list-detail-screen")
+    }
+
+    private func displaySection(for notice: ItemMoveNotice) -> ListDisplaySection {
+        let sourceItem = notice.sourceItem
+        let kind: GroceryItemSectionKind
+        let title: String
+        let colorHex: String?
+
+        if sourceItem.checked {
+            kind = .checked
+            title = l10n.t("ios.list.checked_off")
+            colorHex = nil
+        } else if let categoryID = sourceItem.categoryID,
+            let category = viewModel.categories.first(where: { $0.id == categoryID })
+        {
+            kind = .category(categoryID)
+            title = category.name
+            colorHex = category.colorHex
+        } else {
+            kind = .uncategorized
+            title = l10n.t("ios.list.uncategorized")
+            colorHex = nil
+        }
+
+        return ListDisplaySection(
+            id: sectionID(for: kind),
+            title: title,
+            colorHex: colorHex,
+            kind: kind,
+            rows: [.moveNotice(notice)]
+        )
+    }
+
+    private func sectionID(for kind: GroceryItemSectionKind) -> String {
+        switch kind {
+        case .uncategorized:
+            return "uncategorized"
+        case let .category(categoryID):
+            return "category-\(categoryID.uuidString)"
+        case .checked:
+            return "checked"
+        }
+    }
+
+    private func insertionIndex(for section: ListDisplaySection, in sections: [ListDisplaySection]) -> Int {
+        switch section.kind {
+        case .uncategorized:
+            return 0
+        case .checked:
+            return sections.endIndex
+        case let .category(categoryID):
+            let sortOrder = viewModel.categoryOrder.first { $0.categoryID == categoryID }?.sortOrder ?? Int.max
+            return sections.firstIndex { existing in
+                switch existing.kind {
+                case .checked:
+                    return true
+                case let .category(existingID):
+                    let existingSortOrder = viewModel.categoryOrder.first { $0.categoryID == existingID }?.sortOrder ?? Int.max
+                    return existingSortOrder > sortOrder
+                case .uncategorized:
+                    return false
+                }
+            } ?? sections.endIndex
+        }
+    }
+
+    private func compareRows(_ left: ListRowContent, _ right: ListRowContent) -> Bool {
+        if left.sortOrder != right.sortOrder {
+            return left.sortOrder < right.sortOrder
+        }
+        return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
+    }
+
+    private func showMoveNotice(_ notice: ItemMoveNotice) {
+        moveNoticeDismissTask?.cancel()
+        var activeNotice = notice
+        activeNotice.isExpiring = false
+        moveNotice = activeNotice
+
+        moveNoticeDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard Task.isCancelled == false else { return }
+            await MainActor.run {
+                moveNotice?.isExpiring = true
+            }
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            guard Task.isCancelled == false else { return }
+            await MainActor.run {
+                moveNotice = nil
+            }
+        }
     }
 
     private func showUndoToast(message: String, action: @escaping ListUndoAction) {
@@ -1178,6 +1388,34 @@ private struct ListDetailScreen: View {
                 undoToast = nil
             }
         }
+    }
+
+    private func undoMove(_ notice: ItemMoveNotice) {
+        moveNoticeDismissTask?.cancel()
+        Task {
+            let restoredItem = await viewModel.move(
+                item: notice.movedItem,
+                to: notice.sourceListID,
+                payload: GroceryItemEditPayload(item: notice.movedItem)
+            )
+            await MainActor.run {
+                guard let restoredItem else {
+                    var failedNotice = notice
+                    failedNotice.isExpiring = false
+                    failedNotice.restoreErrorMessage = l10n.t("ios.item.move_undo_failed")
+                    moveNotice = failedNotice
+                    return
+                }
+
+                AppHaptics.confirmation()
+                moveNotice = nil
+                highlightedItemID = restoredItem.id
+            }
+        }
+    }
+
+    private func rowHighlight(for item: GroceryItemRecord) -> Color {
+        item.id == highlightedItemID ? Color.accentColor.opacity(0.16) : Color.clear
     }
 
     private func runUndoToast(_ toast: ListUndoToast) {
@@ -1196,7 +1434,7 @@ private struct ListDetailScreen: View {
         }
     }
 
-    private func localizedTitle(for section: GroceryItemSection) -> String {
+    private func localizedTitle(for section: ListDisplaySection) -> String {
         switch section.kind {
         case .uncategorized:
             return l10n.t("ios.list.uncategorized")
@@ -1527,7 +1765,7 @@ private struct FloatingUndoToastView: View {
 
 private struct SectionHeader: View {
     @EnvironmentObject private var l10n: AppLocalization
-    let section: GroceryItemSection
+    let section: ListDisplaySection
     let title: String
     let onQuickAdd: (UUID?) -> Void
 
@@ -1577,7 +1815,7 @@ private struct SectionHeader: View {
             }
         }
         .textCase(nil)
-        .accessibilityIdentifier("section-\(section.id)")
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -1694,6 +1932,45 @@ private struct ItemRow: View {
             }
             .tint(.blue)
         }
+    }
+}
+
+private struct ItemMoveNoticeRow: View {
+    @EnvironmentObject private var l10n: AppLocalization
+    let notice: ItemMoveNotice
+    let onUndo: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.right.circle.fill")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(l10n.t("ios.item.move_notice", ["name": notice.itemName, "list": notice.targetListName]))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .accessibilityIdentifier("item-move-notice-message-\(notice.id.uuidString)")
+
+                if let restoreErrorMessage = notice.restoreErrorMessage {
+                    Text(restoreErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("item-move-notice-error-\(notice.id.uuidString)")
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Button("Undo", action: onUndo)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("move-item-undo-button-\(notice.id.uuidString)")
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("item-move-notice-\(notice.id.uuidString)")
     }
 }
 
@@ -2112,6 +2389,7 @@ private struct EditItemSheet: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
     let item: GroceryItemRecord
+    let onMoved: (ItemMoveNotice) -> Void
 
     @State private var name: String
     @State private var quantity: String
@@ -2122,6 +2400,8 @@ private struct EditItemSheet: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var saveStatus: SaveStatus = .saved
     @State private var suppressHistoryRecording = false
+    @State private var isMoving = false
+    @State private var didMoveItem = false
 
     private enum SaveStatus: Equatable {
         case saved
@@ -2156,8 +2436,9 @@ private struct EditItemSheet: View {
         }
     }
 
-    init(item: GroceryItemRecord) {
+    init(item: GroceryItemRecord, onMoved: @escaping (ItemMoveNotice) -> Void) {
         self.item = item
+        self.onMoved = onMoved
         let payload = GroceryItemEditPayload(item: item)
         _name = State(initialValue: item.name)
         _quantity = State(initialValue: item.quantityText ?? "")
@@ -2192,6 +2473,48 @@ private struct EditItemSheet: View {
                         )
                     }
                     .accessibilityIdentifier("edit-item-category-link")
+                }
+
+                if moveTargets.count > 1 {
+                    Section(l10n.t("ios.item.move_section")) {
+                        ForEach(moveTargets) { list in
+                            if list.id == item.listID {
+                                Label {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(list.name)
+                                        Text(l10n.t("ios.item.current_list"))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                } icon: {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                }
+                                .accessibilityIdentifier("edit-item-current-list-\(list.id.uuidString)")
+                            } else {
+                                Button {
+                                    move(to: list.id)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Text(list.name)
+                                        Spacer()
+                                        Image(systemName: "arrow.right")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .disabled(isMoving)
+                                .accessibilityIdentifier("edit-item-move-list-\(list.id.uuidString)")
+                                .accessibilityLabel(l10n.t("ios.item.move_to_list_named", ["list": list.name]))
+                            }
+                        }
+
+                        if isMoving {
+                            Label(l10n.t("ios.item.moving"), systemImage: "arrow.right")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 Section(l10n.t("ios.item.notes_section")) {
@@ -2248,7 +2571,9 @@ private struct EditItemSheet: View {
         .onChange(of: categoryID) { _ in scheduleAutosave() }
         .onDisappear {
             persistHistory()
-            flushCurrentEdit()
+            if didMoveItem == false {
+                flushCurrentEdit()
+            }
         }
         .accessibilityIdentifier("edit-item-sheet")
     }
@@ -2260,6 +2585,10 @@ private struct EditItemSheet: View {
             note: note,
             categoryID: categoryID
         )
+    }
+
+    private var moveTargets: [GroceryListSummary] {
+        viewModel.moveTargetLists(for: item)
     }
 
     private var selectedCategory: GroceryCategorySummary? {
@@ -2346,6 +2675,50 @@ private struct EditItemSheet: View {
     private func applyRedo() {
         guard let payload = history.redo(current: currentPayload) else { return }
         apply(payload)
+    }
+
+    private func move(to targetListID: UUID) {
+        guard targetListID != item.listID, isMoving == false else { return }
+        guard let targetList = moveTargets.first(where: { $0.id == targetListID }) else {
+            return
+        }
+
+        saveTask?.cancel()
+        let payload = currentPayload
+        guard payload.isValid else {
+            saveStatus = .invalid
+            return
+        }
+
+        isMoving = true
+        saveStatus = .saving
+        Task {
+            let movedItem = await viewModel.move(item: item, to: targetListID, payload: payload)
+            await MainActor.run {
+                isMoving = false
+                guard let movedItem else {
+                    saveStatus = .saved
+                    return
+                }
+
+                didMoveItem = true
+                lastSavedPayload = payload
+                persistHistory()
+                onMoved(
+                    ItemMoveNotice(
+                        id: item.id,
+                        sourceListID: item.listID,
+                        targetListID: targetListID,
+                        targetListName: targetList.name,
+                        sourceItem: item.applyingEditPayload(payload),
+                        movedItem: movedItem,
+                        isExpiring: false
+                    )
+                )
+                AppHaptics.confirmation()
+                dismiss()
+            }
+        }
     }
 
     private func flushCurrentEdit() {
