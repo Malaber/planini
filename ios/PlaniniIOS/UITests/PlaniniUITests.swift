@@ -37,6 +37,7 @@ final class PlaniniUITests: XCTestCase {
         app.launchEnvironment["PLANINI_UI_TEST_DISPLAY_NAME"] = session.displayName
         app.launchEnvironment["PLANINI_UI_TEST_INITIAL_LIST_NAME"] = initialListName
         app.launchEnvironment["PLANINI_UI_TEST_RESET_APPEARANCE_MODE"] = "1"
+        app.launchEnvironment["PLANINI_UI_TEST_CATEGORY_ORDER_SAVE_DELAY_MS"] = "5000"
 
         app.launch()
 
@@ -721,12 +722,26 @@ final class PlaniniUITests: XCTestCase {
             dragCategoryRow(
                 backwarenRow,
                 before: haushaltRow,
-                in: app,
-                listID: hostingListID,
-                firstCategoryID: backwarenCategoryID,
-                accessToken: session.accessToken
+                in: app
             )
         )
+        XCTAssertTrue(waitForElementLabel(settingsSaveState, containing: "Saving", timeout: 3))
+        XCTAssertTrue(
+            dragCategoryRow(
+                konservenRow,
+                before: backwarenRow,
+                in: app
+            )
+        )
+        XCTAssertTrue(
+            waitForFirstCategoryOrder(
+                listID: hostingListID,
+                categoryID: hostingKonservenCategoryID,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
+        XCTAssertTrue(waitForElementLabel(settingsSaveState, containing: "Saved", timeout: 8))
 
         let konservenToggle = firstExistingElement(
             [
@@ -1482,10 +1497,7 @@ final class PlaniniUITests: XCTestCase {
     private func dragCategoryRow(
         _ movingRow: XCUIElement,
         before targetRow: XCUIElement,
-        in app: XCUIApplication,
-        listID: UUID,
-        firstCategoryID: UUID,
-        accessToken: String
+        in app: XCUIApplication
     ) -> Bool {
         let grabberOffsets: [CGFloat] = [1.12, 1.04, 0.98, 0.96, 0.92, 0.85, 0.72, 0.55]
         let targetOffsets: [CGFloat] = [-1.2, -0.9, -0.7, -0.65, -0.6, -0.45, -0.35, -0.25, -0.1]
@@ -1501,28 +1513,28 @@ final class PlaniniUITests: XCTestCase {
                 let grabber = movingRow.coordinate(withNormalizedOffset: CGVector(dx: grabberOffset, dy: 0.5))
                 let target = targetRow.coordinate(withNormalizedOffset: CGVector(dx: targetX, dy: targetOffset))
                 grabber.press(forDuration: 1.2, thenDragTo: target)
-                if waitForFirstCategoryOrder(
-                    listID: listID,
-                    categoryID: firstCategoryID,
-                    accessToken: accessToken,
-                    timeout: 6
-                ) {
+                if waitForCategoryRow(movingRow, before: targetRow, timeout: 2) {
                     return true
                 }
                 RunLoop.current.run(until: Date().addingTimeInterval(0.5))
             }
         }
-        try? updateCategoryOrder(
-            listID: listID,
-            categoryIDs: [firstCategoryID],
-            accessToken: accessToken
-        )
-        return waitForFirstCategoryOrder(
-            listID: listID,
-            categoryID: firstCategoryID,
-            accessToken: accessToken,
-            timeout: 4
-        )
+        return false
+    }
+
+    private func waitForCategoryRow(
+        _ movingRow: XCUIElement,
+        before targetRow: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if movingRow.exists && targetRow.exists && movingRow.frame.minY < targetRow.frame.minY {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return false
     }
 
     private func waitForDisabledCategory(

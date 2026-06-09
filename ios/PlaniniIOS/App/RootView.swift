@@ -1498,7 +1498,6 @@ private struct ListSettingsSheet: View {
     @State private var saveState: ListSettingsSaveState = .saved
     @State private var nameSaveTask: Task<Void, Never>?
     @State private var busyCategoryID: UUID?
-    @State private var isSavingCategoryOrder = false
     @State private var pendingDisable: CategoryDisableConfirmation?
     @FocusState private var focusedField: ListSettingsFocusedField?
 
@@ -1532,9 +1531,15 @@ private struct ListSettingsSheet: View {
                     }
                 }
         }
-        .onAppear(perform: syncName)
+        .onAppear {
+            syncName()
+            syncCategoryOrderSaveState(viewModel.categoryOrderBackgroundSaveState)
+        }
         .onChange(of: currentList?.name ?? "") { _ in syncName() }
         .onChange(of: name) { _ in scheduleNameAutosave() }
+        .onChange(of: viewModel.categoryOrderBackgroundSaveState) { newValue in
+            syncCategoryOrderSaveState(newValue)
+        }
         .onChange(of: focusedField) { newValue in
             if newValue != .name {
                 saveNameNow()
@@ -1667,15 +1672,20 @@ private struct ListSettingsSheet: View {
     }
 
     private func moveCategories(from source: IndexSet, to destination: Int) {
-        guard isSavingCategoryOrder == false else { return }
         var categoryIDs = viewModel.categoriesForSettings.map(\.id)
         categoryIDs.move(fromOffsets: source, toOffset: destination)
-        isSavingCategoryOrder = true
         saveState = .saving
-        Task { @MainActor in
-            let saved = await viewModel.saveCategoryOrder(categoryIDs: categoryIDs)
-            isSavingCategoryOrder = false
-            saveState = saved ? .saved : .failed
+        viewModel.saveCategoryOrderInBackground(categoryIDs: categoryIDs)
+    }
+
+    private func syncCategoryOrderSaveState(_ state: CategoryOrderBackgroundSaveState) {
+        switch state {
+        case .saved:
+            saveState = .saved
+        case .saving:
+            saveState = .saving
+        case .failed:
+            saveState = .failed
         }
     }
 
