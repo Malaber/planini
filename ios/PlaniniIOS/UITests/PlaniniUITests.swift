@@ -125,8 +125,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(openAddItemSheet(using: quickAddButton, in: app))
         XCTAssertTrue(app.buttons["add-item-save-button"].waitForExistence(timeout: 3))
         captureScreenshot(named: "ios-ui-category-quick-add")
-        tapCancelButton(in: app)
-        XCTAssertTrue(waitForElementToDisappear(app.otherElements["add-item-sheet"], timeout: 3))
+        XCTAssertTrue(cancelAddItemSheet(in: app))
 
         XCTAssertTrue(openAddItemSheet(in: app))
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 3))
@@ -155,8 +154,7 @@ final class PlaniniUITests: XCTestCase {
             captureScreenshot(named: "ios-ui-floating-undo-suggestion")
             tapElement(suggestionUndoButton)
         } else {
-            tapCancelButton(in: app)
-            XCTAssertTrue(waitForElementToDisappear(app.otherElements["add-item-sheet"], timeout: 3))
+            XCTAssertTrue(cancelAddItemSheet(in: app))
             XCTAssertTrue(waitForItemRow(itemID: seededItemID, named: "Brot", in: app, timeout: 15))
             let brotToggle = app.buttons["toggle-item-\(seededItemID.uuidString)"]
             XCTAssertTrue(brotToggle.waitForExistence(timeout: 5))
@@ -2047,6 +2045,27 @@ final class PlaniniUITests: XCTestCase {
         )
         XCTAssertTrue(button.exists)
         tapElement(button)
+    }
+
+    private func cancelAddItemSheet(in app: XCUIApplication, timeout: TimeInterval = 10) -> Bool {
+        let sheet = app.otherElements["add-item-sheet"]
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            guard sheet.exists else {
+                return true
+            }
+            let cancelButton = app.buttons["add-item-cancel-button"]
+            if cancelButton.exists {
+                tapElement(cancelButton)
+            }
+            if waitForElementToDisappear(sheet, timeout: 2) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+
+        return !sheet.exists
     }
 
     private func replaceText(in element: XCUIElement, with value: String) {
