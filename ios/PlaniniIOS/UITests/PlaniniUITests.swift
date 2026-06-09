@@ -1195,9 +1195,8 @@ final class PlaniniUITests: XCTestCase {
         accessToken: String,
         timeout: TimeInterval = 20
     ) -> Bool {
-        let button = app.buttons["toggle-item-\(itemID.uuidString)"]
         let editSheet = app.otherElements["edit-item-sheet"]
-        let desiredActionPrefix = checked ? "Uncheck " : "Check "
+        let toggleActionPrefix = checked ? "Check " : "Uncheck "
         let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
@@ -1216,9 +1215,13 @@ final class PlaniniUITests: XCTestCase {
                 _ = waitForElementToDisappear(editSheet, timeout: 3)
             }
 
-            if button.exists {
-                scrollToHittable(button, in: app, maxSwipes: 8)
-                if button.isHittable && button.label.hasPrefix(desiredActionPrefix) == false {
+            if let button = findHittableItemToggleButton(
+                itemID: itemID,
+                named: itemName,
+                in: app,
+                maxSwipes: 8
+            ) {
+                if button.label.hasPrefix(toggleActionPrefix) {
                     button.tap()
                 }
             } else {
@@ -2159,6 +2162,40 @@ final class PlaniniUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
         return row.exists && toggle.exists && toggle.label.contains(itemName)
+    }
+
+    private func findHittableItemToggleButton(
+        itemID: UUID,
+        named itemName: String,
+        in app: XCUIApplication,
+        maxSwipes: Int
+    ) -> XCUIElement? {
+        let identifier = "toggle-item-\(itemID.uuidString)"
+
+        func currentButton() -> XCUIElement? {
+            let button = app.buttons[identifier]
+            guard button.exists, button.isHittable, button.label.contains(itemName) else {
+                return nil
+            }
+            return button
+        }
+
+        if let button = currentButton() {
+            return button
+        }
+        for _ in 0..<maxSwipes {
+            app.swipeUp()
+            if let button = currentButton() {
+                return button
+            }
+        }
+        for _ in 0..<maxSwipes {
+            app.swipeDown()
+            if let button = currentButton() {
+                return button
+            }
+        }
+        return nil
     }
 
     private func itemRow(itemID: UUID, in app: XCUIApplication) -> XCUIElement {
