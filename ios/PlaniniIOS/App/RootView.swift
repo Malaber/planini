@@ -1110,12 +1110,6 @@ private struct ListDetailScreen: View {
         return sections
     }
 
-    private var visibleRowIDs: [String] {
-        displaySections.flatMap { section in
-            section.rows.map(\.id)
-        }
-    }
-
     var body: some View {
         List {
             if let list = currentList {
@@ -1285,7 +1279,6 @@ private struct ListDetailScreen: View {
         .sheet(isPresented: $showingListSettings) {
             ListSettingsSheet(listID: displayedListID)
         }
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: visibleRowIDs)
         .animation(.easeInOut(duration: 0.22), value: highlightedItemID)
         .animation(.easeInOut(duration: 0.22), value: moveNotice)
         .animation(.spring(response: 0.28, dampingFraction: 0.9), value: undoToast?.id)
