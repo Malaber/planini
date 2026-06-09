@@ -375,6 +375,10 @@ final class PlaniniUITests: XCTestCase {
         )
         XCTAssertTrue(deleteButton.exists)
         tapElement(deleteButton)
+        let deleteUndoButton = app.buttons["list-undo-button"]
+        let deleteUndoMessage = app.staticTexts["list-undo-message"]
+        XCTAssertTrue(deleteUndoButton.waitForExistence(timeout: 20))
+        XCTAssertTrue(deleteUndoMessage.label.contains("\(itemName) deleted."))
         XCTAssertTrue(
             waitForItemAbsent(
                 named: itemName,
@@ -382,10 +386,6 @@ final class PlaniniUITests: XCTestCase {
                 accessToken: session.accessToken
             )
         )
-        let deleteUndoButton = app.buttons["list-undo-button"]
-        let deleteUndoMessage = app.staticTexts["list-undo-message"]
-        XCTAssertTrue(deleteUndoButton.waitForExistence(timeout: 20))
-        XCTAssertTrue(deleteUndoMessage.label.contains("\(itemName) deleted."))
         captureScreenshot(named: "ios-ui-floating-undo-delete")
         tapElement(deleteUndoButton)
         XCTAssertTrue(
@@ -770,7 +770,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, renamedHostingName)
 
-        XCTAssertTrue(tapTab("Settings", in: app, timeout: 10))
+        XCTAssertTrue(openSettings(in: app, timeout: 10))
         XCTAssertTrue(app.buttons["settings-sign-out-button"].waitForExistence(timeout: 5))
         try exerciseHouseholdManagement(in: app, accessToken: session.accessToken)
         assertAppearanceMode("System", in: app)
@@ -781,7 +781,7 @@ final class PlaniniUITests: XCTestCase {
         app.terminate()
         app.launchEnvironment.removeValue(forKey: "PLANINI_UI_TEST_RESET_APPEARANCE_MODE")
         app.launch()
-        XCTAssertTrue(tapTab("Settings", in: app, timeout: 15))
+        XCTAssertTrue(openSettings(in: app, timeout: 15))
         assertAppearanceMode("Dark", in: app)
         selectAppearanceMode("Light", in: app)
         assertAppearanceMode("Light", in: app)
@@ -1272,6 +1272,8 @@ final class PlaniniUITests: XCTestCase {
         let hideButton = app.buttons["hide-item-\(itemID.uuidString)"]
         let deadline = Date().addingTimeInterval(timeout)
 
+        scrollToListTop(in: app, maxSwipes: 10)
+
         while Date() < deadline {
             if waitForItemHiddenState(
                 named: itemName,
@@ -1287,9 +1289,14 @@ final class PlaniniUITests: XCTestCase {
                 tapElement(hideButton)
             } else {
                 _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
-                scrollToHittable(row, in: app, maxSwipes: 2)
+                scrollToHittable(row, in: app, maxSwipes: 10)
                 if row.exists && row.isHittable {
-                    row.swipeRight()
+                    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+                    let end = row.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5))
+                    start.press(forDuration: 0.1, thenDragTo: end)
+                    if hideButton.waitForExistence(timeout: 2) {
+                        tapElement(hideButton)
+                    }
                 }
             }
 
@@ -1936,6 +1943,21 @@ final class PlaniniUITests: XCTestCase {
         return false
     }
 
+    private func openSettings(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        let picker = app.segmentedControls["settings-appearance-picker"]
+        while Date() < deadline {
+            if picker.exists {
+                return true
+            }
+            _ = tapTab("Settings", in: app, timeout: 2)
+            if picker.waitForExistence(timeout: 2) {
+                return true
+            }
+        }
+        return picker.exists
+    }
+
     private func tabCandidates(for label: String, in app: XCUIApplication) -> [XCUIElement] {
         let labels: [String]
         let ids: [String]
@@ -2039,11 +2061,27 @@ final class PlaniniUITests: XCTestCase {
         let option = firstExistingElement(appearanceModeElements(for: label, in: app), timeout: 3)
         XCTAssertTrue(option.waitForExistence(timeout: 3), file: file, line: line)
         XCTAssertTrue(
-            option.isSelected || appearanceModeLabels(for: label).contains(picker.valueText),
+            waitForAppearanceMode(label, picker: picker, option: option),
             "Expected \(label) appearance mode to be selected.",
             file: file,
             line: line
         )
+    }
+
+    private func waitForAppearanceMode(
+        _ label: String,
+        picker: XCUIElement,
+        option: XCUIElement,
+        timeout: TimeInterval = 5
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if option.isSelected || appearanceModeLabels(for: label).contains(picker.valueText) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return option.isSelected || appearanceModeLabels(for: label).contains(picker.valueText)
     }
 
     private func appearanceModeElements(for label: String, in app: XCUIApplication) -> [XCUIElement] {
