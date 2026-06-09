@@ -1179,11 +1179,11 @@ final class PlaniniUITests: XCTestCase {
             }
 
             if button.exists {
-                scrollToHittable(button, in: app, maxSwipes: 2)
+                scrollToHittable(button, in: app, maxSwipes: 12)
                 if button.isHittable {
                     button.tap()
                 } else {
-                    tapElement(button)
+                    continue
                 }
             } else {
                 _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
