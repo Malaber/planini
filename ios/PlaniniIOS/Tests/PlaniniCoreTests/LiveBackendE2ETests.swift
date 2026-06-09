@@ -319,6 +319,40 @@ struct LiveBackendE2ETests {
         )
         #expect(unchecked["checked"] as? Bool == false)
 
+        let hiddenUntil = ISO8601DateFormatter()
+            .string(from: Date().addingTimeInterval(4 * 60 * 60))
+        let hidden = try await client.jsonObject(
+            path: "/api/v1/items/\(itemID)",
+            method: "PATCH",
+            body: ["hidden_until": hiddenUntil],
+            token: accessToken
+        )
+        #expect(hidden["hidden_until"] as? String != nil)
+
+        let itemsAfterHide = try await client.jsonArray(
+            path: "/api/v1/lists/\(listID)/items",
+            token: accessToken
+        )
+        let sectionsAfterHide = GroceryItemSectionBuilder.build(
+            items: itemsAfterHide.compactMap(GroceryItemRecord.init),
+            categories: categories,
+            categoryOrder: categoryOrder
+        )
+        let hiddenSection = try #require(sectionsAfterHide.first { $0.kind == .hidden })
+        let checkedIndex = try #require(sectionsAfterHide.firstIndex { $0.kind == .checked })
+        let hiddenIndex = try #require(sectionsAfterHide.firstIndex { $0.kind == .hidden })
+        #expect(hiddenIndex < checkedIndex)
+        #expect(hiddenSection.title == "Saved for later")
+        #expect(hiddenSection.items.contains(where: { $0.name == updatedName }))
+
+        let restoredHidden = try await client.jsonObject(
+            path: "/api/v1/items/\(itemID)",
+            method: "PATCH",
+            body: ["hidden_until": NSNull()],
+            token: accessToken
+        )
+        #expect(restoredHidden["hidden_until"] is NSNull || restoredHidden["hidden_until"] == nil)
+
         _ = try await client.data(
             path: "/api/v1/items/\(itemID)",
             method: "DELETE",
