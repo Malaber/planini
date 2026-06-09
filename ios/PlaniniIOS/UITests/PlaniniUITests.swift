@@ -81,6 +81,7 @@ final class PlaniniUITests: XCTestCase {
             "Expected bootstrapped initial list to open."
         )
         XCTAssertTrue(tapTab("Lists", in: app))
+        returnToListsRootIfNeeded(app)
         let initialListRow = app.buttons["list-row-\(initialListName)"]
         XCTAssertTrue(initialListRow.waitForExistence(timeout: 10))
         let initialListNameText = app.staticTexts[initialListName]
