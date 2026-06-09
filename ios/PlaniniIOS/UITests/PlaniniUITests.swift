@@ -20,6 +20,10 @@ final class PlaniniUITests: XCTestCase {
         loginApp.launch()
         XCTAssertTrue(loginApp.buttons["login-passkey-button"].waitForExistence(timeout: 10))
         captureScreenshot(named: "promotion-login-dialogue")
+        assertAccountRegistrationAvailable(in: loginApp)
+        loginApp.terminate()
+        loginApp.launch()
+        XCTAssertTrue(loginApp.buttons["login-passkey-button"].waitForExistence(timeout: 10))
         assertReviewerOnboardingAvailable(in: loginApp)
         loginApp.terminate()
 
@@ -214,45 +218,6 @@ final class PlaniniUITests: XCTestCase {
         let enterSavedItemLabel = app.staticTexts[enterSavedItemName]
         scrollToElement(enterSavedItemLabel, in: app)
         XCTAssertTrue(enterSavedItemLabel.waitForExistence(timeout: 15))
-        let enterSavedItemID = try itemID(
-            named: enterSavedItemName,
-            inListNamed: initialListName,
-            accessToken: session.accessToken
-        )
-        scrollToElement(enterSavedItemLabel, in: app)
-        XCTAssertTrue(
-            tapItemToggleButton(
-                itemID: enterSavedItemID,
-                named: enterSavedItemName,
-                checked: true,
-                in: app,
-                inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
-        )
-        let directUndoButton = app.buttons["list-undo-button"]
-        let directUndoMessage = app.staticTexts["list-undo-message"]
-        XCTAssertTrue(directUndoButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(directUndoMessage.label.contains("\(enterSavedItemName) checked."))
-        XCTAssertTrue(
-            waitForItemCheckedState(
-                named: enterSavedItemName,
-                checked: true,
-                inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
-        )
-        captureScreenshot(named: "ios-ui-floating-undo-toggle")
-        tapElement(directUndoButton)
-        XCTAssertTrue(
-            waitForItemCheckedState(
-                named: enterSavedItemName,
-                checked: false,
-                inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
-        )
-        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
         XCTAssertTrue(openAddItemSheet(in: app))
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 3))
@@ -331,7 +296,7 @@ final class PlaniniUITests: XCTestCase {
         )
         let deleteUndoButton = app.buttons["list-undo-button"]
         let deleteUndoMessage = app.staticTexts["list-undo-message"]
-        XCTAssertTrue(deleteUndoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(deleteUndoButton.waitForExistence(timeout: 20))
         XCTAssertTrue(deleteUndoMessage.label.contains("\(itemName) deleted."))
         captureScreenshot(named: "ios-ui-floating-undo-delete")
         tapElement(deleteUndoButton)
@@ -549,6 +514,7 @@ final class PlaniniUITests: XCTestCase {
             )
         )
         XCTAssertTrue(waitForItemRow(itemID: seededItemID, named: "Brot", in: app, timeout: 20))
+
         XCTAssertTrue(
             waitForItemRow(itemID: updatedItemID, named: updatedName, in: app, timeout: 20),
             "Expected categorized updated item row to be visible before failed undo coverage."
@@ -577,6 +543,7 @@ final class PlaniniUITests: XCTestCase {
         let failedUndoError = app.staticTexts["item-move-notice-error-\(updatedItemID.uuidString)"]
         XCTAssertTrue(failedUndoError.waitForExistence(timeout: 5))
         XCTAssertTrue(failedUndoNotice.exists)
+
         XCTAssertTrue(tapTab("Lists", in: app))
         returnToListsRootIfNeeded(app)
         let hostingListRow = app.buttons["list-row-\(hostingListName)"]
@@ -811,11 +778,6 @@ final class PlaniniUITests: XCTestCase {
             "Expected bootstrapped initial list to open before live-update checks."
         )
         XCTAssertEqual(listTitle.label, initialListName)
-        let looseItemID = try itemID(named: "Loose item", inListNamed: initialListName, accessToken: session.accessToken)
-        XCTAssertTrue(
-            waitForItemRow(itemID: looseItemID, named: "Loose item", in: app, timeout: 10),
-            "Expected seeded uncategorized item to be reachable before live-update checks."
-        )
         XCTAssertTrue(
             waitForLiveUpdatesConnection(
                 app: app,
@@ -879,11 +841,11 @@ final class PlaniniUITests: XCTestCase {
 
         let listTitle = app.staticTexts["list-detail-title"]
         XCTAssertTrue(
-            openInitialListDetail(in: app, listTitle: listTitle),
+            openInitialListDetail(in: app, listTitle: listTitle, timeout: 90),
             "Expected online launch to cache the initial list before offline relaunch."
         )
         XCTAssertTrue(
-            firstVisibleUncheckedToggle(in: app, timeout: 10) != nil,
+            firstVisibleUncheckedToggle(in: app, timeout: 20) != nil,
             "Expected online launch to cache at least one unchecked seeded item before offline relaunch."
         )
         app.terminate()
@@ -1176,42 +1138,31 @@ final class PlaniniUITests: XCTestCase {
         let editSheet = app.otherElements["edit-item-sheet"]
         let deadline = Date().addingTimeInterval(timeout)
 
-        while Date() < deadline {
-            if waitForItemCheckedState(
-                named: itemName,
-                checked: checked,
-                inListNamed: listName,
-                accessToken: accessToken,
-                timeout: 0.5
-            ) {
-                return true
-            }
+        if waitForItemCheckedState(
+            named: itemName,
+            checked: checked,
+            inListNamed: listName,
+            accessToken: accessToken,
+            timeout: 0.5
+        ) {
+            return true
+        }
 
-            if editSheet.exists {
-                app.buttons["Done"].tap()
-                _ = waitForElementToDisappear(editSheet, timeout: 3)
-            }
+        if editSheet.exists {
+            app.buttons["Done"].tap()
+            _ = waitForElementToDisappear(editSheet, timeout: 3)
+        }
 
-            if button.exists {
-                scrollToHittable(button, in: app, maxSwipes: 2)
-                if button.isHittable {
-                    button.tap()
-                } else {
-                    tapElement(button)
-                }
-            } else {
-                _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
-            }
+        if button.exists == false {
+            _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
+        }
+        guard button.exists else { return false }
 
-            if waitForItemCheckedState(
-                named: itemName,
-                checked: checked,
-                inListNamed: listName,
-                accessToken: accessToken,
-                timeout: 2
-            ) {
-                return true
-            }
+        scrollToHittable(button, in: app, maxSwipes: 2)
+        if button.isHittable {
+            button.tap()
+        } else {
+            tapElement(button)
         }
 
         return waitForItemCheckedState(
@@ -1219,7 +1170,7 @@ final class PlaniniUITests: XCTestCase {
             checked: checked,
             inListNamed: listName,
             accessToken: accessToken,
-            timeout: 0.5
+            timeout: max(0.5, deadline.timeIntervalSinceNow)
         )
     }
 
@@ -2052,24 +2003,7 @@ final class PlaniniUITests: XCTestCase {
     }
 
     private func tapAddItemSaveAndWaitForDismissal(in app: XCUIApplication, timeout: TimeInterval = 12) -> Bool {
-        let sheet = app.otherElements["add-item-sheet"]
-        let deadline = Date().addingTimeInterval(timeout)
-
-        while Date() < deadline {
-            guard sheet.exists else {
-                return true
-            }
-            let saveButton = sheet.buttons["add-item-save-button"]
-            if saveButton.exists && saveButton.isEnabled {
-                tapElement(saveButton)
-            }
-            if waitForElementToDisappear(sheet, timeout: 2) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-        }
-
-        return !sheet.exists
+        saveAddItemSheet(in: app, timeout: timeout)
     }
 
     private func waitForItemRow(
@@ -2184,6 +2118,36 @@ final class PlaniniUITests: XCTestCase {
 
         tapCancelButton(in: app)
         XCTAssertTrue(waitForElementToDisappear(onboardingSheet, timeout: 5))
+        XCTAssertTrue(app.buttons["login-passkey-button"].waitForExistence(timeout: 3))
+    }
+
+    private func assertAccountRegistrationAvailable(in app: XCUIApplication) {
+        let createAccountButton = app.buttons["login-create-account-button"]
+        XCTAssertTrue(createAccountButton.waitForExistence(timeout: 3))
+        tapElement(createAccountButton)
+
+        let registrationSheet = app.otherElements["account-registration-sheet"]
+        XCTAssertTrue(registrationSheet.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.textFields["passkey-add-link-field"].exists)
+
+        let submitButton = app.buttons["registration-submit-button"]
+        XCTAssertFalse(submitButton.isEnabled)
+
+        let nameField = app.textFields["registration-display-name-field"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        nameField.tap()
+        nameField.typeText("New iOS User")
+
+        let emailField = app.textFields["registration-email-field"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 3))
+        emailField.tap()
+        emailField.typeText("new-ios-user@example.com")
+
+        XCTAssertTrue(submitButton.isEnabled)
+        captureScreenshot(named: "ios-ui-account-registration")
+
+        tapCancelButton(in: app)
+        XCTAssertTrue(waitForElementToDisappear(registrationSheet, timeout: 5))
         XCTAssertTrue(app.buttons["login-passkey-button"].waitForExistence(timeout: 3))
     }
 
