@@ -361,9 +361,7 @@ final class PlaniniUITests: XCTestCase {
         )
 
         let restoredItemRow = itemRow(itemID: restoredItemID, in: app)
-        scrollToHittable(restoredItemRow, in: app)
-        tapElement(restoredItemRow)
-        XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(openEditItemSheet(using: restoredItemRow, in: app))
         let undoButton = app.buttons["Undo"].firstMatch
         let redoButton = app.buttons["Redo"].firstMatch
         let closeButton = app.buttons["edit-item-close-button"]
@@ -496,9 +494,7 @@ final class PlaniniUITests: XCTestCase {
             "Expected checked seeded item row to be visible before opening edit sheet."
         )
         let seededMoveRow = itemRow(itemID: seededItemID, in: app)
-        scrollToHittable(seededMoveRow, in: app)
-        tapElement(seededMoveRow)
-        XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(openEditItemSheet(using: seededMoveRow, in: app))
         let hostingMoveButton = app.buttons["edit-item-move-list-\(hostingListID.uuidString)"]
         XCTAssertTrue(hostingMoveButton.waitForExistence(timeout: 3))
         scrollToHittable(hostingMoveButton, in: app)
@@ -558,9 +554,7 @@ final class PlaniniUITests: XCTestCase {
             "Expected categorized updated item row to be visible before failed undo coverage."
         )
         let updatedMoveRow = itemRow(itemID: updatedItemID, in: app)
-        scrollToHittable(updatedMoveRow, in: app)
-        tapElement(updatedMoveRow)
-        XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(openEditItemSheet(using: updatedMoveRow, in: app))
         let failedUndoMoveButton = app.buttons["edit-item-move-list-\(hostingListID.uuidString)"]
         XCTAssertTrue(failedUndoMoveButton.waitForExistence(timeout: 3))
         scrollToHittable(failedUndoMoveButton, in: app)
@@ -1994,6 +1988,31 @@ final class PlaniniUITests: XCTestCase {
             if trigger.exists {
                 scrollToHittable(trigger, in: app, maxSwipes: 2)
                 tapElement(trigger)
+            }
+            if sheet.waitForExistence(timeout: 1) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+
+        return sheet.exists
+    }
+
+    private func openEditItemSheet(
+        using row: XCUIElement,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 10
+    ) -> Bool {
+        let sheet = app.otherElements["edit-item-sheet"]
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if sheet.exists {
+                return true
+            }
+            if row.exists {
+                scrollToHittable(row, in: app, maxSwipes: 2)
+                row.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)).tap()
             }
             if sheet.waitForExistence(timeout: 1) {
                 return true
