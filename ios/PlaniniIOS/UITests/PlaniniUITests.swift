@@ -1964,8 +1964,10 @@ final class PlaniniUITests: XCTestCase {
             if app.otherElements["list-detail-screen"].exists == false {
                 _ = tapTab(initialListName, in: app, timeout: 2)
             }
+            if app.otherElements["list-detail-screen"].exists {
+                scrollToHittable(row, in: app, maxSwipes: 12)
+            }
             if row.exists {
-                scrollToHittable(row, in: app, maxSwipes: 2)
                 let tabBar = app.tabBars.firstMatch
                 let rowIsAboveTabBar = tabBar.exists == false || row.frame.maxY <= tabBar.frame.minY
                 if row.isHittable && rowIsAboveTabBar {
