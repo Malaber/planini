@@ -1272,6 +1272,8 @@ final class PlaniniUITests: XCTestCase {
         let hideButton = app.buttons["hide-item-\(itemID.uuidString)"]
         let deadline = Date().addingTimeInterval(timeout)
 
+        scrollToListTop(in: app, maxSwipes: 10)
+
         while Date() < deadline {
             if waitForItemHiddenState(
                 named: itemName,
@@ -1287,9 +1289,14 @@ final class PlaniniUITests: XCTestCase {
                 tapElement(hideButton)
             } else {
                 _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
-                scrollToHittable(row, in: app, maxSwipes: 2)
+                scrollToHittable(row, in: app, maxSwipes: 10)
                 if row.exists && row.isHittable {
-                    row.swipeRight()
+                    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+                    let end = row.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5))
+                    start.press(forDuration: 0.1, thenDragTo: end)
+                    if hideButton.waitForExistence(timeout: 2) {
+                        tapElement(hideButton)
+                    }
                 }
             }
 
