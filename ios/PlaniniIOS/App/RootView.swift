@@ -308,6 +308,7 @@ struct RootView: View {
                     viewModel.favoriteList?.name ?? l10n.t("ios.tabs.favorite"),
                     systemImage: viewModel.favoriteListID == nil ? "star" : "star.fill"
                 )
+                .accessibilityIdentifier("tab-favorite-button")
             }
             .tag(AppTab.favorite)
             .accessibilityIdentifier("tab-favorite")
@@ -320,6 +321,7 @@ struct RootView: View {
             }
             .tabItem {
                 Label(l10n.t("ios.tabs.lists"), systemImage: "rectangle.grid.1x2")
+                    .accessibilityIdentifier("tab-lists-button")
             }
             .tag(AppTab.lists)
             .accessibilityIdentifier("tab-lists")
@@ -329,6 +331,7 @@ struct RootView: View {
             }
             .tabItem {
                 Label(l10n.t("common.settings"), systemImage: "gearshape")
+                    .accessibilityIdentifier("tab-settings-button")
             }
             .tag(AppTab.settings)
             .accessibilityIdentifier("tab-settings")
@@ -1249,9 +1252,15 @@ private struct ListDetailScreen: View {
             displayedListID = newValue
         }
         .sheet(item: $editingItem) { item in
-            EditItemSheet(item: item) { notice in
-                showMoveNotice(notice)
-            }
+            EditItemSheet(
+                item: item,
+                onUndoableAction: { message, action in
+                    showUndoToast(message: message, action: action)
+                },
+                onMoved: { notice in
+                    showMoveNotice(notice)
+                }
+            )
         }
         .sheet(item: $addItemPresentation) { presentation in
             AddItemSheet(initialCategoryID: presentation.categoryID) { message, action in
@@ -1295,6 +1304,10 @@ private struct ListDetailScreen: View {
             kind = .checked
             title = l10n.t("ios.list.checked_off")
             colorHex = nil
+        } else if sourceItem.isHiddenForLater() {
+            kind = .hidden
+            title = l10n.t("ios.list.hidden_for_later")
+            colorHex = nil
         } else if let categoryID = sourceItem.categoryID,
             let category = viewModel.categories.first(where: { $0.id == categoryID })
         {
@@ -1322,6 +1335,8 @@ private struct ListDetailScreen: View {
             return "uncategorized"
         case let .category(categoryID):
             return "category-\(categoryID.uuidString)"
+        case .hidden:
+            return "hidden"
         case .checked:
             return "checked"
         }
@@ -1331,13 +1346,15 @@ private struct ListDetailScreen: View {
         switch section.kind {
         case .uncategorized:
             return 0
+        case .hidden:
+            return sections.firstIndex { $0.kind == .checked } ?? sections.endIndex
         case .checked:
             return sections.endIndex
         case let .category(categoryID):
             let sortOrder = viewModel.categoryOrder.first { $0.categoryID == categoryID }?.sortOrder ?? Int.max
             return sections.firstIndex { existing in
                 switch existing.kind {
-                case .checked:
+                case .hidden, .checked:
                     return true
                 case let .category(existingID):
                     let existingSortOrder = viewModel.categoryOrder.first { $0.categoryID == existingID }?.sortOrder ?? Int.max
@@ -1438,6 +1455,8 @@ private struct ListDetailScreen: View {
         switch section.kind {
         case .uncategorized:
             return l10n.t("ios.list.uncategorized")
+        case .hidden:
+            return l10n.t("ios.list.hidden_for_later")
         case .checked:
             return l10n.t("ios.list.checked_off")
         case .category:
@@ -1771,7 +1790,7 @@ private struct SectionHeader: View {
 
     private var allowsQuickAdd: Bool {
         switch section.kind {
-        case .checked:
+        case .hidden, .checked:
             return false
         case .uncategorized, .category:
             return true
@@ -1780,7 +1799,7 @@ private struct SectionHeader: View {
 
     private var quickAddCategoryID: UUID? {
         switch section.kind {
-        case .uncategorized, .checked:
+        case .uncategorized, .hidden, .checked:
             return nil
         case let .category(categoryID):
             return categoryID
@@ -1850,38 +1869,79 @@ private struct ItemRow: View {
     let onEdit: () -> Void
     let onUndoableAction: (String, @escaping ListUndoAction) -> Void
 
+    private var isHiddenForLater: Bool {
+        item.isHiddenForLater()
+    }
+
+    private var toggleSystemImageName: String {
+        if isHiddenForLater {
+            return "hourglass.circle"
+        }
+        return item.checked ? "checkmark.circle.fill" : "circle"
+    }
+
+    private var toggleForegroundStyle: Color {
+        if isHiddenForLater {
+            return .orange
+        }
+        return item.checked ? .green : .secondary
+    }
+
+    private var toggleAccessibilityLabel: String {
+        if isHiddenForLater {
+            return l10n.t("ios.item.show_hidden", ["name": item.name])
+        }
+        return item.checked
+            ? l10n.t("ios.item.uncheck", ["name": item.name])
+            : l10n.t("ios.item.check", ["name": item.name])
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Button {
                 Task {
-                    let wasChecked = item.checked
-                    let toggled = await viewModel.toggle(item)
-                    if toggled {
-                        AppHaptics.itemToggle()
-                        onUndoableAction(
-                            wasChecked
-                                ? l10n.t("ios.undo.item_unchecked_named", ["name": item.name])
-                                : l10n.t("ios.undo.item_checked_named", ["name": item.name]),
-                            {
-                                await viewModel.setChecked(itemID: item.id, checked: wasChecked)
-                            }
-                        )
+                    if isHiddenForLater {
+                        let previousHiddenUntil = item.hiddenUntil
+                        let restored = await viewModel.restoreHiddenItem(item)
+                        if restored {
+                            AppHaptics.itemToggle()
+                            onUndoableAction(
+                                l10n.t("ios.undo.item_shown_now_named", ["name": item.name]),
+                                {
+                                    guard let previousHiddenUntil else { return false }
+                                    return await viewModel.setHiddenUntil(
+                                        itemID: item.id,
+                                        hiddenUntil: previousHiddenUntil
+                                    )
+                                }
+                            )
+                        }
+                    } else {
+                        let wasChecked = item.checked
+                        let toggled = await viewModel.toggle(item)
+                        if toggled {
+                            AppHaptics.itemToggle()
+                            onUndoableAction(
+                                wasChecked
+                                    ? l10n.t("ios.undo.item_unchecked_named", ["name": item.name])
+                                    : l10n.t("ios.undo.item_checked_named", ["name": item.name]),
+                                {
+                                    await viewModel.setChecked(itemID: item.id, checked: wasChecked)
+                                }
+                            )
+                        }
                     }
                 }
             } label: {
-                Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                Image(systemName: toggleSystemImageName)
                     .font(.title3)
-                    .foregroundStyle(item.checked ? .green : .secondary)
+                    .foregroundStyle(toggleForegroundStyle)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("toggle-item-\(item.id.uuidString)")
-            .accessibilityLabel(
-                item.checked
-                    ? l10n.t("ios.item.uncheck", ["name": item.name])
-                    : l10n.t("ios.item.check", ["name": item.name])
-            )
+            .accessibilityLabel(toggleAccessibilityLabel)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.name)
@@ -1907,6 +1967,28 @@ private struct ItemRow: View {
         .onTapGesture(perform: onEdit)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("item-row-\(item.id.uuidString)")
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if item.checked == false && isHiddenForLater == false {
+                Button {
+                    Task {
+                        let hidden = await viewModel.hideForLater(item)
+                        if hidden {
+                            AppHaptics.itemToggle()
+                            onUndoableAction(
+                                l10n.t("ios.undo.item_saved_for_later_named", ["name": item.name]),
+                                {
+                                    await viewModel.restoreHiddenItem(item)
+                                }
+                            )
+                        }
+                    }
+                } label: {
+                    Label(l10n.t("ios.item.hide_for_later_short"), systemImage: "hourglass")
+                }
+                .tint(.orange)
+                .accessibilityIdentifier("hide-item-\(item.id.uuidString)")
+            }
+        }
         .swipeActions {
             Button(role: .destructive) {
                 Task {
@@ -2390,6 +2472,7 @@ private struct EditItemSheet: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
     let item: GroceryItemRecord
+    let onUndoableAction: (String, @escaping ListUndoAction) -> Void
     let onMoved: (ItemMoveNotice) -> Void
 
     @State private var name: String
@@ -2423,6 +2506,19 @@ private struct EditItemSheet: View {
             }
         }
 
+        var accessibilityValue: String {
+            switch self {
+            case .saved:
+                return "saved"
+            case .saving:
+                return "saving"
+            case .offline:
+                return "saved-offline"
+            case .invalid:
+                return "invalid"
+            }
+        }
+
         var systemImage: String {
             switch self {
             case .saved:
@@ -2437,8 +2533,13 @@ private struct EditItemSheet: View {
         }
     }
 
-    init(item: GroceryItemRecord, onMoved: @escaping (ItemMoveNotice) -> Void) {
+    init(
+        item: GroceryItemRecord,
+        onUndoableAction: @escaping (String, @escaping ListUndoAction) -> Void,
+        onMoved: @escaping (ItemMoveNotice) -> Void
+    ) {
         self.item = item
+        self.onUndoableAction = onUndoableAction
         self.onMoved = onMoved
         let payload = GroceryItemEditPayload(item: item)
         _name = State(initialValue: item.name)
@@ -2447,6 +2548,10 @@ private struct EditItemSheet: View {
         _categoryID = State(initialValue: item.categoryID)
         _history = State(initialValue: Self.loadHistory(itemID: item.id))
         _lastSavedPayload = State(initialValue: payload)
+    }
+
+    private var isHiddenForLater: Bool {
+        item.isHiddenForLater()
     }
 
     var body: some View {
@@ -2528,6 +2633,28 @@ private struct EditItemSheet: View {
                         .font(.footnote)
                         .foregroundStyle(saveStatus == .invalid ? .red : .secondary)
                         .accessibilityIdentifier("edit-item-save-status")
+                        .accessibilityValue(saveStatus.accessibilityValue)
+                }
+
+                if item.checked == false {
+                    Section {
+                        Button {
+                            performHiddenForLaterAction()
+                        } label: {
+                            Label(
+                                isHiddenForLater
+                                    ? l10n.t("ios.item.show_now_action")
+                                    : l10n.t("ios.item.save_for_later_action"),
+                                systemImage: isHiddenForLater ? "hourglass.circle" : "hourglass"
+                            )
+                        }
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier(
+                            isHiddenForLater
+                                ? "edit-item-restore-hidden-button"
+                                : "edit-item-hide-for-later-button"
+                        )
+                    }
                 }
             }
             .navigationTitle(l10n.t("ios.item.edit_title"))
@@ -2676,6 +2803,40 @@ private struct EditItemSheet: View {
     private func applyRedo() {
         guard let payload = history.redo(current: currentPayload) else { return }
         apply(payload)
+    }
+
+    private func performHiddenForLaterAction() {
+        flushCurrentEdit()
+        let previousHiddenUntil = item.hiddenUntil
+        Task {
+            let didChange: Bool
+            if isHiddenForLater {
+                didChange = await viewModel.restoreHiddenItem(item)
+            } else {
+                didChange = await viewModel.hideForLater(item)
+            }
+            guard didChange else { return }
+            await MainActor.run {
+                AppHaptics.itemToggle()
+                if isHiddenForLater {
+                    onUndoableAction(
+                        l10n.t("ios.undo.item_shown_now_named", ["name": item.name]),
+                        {
+                            guard let previousHiddenUntil else { return false }
+                            return await viewModel.setHiddenUntil(itemID: item.id, hiddenUntil: previousHiddenUntil)
+                        }
+                    )
+                } else {
+                    onUndoableAction(
+                        l10n.t("ios.undo.item_saved_for_later_named", ["name": item.name]),
+                        {
+                            await viewModel.restoreHiddenItem(item)
+                        }
+                    )
+                }
+                dismiss()
+            }
+        }
     }
 
     private func move(to targetListID: UUID) {

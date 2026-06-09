@@ -265,6 +265,7 @@ struct ListPresentationTests {
                 "category_id": categoryID.uuidString,
                 "checked": true,
                 "checked_at": "2026-04-09T10:00:00.123Z",
+                "hidden_until": "2026-04-09T14:00:00",
                 "sort_order": 7,
             ]
         )
@@ -278,6 +279,7 @@ struct ListPresentationTests {
         #expect(item?.checked == true)
         #expect(item?.sortOrder == 7)
         #expect(item?.checkedAt != nil)
+        #expect(item?.hiddenUntil != nil)
     }
 
     @Test func groceryItemRecordParsesJSONWithoutFractionalCheckedAtAndDefaults() {
@@ -298,6 +300,7 @@ struct ListPresentationTests {
         #expect(item?.checked == false)
         #expect(item?.sortOrder == 0)
         #expect(item?.checkedAt != nil)
+        #expect(item?.hiddenUntil == nil)
     }
 
     @Test func groceryItemRecordLeavesCheckedAtNilWhenMissing() {
@@ -327,11 +330,13 @@ struct ListPresentationTests {
                 "name": "Eggs",
                 "category_id": "not-a-uuid",
                 "checked_at": "not-a-date",
+                "hidden_until": "not-a-date",
             ]
         )
 
         #expect(item?.categoryID == nil)
         #expect(item?.checkedAt == nil)
+        #expect(item?.hiddenUntil == nil)
     }
 
     @Test func itemSuggestionMatcherFindsExactPrefixSubstringAndFuzzyMatches() {
@@ -449,6 +454,15 @@ struct ListPresentationTests {
         )
         #expect(
             GroceryItemSection(
+                kind: .hidden,
+                title: "Saved for later",
+                itemCount: 0,
+                colorHex: nil,
+                items: []
+            ).id == "hidden"
+        )
+        #expect(
+            GroceryItemSection(
                 kind: .checked,
                 title: "Checked off",
                 itemCount: 0,
@@ -537,6 +551,46 @@ struct ListPresentationTests {
         #expect(sections[2].items.map(\.name) == ["Eier"])
         #expect(sections[3].items.map(\.name) == ["Z item"])
         #expect(sections[4].items.map(\.name) == ["Bread"])
+    }
+
+    @Test func buildsHiddenSectionBeforeCheckedItems() {
+        let listID = UUID()
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        let sections = GroceryItemSectionBuilder.build(
+            items: [
+                makeItem(
+                    name: "Visible",
+                    listID: listID,
+                    checked: false,
+                    hiddenUntil: Date(timeIntervalSince1970: 999)
+                ),
+                makeItem(
+                    name: "Hidden B",
+                    listID: listID,
+                    checked: false,
+                    sortOrder: 2,
+                    hiddenUntil: Date(timeIntervalSince1970: 2_000)
+                ),
+                makeItem(
+                    name: "Hidden A",
+                    listID: listID,
+                    checked: false,
+                    sortOrder: 1,
+                    hiddenUntil: Date(timeIntervalSince1970: 2_000)
+                ),
+                makeItem(name: "Checked", listID: listID, checked: true),
+            ],
+            categories: [],
+            categoryOrder: [],
+            now: now
+        )
+
+        #expect(sections.map(\.title) == ["Uncategorized", "Saved for later", "Checked off"])
+        #expect(sections[0].items.map(\.name) == ["Visible"])
+        #expect(sections[1].kind == .hidden)
+        #expect(sections[1].items.map(\.name) == ["Hidden A", "Hidden B"])
+        #expect(sections[2].items.map(\.name) == ["Checked"])
     }
 
     @Test func skipsOrderedCategoriesWithoutKnownMetadataOrItems() {
@@ -832,7 +886,8 @@ struct ListPresentationTests {
         listID: UUID,
         categoryID: UUID? = nil,
         checked: Bool,
-        sortOrder: Int = 0
+        sortOrder: Int = 0,
+        hiddenUntil: Date? = nil
     ) -> GroceryItemRecord {
         GroceryItemRecord(
             id: UUID(),
@@ -843,6 +898,7 @@ struct ListPresentationTests {
             categoryID: categoryID,
             checked: checked,
             checkedAt: checked ? Date() : nil,
+            hiddenUntil: hiddenUntil,
             sortOrder: sortOrder
         )
     }

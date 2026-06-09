@@ -305,7 +305,7 @@
     "checked_earlier": "checked earlier",
     "already_on_list": "already on this list",
     "hidden_until_later": "hidden until later",
-    "hidden_for_later": "Hidden for 4h",
+    "hidden_for_later": "Saved for later",
     "create_categories_admin": "Create categories in admin to customize the order for this list.",
     "pinned_in_order": "Pinned in this list order",
     "alphabetical_until_moved": "Alphabetical until you move it",
@@ -452,6 +452,7 @@
       "empty_title": "Nothing on this list",
       "empty_message": "Add an item to start grouping it into categories.",
       "uncategorized": "Uncategorized",
+      "hidden_for_later": "Saved for later",
       "checked_off": "Checked off",
       "quick_add_uncategorized": "Quick add uncategorized item",
       "quick_add_to": "Quick add to {category}"
@@ -461,7 +462,9 @@
       "item_added_back_named": "{name} added back to the list.",
       "item_checked_named": "{name} checked.",
       "item_unchecked_named": "{name} unchecked.",
-      "item_deleted_named": "{name} deleted."
+      "item_deleted_named": "{name} deleted.",
+      "item_saved_for_later_named": "{name} saved for later.",
+      "item_shown_now_named": "{name} shown now."
     },
     "item": {
       "item_section": "Item",
@@ -497,6 +500,10 @@
       "suggestion_checked_off": "{category} - checked off",
       "check": "Check {name}",
       "uncheck": "Uncheck {name}",
+      "show_hidden": "Show {name} now",
+      "hide_for_later_short": "Later 4h",
+      "save_for_later_action": "Save for later",
+      "show_now_action": "Show now",
       "status_saved": "Saved",
       "status_saving": "Saving...",
       "status_saved_offline": "Saved offline",
