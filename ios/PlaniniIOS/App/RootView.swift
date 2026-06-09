@@ -1156,6 +1156,8 @@ private struct ListDetailScreen: View {
                             case let .item(item):
                                 ItemRow(item: item) {
                                     editingItem = item
+                                } onDelete: {
+                                    deleteItem(item)
                                 } onUndoableAction: { message, action in
                                     showUndoToast(message: message, action: action)
                                 }
@@ -1387,6 +1389,21 @@ private struct ListDetailScreen: View {
                 guard undoToast?.id == toast.id else { return }
                 undoToast = nil
             }
+        }
+    }
+
+    private func deleteItem(_ item: GroceryItemRecord) {
+        Task { @MainActor in
+            let deleted = await viewModel.delete(item: item)
+            guard deleted else { return }
+
+            AppHaptics.destructiveAction()
+            showUndoToast(
+                message: l10n.t("ios.undo.item_deleted_named", ["name": item.name]),
+                action: {
+                    await viewModel.restoreDeleted(item: item)
+                }
+            )
         }
     }
 
@@ -1848,6 +1865,7 @@ private struct ItemRow: View {
     @EnvironmentObject private var l10n: AppLocalization
     let item: GroceryItemRecord
     let onEdit: () -> Void
+    let onDelete: () -> Void
     let onUndoableAction: (String, @escaping ListUndoAction) -> Void
 
     var body: some View {
@@ -1909,18 +1927,7 @@ private struct ItemRow: View {
         .accessibilityIdentifier("item-row-\(item.id.uuidString)")
         .swipeActions {
             Button(role: .destructive) {
-                Task {
-                    let deleted = await viewModel.delete(item: item)
-                    if deleted {
-                        AppHaptics.destructiveAction()
-                        onUndoableAction(
-                            l10n.t("ios.undo.item_deleted_named", ["name": item.name]),
-                            {
-                                await viewModel.restoreDeleted(item: item)
-                            }
-                        )
-                    }
-                }
+                onDelete()
             } label: {
                 Label(l10n.t("common.delete"), systemImage: "trash")
             }
