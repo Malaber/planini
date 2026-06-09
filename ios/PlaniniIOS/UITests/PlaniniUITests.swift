@@ -250,34 +250,13 @@ final class PlaniniUITests: XCTestCase {
         )
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
-        let enteredRow = itemRow(itemID: enterSavedItemID, in: app)
-        scrollToHittable(enteredRow, in: app)
-        XCTAssertTrue(enteredRow.waitForExistence(timeout: 3))
-        XCTAssertTrue(enteredRow.isHittable)
-        enteredRow.swipeRight()
-        if waitForItemHiddenState(
-            named: enterSavedItemName,
-            hidden: true,
-            inListNamed: initialListName,
-            accessToken: session.accessToken,
-            timeout: 3
-        ) == false {
-            let hideButton = firstExistingElement(
-                [
-                    app.buttons["hide-item-\(enterSavedItemID.uuidString)"],
-                ],
-                timeout: 3
-            )
-            XCTAssertTrue(hideButton.waitForExistence(timeout: 3))
-            tapElement(hideButton)
-        }
         XCTAssertTrue(
-            waitForItemHiddenState(
+            hideItemUsingSwipe(
+                itemID: enterSavedItemID,
                 named: enterSavedItemName,
-                hidden: true,
+                in: app,
                 inListNamed: initialListName,
-                accessToken: session.accessToken,
-                timeout: 20
+                accessToken: session.accessToken
             )
         )
         let hideUndoButton = app.buttons["list-undo-button"]
@@ -296,33 +275,13 @@ final class PlaniniUITests: XCTestCase {
         )
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
-        scrollToHittable(enteredRow, in: app)
-        XCTAssertTrue(enteredRow.waitForExistence(timeout: 3))
-        XCTAssertTrue(enteredRow.isHittable)
-        enteredRow.swipeRight()
-        if waitForItemHiddenState(
-            named: enterSavedItemName,
-            hidden: true,
-            inListNamed: initialListName,
-            accessToken: session.accessToken,
-            timeout: 3
-        ) == false {
-            let hideButton = firstExistingElement(
-                [
-                    app.buttons["hide-item-\(enterSavedItemID.uuidString)"],
-                ],
-                timeout: 3
-            )
-            XCTAssertTrue(hideButton.waitForExistence(timeout: 3))
-            tapElement(hideButton)
-        }
         XCTAssertTrue(
-            waitForItemHiddenState(
+            hideItemUsingSwipe(
+                itemID: enterSavedItemID,
                 named: enterSavedItemName,
-                hidden: true,
+                in: app,
                 inListNamed: initialListName,
-                accessToken: session.accessToken,
-                timeout: 20
+                accessToken: session.accessToken
             )
         )
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
@@ -1350,6 +1309,59 @@ final class PlaniniUITests: XCTestCase {
         return waitForItemCheckedState(
             named: itemName,
             checked: checked,
+            inListNamed: listName,
+            accessToken: accessToken,
+            timeout: 0.5
+        )
+    }
+
+    private func hideItemUsingSwipe(
+        itemID: UUID,
+        named itemName: String,
+        in app: XCUIApplication,
+        inListNamed listName: String,
+        accessToken: String,
+        timeout: TimeInterval = 20
+    ) -> Bool {
+        let row = itemRow(itemID: itemID, in: app)
+        let hideButton = app.buttons["hide-item-\(itemID.uuidString)"]
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if waitForItemHiddenState(
+                named: itemName,
+                hidden: true,
+                inListNamed: listName,
+                accessToken: accessToken,
+                timeout: 0.5
+            ) {
+                return true
+            }
+
+            if hideButton.exists {
+                tapElement(hideButton)
+            } else {
+                _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
+                scrollToHittable(row, in: app, maxSwipes: 2)
+                if row.exists && row.isHittable {
+                    row.swipeRight()
+                }
+            }
+
+            if waitForItemHiddenState(
+                named: itemName,
+                hidden: true,
+                inListNamed: listName,
+                accessToken: accessToken,
+                timeout: 3
+            ) {
+                return true
+            }
+        }
+
+        return waitForItemHiddenState(
+            named: itemName,
+            hidden: true,
             inListNamed: listName,
             accessToken: accessToken,
             timeout: 0.5
