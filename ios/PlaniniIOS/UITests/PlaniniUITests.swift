@@ -2229,7 +2229,7 @@ final class PlaniniUITests: XCTestCase {
                 let tabBar = app.tabBars.firstMatch
                 let rowIsAboveTabBar = tabBar.exists == false || row.frame.maxY <= tabBar.frame.minY
                 if row.isHittable && rowIsAboveTabBar {
-                    row.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)).tap()
+                    row.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
                 }
             }
             if sheet.waitForExistence(timeout: 1) {
