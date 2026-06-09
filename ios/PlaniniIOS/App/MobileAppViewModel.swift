@@ -1234,7 +1234,7 @@ final class MobileAppViewModel: ObservableObject {
                 body: nil,
                 token: authToken
             )
-            try await reloadItems()
+            items.removeAll { $0.id == item.id }
             clearOfflineStatus()
             watchSyncCoordinator.publishCurrentState()
             return true
