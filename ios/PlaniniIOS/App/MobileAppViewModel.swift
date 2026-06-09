@@ -120,6 +120,7 @@ struct LinkedListNavigationRequest: Equatable {
 
 @MainActor
 final class MobileAppViewModel: ObservableObject {
+    private static let itemHideDuration: TimeInterval = 4 * 60 * 60
     private static let favoriteListKey = "planini.favoriteListID"
     private static let authTokenKey = "planini.authToken"
     private static let displayNameKey = "planini.displayName"
@@ -1124,6 +1125,51 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     @discardableResult
+    func hideForLater(_ item: GroceryItemRecord, now: Date = Date()) async -> Bool {
+        guard item.checked == false else { return false }
+        return await setHiddenUntil(
+            itemID: item.id,
+            hiddenUntil: now.addingTimeInterval(Self.itemHideDuration)
+        )
+    }
+
+    @discardableResult
+    func restoreHiddenItem(_ item: GroceryItemRecord) async -> Bool {
+        await setHiddenUntil(itemID: item.id, hiddenUntil: nil)
+    }
+
+    @discardableResult
+    func setHiddenUntil(itemID: UUID, hiddenUntil: Date?) async -> Bool {
+        guard let backendURL, let authToken else { return false }
+        let hiddenUntilBodyValue: Any
+        if let hiddenUntil {
+            hiddenUntilBodyValue = apiTimestamp(from: hiddenUntil)
+        } else {
+            hiddenUntilBodyValue = NSNull()
+        }
+
+        do {
+            let saved = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/items/\(itemID.uuidString)",
+                method: "PATCH",
+                body: ["hidden_until": hiddenUntilBodyValue],
+                token: authToken
+            )
+            if let savedItem = GroceryItemRecord(json: saved) {
+                upsertLocalItem(savedItem)
+            } else {
+                try await reloadItems()
+            }
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult
     func saveEdit(
         item: GroceryItemRecord,
         name: String,
@@ -2109,6 +2155,12 @@ final class MobileAppViewModel: ObservableObject {
             )
         }
         return nil
+    }
+
+    private func apiTimestamp(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 }
 

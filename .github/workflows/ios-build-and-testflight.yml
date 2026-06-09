@@ -369,7 +369,11 @@ jobs:
         if: steps.variant.outputs.skip != 'true'
         run: |
           cd ios/PlaniniIOS
-          xcodebuild \
+          python ../../scripts/run_live_summary.py \
+            --label "Archive app" \
+            --log-file "$RUNNER_TEMP/archive-app.log" \
+            -- \
+            xcodebuild \
             -project PlaniniApp.xcodeproj \
             -scheme Planini \
             -configuration Release \
@@ -414,7 +418,11 @@ jobs:
           </plist>
           PLIST
           cd ios/PlaniniIOS
-          xcodebuild \
+          python ../../scripts/run_live_summary.py \
+            --label "Export App Store IPA" \
+            --log-file "$RUNNER_TEMP/export-app-store.log" \
+            -- \
+            xcodebuild \
             -exportArchive \
             -archivePath "$RUNNER_TEMP/${{ steps.variant.outputs.ipa_basename }}.xcarchive" \
             -exportPath "$RUNNER_TEMP/export-app-store" \
@@ -493,7 +501,11 @@ jobs:
           </plist>
           PLIST
           cd ios/PlaniniIOS
-          xcodebuild \
+          python ../../scripts/run_live_summary.py \
+            --label "Export ad-hoc IPA" \
+            --log-file "$RUNNER_TEMP/export-ad-hoc.log" \
+            -- \
+            xcodebuild \
             -exportArchive \
             -archivePath "$RUNNER_TEMP/${{ steps.variant.outputs.ipa_basename }}.xcarchive" \
             -exportPath "$RUNNER_TEMP/export-ad-hoc" \
@@ -527,7 +539,11 @@ jobs:
       - name: Upload IPA to TestFlight
         if: steps.variant.outputs.skip != 'true'
         run: |
-          xcrun altool \
+          python scripts/run_live_summary.py \
+            --label "Upload IPA to TestFlight" \
+            --log-file "$RUNNER_TEMP/upload-testflight.log" \
+            -- \
+            xcrun altool \
             --upload-app \
             --type ios \
             --file "$RUNNER_TEMP/artifacts/${{ steps.variant.outputs.ipa_basename }}-app-store.ipa" \
