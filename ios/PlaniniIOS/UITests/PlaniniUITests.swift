@@ -507,7 +507,6 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(moveNoticeMessage.label.contains("Hosting errands"))
         captureScreenshot(named: "ios-ui-moved-item-notice")
         let moveUndoButton = app.buttons["move-item-undo-button-\(seededItemID.uuidString)"]
-        scrollToHittable(moveUndoButton, in: app, maxSwipes: 12)
         XCTAssertTrue(moveUndoButton.waitForExistence(timeout: 5))
         tapElement(moveUndoButton)
         XCTAssertTrue(
@@ -566,7 +565,6 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(failedUndoNotice.waitForExistence(timeout: 5))
         try deleteItem(itemID: updatedItemID, accessToken: session.accessToken)
         let failedUndoButton = app.buttons["move-item-undo-button-\(updatedItemID.uuidString)"]
-        scrollToHittable(failedUndoButton, in: app, maxSwipes: 12)
         XCTAssertTrue(failedUndoButton.waitForExistence(timeout: 5))
         tapElement(failedUndoButton)
         let failedUndoError = app.staticTexts["item-move-notice-error-\(updatedItemID.uuidString)"]
