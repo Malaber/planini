@@ -9,6 +9,88 @@ import Testing
 
 @Suite(.serialized)
 struct LiveBackendE2ETests {
+    @Test("Account registration creates a passkey-backed account against a live backend")
+    func accountRegistrationCreatesUsableAccount() async throws {
+        guard let config = LiveBackendE2EConfiguration.fromEnvironment() else {
+            return
+        }
+
+        let client = LiveBackendClient(baseURL: config.baseURL)
+        let uniqueSuffix = UUID().uuidString.lowercased()
+        let email = "ios-registration-\(uniqueSuffix)@example.com"
+        let displayName = "iOS Registration E2E"
+
+        let registrationOptions = try await client.jsonObject(
+            path: "/api/v1/auth/register/options",
+            method: "POST",
+            body: [
+                "email": email,
+                "display_name": displayName,
+            ],
+            token: nil
+        )
+        let generatedPasskey = try GeneratedRegistrationFactory.makePasskey(
+            options: registrationOptions,
+            origin: config.origin,
+            fallbackRelyingPartyIdentifier: config.rpID
+        )
+        let registeredUser = try await client.jsonObject(
+            path: "/api/v1/auth/register/verify",
+            method: "POST",
+            body: ["credential": generatedPasskey.registrationCredential],
+            token: nil
+        )
+        #expect(registeredUser["email"] as? String == email)
+        #expect(registeredUser["display_name"] as? String == displayName)
+
+        let loginOptions = try await client.jsonObject(
+            path: "/api/v1/auth/login/options",
+            method: "POST",
+            body: [:],
+            token: nil
+        )
+        let loginCredential = try SeededAssertionFactory.makeCredential(
+            options: loginOptions,
+            origin: config.origin,
+            fallbackRelyingPartyIdentifier: config.rpID,
+            credentialID: generatedPasskey.credentialID,
+            signCount: 0,
+            privateKey: generatedPasskey.privateKey,
+            userHandle: generatedPasskey.userHandle
+        )
+        let tokenPayload = try await client.jsonObject(
+            path: "/api/v1/auth/login/verify",
+            method: "POST",
+            body: ["credential": loginCredential],
+            token: nil
+        )
+        let accessToken = try #require(tokenPayload["access_token"] as? String)
+
+        let me = try await client.jsonObject(
+            path: "/api/v1/auth/me",
+            method: "GET",
+            body: nil,
+            token: accessToken
+        )
+        #expect(me["email"] as? String == email)
+        #expect(me["display_name"] as? String == displayName)
+
+        let household = try await client.jsonObject(
+            path: "/api/v1/households",
+            method: "POST",
+            body: ["name": "iOS Registration Home"],
+            token: accessToken
+        )
+        let householdID = try #require(household["id"] as? String)
+        let list = try await client.jsonObject(
+            path: "/api/v1/households/\(householdID)/lists",
+            method: "POST",
+            body: ["name": "First iOS List"],
+            token: accessToken
+        )
+        #expect(list["name"] as? String == "First iOS List")
+    }
+
     @Test("Seeded passkey login and list CRUD against a live backend")
     func seededPasskeyLoginAndListCrud() async throws {
         guard let config = LiveBackendE2EConfiguration.fromEnvironment() else {
@@ -664,6 +746,36 @@ private enum SeededAssertionFactory {
         passkey: SeedFixture.Passkey,
         signCountOffset: Int = 1
     ) throws -> [String: Any] {
+        guard let privateKeyData = Data(base64Encoded: passkey.privateKeyPKCS8Base64) else {
+            throw LiveBackendE2EError("Passkey fixture has an invalid private key.")
+        }
+        let privateKey = try P256.Signing.PrivateKey(derRepresentation: privateKeyData)
+        guard let userHandle = Data(base64Encoded: passkey.userHandleBase64) else {
+            throw LiveBackendE2EError("Passkey fixture has an invalid user handle.")
+        }
+
+        return try makeCredential(
+            options: options,
+            origin: origin,
+            fallbackRelyingPartyIdentifier: fallbackRelyingPartyIdentifier,
+            credentialID: passkey.credentialID,
+            signCount: passkey.signCount,
+            privateKey: privateKey,
+            userHandle: userHandle,
+            signCountOffset: signCountOffset
+        )
+    }
+
+    static func makeCredential(
+        options: [String: Any],
+        origin: String,
+        fallbackRelyingPartyIdentifier: String?,
+        credentialID: String,
+        signCount: Int,
+        privateKey: P256.Signing.PrivateKey,
+        userHandle: Data,
+        signCountOffset: Int = 1
+    ) throws -> [String: Any] {
         let publicKey = (options["publicKey"] as? [String: Any]) ?? options
         guard let challenge = publicKey["challenge"] as? String else {
             throw LiveBackendE2EError("Login options are missing a challenge.")
@@ -685,25 +797,17 @@ private enum SeededAssertionFactory {
         let clientDataHash = Data(SHA256.hash(data: clientDataJSON))
         let authenticatorData = makeAuthenticatorData(
             rpID: rpID,
-            nextSignCount: UInt32(passkey.signCount + signCountOffset)
+            nextSignCount: UInt32(signCount + signCountOffset)
         )
 
         var signaturePayload = Data()
         signaturePayload.append(authenticatorData)
         signaturePayload.append(clientDataHash)
-
-        guard let privateKeyData = Data(base64Encoded: passkey.privateKeyPKCS8Base64) else {
-            throw LiveBackendE2EError("Passkey fixture has an invalid private key.")
-        }
-        let privateKey = try P256.Signing.PrivateKey(derRepresentation: privateKeyData)
         let signature = try privateKey.signature(for: signaturePayload).derRepresentation
-        guard let userHandle = Data(base64Encoded: passkey.userHandleBase64) else {
-            throw LiveBackendE2EError("Passkey fixture has an invalid user handle.")
-        }
 
         return [
-            "id": passkey.credentialID,
-            "rawId": passkey.credentialID,
+            "id": credentialID,
+            "rawId": credentialID,
             "type": "public-key",
             "response": [
                 "authenticatorData": authenticatorData.base64URLEncodedString(),
@@ -726,6 +830,166 @@ private enum SeededAssertionFactory {
     }
 }
 
+private struct GeneratedPasskey {
+    let credentialID: String
+    let privateKey: P256.Signing.PrivateKey
+    let userHandle: Data
+    let registrationCredential: [String: Any]
+}
+
+private enum GeneratedRegistrationFactory {
+    static func makePasskey(
+        options: [String: Any],
+        origin: String,
+        fallbackRelyingPartyIdentifier: String?
+    ) throws -> GeneratedPasskey {
+        let publicKey = (options["publicKey"] as? [String: Any]) ?? options
+        guard
+            let challenge = publicKey["challenge"] as? String,
+            let user = publicKey["user"] as? [String: Any],
+            let userIDText = user["id"] as? String,
+            let userHandle = Data(base64URLEncoded: userIDText)
+        else {
+            throw LiveBackendE2EError("Registration options are missing challenge or user data.")
+        }
+
+        let rp = publicKey["rp"] as? [String: Any]
+        let rpID = (rp?["id"] as? String) ?? fallbackRelyingPartyIdentifier
+        guard let rpID, rpID.isEmpty == false else {
+            throw LiveBackendE2EError("Registration options are missing an rpId.")
+        }
+
+        let privateKey = P256.Signing.PrivateKey()
+        let credentialIDData = Data(SHA256.hash(data: privateKey.publicKey.rawRepresentation))
+        let credentialID = credentialIDData.base64URLEncodedString()
+        let clientDataJSON = try JSONSerialization.data(
+            withJSONObject: [
+                "type": "webauthn.create",
+                "challenge": challenge,
+                "origin": origin,
+                "crossOrigin": false
+            ]
+        )
+        let authenticatorData = try makeAuthenticatorData(
+            rpID: rpID,
+            credentialID: credentialIDData,
+            publicKey: privateKey.publicKey
+        )
+        let attestationObject = CBOR.map([
+            (CBOR.text("fmt"), CBOR.text("none")),
+            (CBOR.text("authData"), CBOR.bytes(authenticatorData)),
+            (CBOR.text("attStmt"), CBOR.map([])),
+        ])
+        let registrationCredential: [String: Any] = [
+            "id": credentialID,
+            "rawId": credentialID,
+            "type": "public-key",
+            "response": [
+                "clientDataJSON": clientDataJSON.base64URLEncodedString(),
+                "attestationObject": attestationObject.base64URLEncodedString(),
+            ],
+            "clientExtensionResults": [:],
+        ]
+
+        return GeneratedPasskey(
+            credentialID: credentialID,
+            privateKey: privateKey,
+            userHandle: userHandle,
+            registrationCredential: registrationCredential
+        )
+    }
+
+    private static func makeAuthenticatorData(
+        rpID: String,
+        credentialID: Data,
+        publicKey: P256.Signing.PublicKey
+    ) throws -> Data {
+        let rawPublicKey = publicKey.rawRepresentation
+        let coordinateBytes: Data
+        if rawPublicKey.count == 65, rawPublicKey.first == 0x04 {
+            coordinateBytes = Data(rawPublicKey.dropFirst())
+        } else if rawPublicKey.count == 64 {
+            coordinateBytes = rawPublicKey
+        } else {
+            throw LiveBackendE2EError("Generated passkey has an invalid P-256 public key.")
+        }
+
+        let xCoordinate = coordinateBytes.prefix(32)
+        let yCoordinate = coordinateBytes.suffix(32)
+        let cosePublicKey = CBOR.map([
+            (CBOR.unsigned(1), CBOR.unsigned(2)),
+            (CBOR.unsigned(3), CBOR.negative(-7)),
+            (CBOR.negative(-1), CBOR.unsigned(1)),
+            (CBOR.negative(-2), CBOR.bytes(Data(xCoordinate))),
+            (CBOR.negative(-3), CBOR.bytes(Data(yCoordinate))),
+        ])
+
+        var data = Data(SHA256.hash(data: Data(rpID.utf8)))
+        data.append(0x45)
+        data.append(contentsOf: [0, 0, 0, 0])
+        data.append(Data(repeating: 0, count: 16))
+        var credentialLength = UInt16(credentialID.count).bigEndian
+        withUnsafeBytes(of: &credentialLength) { data.append(contentsOf: $0) }
+        data.append(credentialID)
+        data.append(cosePublicKey)
+        return data
+    }
+}
+
+private enum CBOR {
+    static func unsigned(_ value: UInt64) -> Data {
+        encodedMajorType(0, value: value)
+    }
+
+    static func negative(_ value: Int64) -> Data {
+        precondition(value < 0)
+        return encodedMajorType(1, value: UInt64(-1 - value))
+    }
+
+    static func bytes(_ value: Data) -> Data {
+        encodedMajorType(2, value: UInt64(value.count)) + value
+    }
+
+    static func text(_ value: String) -> Data {
+        let bytes = Data(value.utf8)
+        return encodedMajorType(3, value: UInt64(bytes.count)) + bytes
+    }
+
+    static func map(_ entries: [(Data, Data)]) -> Data {
+        var data = encodedMajorType(5, value: UInt64(entries.count))
+        for (key, value) in entries {
+            data.append(key)
+            data.append(value)
+        }
+        return data
+    }
+
+    private static func encodedMajorType(_ majorType: UInt8, value: UInt64) -> Data {
+        let prefix = majorType << 5
+        switch value {
+        case 0 ..< 24:
+            return Data([prefix | UInt8(value)])
+        case 24 ... UInt64(UInt8.max):
+            return Data([prefix | 24, UInt8(value)])
+        case UInt64(UInt8.max) + 1 ... UInt64(UInt16.max):
+            var encoded = UInt16(value).bigEndian
+            var data = Data([prefix | 25])
+            withUnsafeBytes(of: &encoded) { data.append(contentsOf: $0) }
+            return data
+        case UInt64(UInt16.max) + 1 ... UInt64(UInt32.max):
+            var encoded = UInt32(value).bigEndian
+            var data = Data([prefix | 26])
+            withUnsafeBytes(of: &encoded) { data.append(contentsOf: $0) }
+            return data
+        default:
+            var encoded = value.bigEndian
+            var data = Data([prefix | 27])
+            withUnsafeBytes(of: &encoded) { data.append(contentsOf: $0) }
+            return data
+        }
+    }
+}
+
 private struct LiveBackendE2EError: LocalizedError {
     let message: String
 
@@ -739,6 +1003,12 @@ private struct LiveBackendE2EError: LocalizedError {
 }
 
 private extension Data {
+    init?(base64URLEncoded value: String) {
+        let normalized = value.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let padded = normalized + String(repeating: "=", count: (4 - normalized.count % 4) % 4)
+        self.init(base64Encoded: padded)
+    }
+
     func base64URLEncodedString() -> String {
         base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
