@@ -2694,6 +2694,9 @@ def test_web_pages_render_for_logged_in_user(client, monkeypatch) -> None:
     assert 'href="/settings"' in dashboard.text
     assert 'href="/admin"' not in dashboard.text
     assert ">Logout<" in dashboard.text
+    assert 'class="app-header-menu"' in dashboard.text
+    assert 'aria-label="Menu"' in dashboard.text
+    assert 'class="app-header-action-icon"' in dashboard.text
     assert "data-dashboard-add-toggle" in dashboard.text
     assert "data-dashboard-add-option" in dashboard.text
     assert "data-dashboard-list-group" in dashboard.text
