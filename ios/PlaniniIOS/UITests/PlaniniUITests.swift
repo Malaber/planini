@@ -1180,7 +1180,7 @@ final class PlaniniUITests: XCTestCase {
 
             if button.exists {
                 scrollToHittable(button, in: app, maxSwipes: 12)
-                if button.isHittable {
+                if isElementVisible(button, in: app) {
                     button.tap()
                 } else {
                     continue
@@ -2126,17 +2126,27 @@ final class PlaniniUITests: XCTestCase {
     private func scrollToHittable(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 6) {
         scrollToElement(element, in: app, maxSwipes: maxSwipes)
         for _ in 0..<maxSwipes {
-            if element.exists && element.isHittable {
+            if isElementVisible(element, in: app) {
                 return
             }
             app.swipeUp()
         }
         for _ in 0..<maxSwipes {
-            if element.exists && element.isHittable {
+            if isElementVisible(element, in: app) {
                 return
             }
             app.swipeDown()
         }
+    }
+
+    private func isElementVisible(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard element.exists && element.isHittable else { return false }
+        let frame = element.frame
+        let appFrame = app.frame
+        return frame.isEmpty == false
+            && frame.width < appFrame.width
+            && frame.height < appFrame.height
+            && appFrame.intersects(frame)
     }
 
     private func assertReviewerOnboardingAvailable(in app: XCUIApplication) {
