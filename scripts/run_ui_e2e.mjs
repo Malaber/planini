@@ -304,55 +304,65 @@ async function assertSeedSettingsCategoryColors(page) {
   );
 }
 
-async function assertHeaderActionsFitTranslatedLabels(page) {
-  logStep("Checking mobile header action sizing with German labels");
+async function assertResponsiveHeaderActions(page) {
+  logStep("Checking responsive header icons and compact menu");
   const originalViewport = page.viewportSize();
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 780, height: 844 });
   await page.waitForFunction(() => {
     const settingsLink = document.querySelector('.app-header-actions .admin-link[href="/settings"]');
-    const logoutButton = document.querySelector(".app-header-actions .logout-button");
-    return Boolean(settingsLink && logoutButton);
+    return settingsLink && getComputedStyle(settingsLink).display !== "none";
   });
 
-  const measurements = await page.evaluate(() => {
+  const iconLayout = await page.evaluate(() => {
+    const header = document.querySelector(".app-header");
     const settingsLink = document.querySelector('.app-header-actions .admin-link[href="/settings"]');
-    const logoutButton = document.querySelector(".app-header-actions .logout-button");
-    if (!(settingsLink instanceof HTMLElement) || !(logoutButton instanceof HTMLElement)) {
-      throw new Error("Expected settings and logout controls in the app header");
-    }
-
-    const controls = [
-      [settingsLink, "Einstellungen"],
-      [logoutButton, "Abmelden"],
-    ];
-    const originals = controls.map(([node]) => node.textContent);
-
-    try {
-      for (const [node, label] of controls) {
-        node.textContent = label;
-      }
-      document.body.offsetWidth;
-      return controls.map(([node]) => ({
-        text: node.textContent?.trim() ?? "",
-        clientWidth: node.clientWidth,
-        scrollWidth: node.scrollWidth,
-      }));
-    } finally {
-      controls.forEach(([node], index) => {
-        node.textContent = originals[index];
-      });
-    }
+    const settingsIcon = settingsLink?.querySelector(".app-header-action-icon");
+    const settingsLabel = settingsLink?.querySelector(".app-header-action-label");
+    const menu = document.querySelector(".app-header-menu");
+    return {
+      headerFits: header instanceof HTMLElement && header.scrollWidth <= header.clientWidth,
+      iconVisible: settingsIcon instanceof SVGElement && getComputedStyle(settingsIcon).display !== "none",
+      labelWidth: settingsLabel instanceof HTMLElement ? settingsLabel.getBoundingClientRect().width : -1,
+      menuHidden: menu instanceof HTMLElement && getComputedStyle(menu).display === "none",
+    };
   });
+  assert(iconLayout.headerFits, "Expected medium header to fit viewport");
+  assert(iconLayout.iconVisible, "Expected medium header actions to use icons");
+  assert(iconLayout.labelWidth <= 1, "Expected medium header action labels to be visually hidden");
+  assert(iconLayout.menuHidden, "Expected compact menu to remain hidden at medium width");
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  const menuToggle = page.locator(".app-header-menu summary");
+  await expectVisible(menuToggle, "Expected compact header menu at narrow width");
+  await menuToggle.click();
+  await expectVisible(
+    page.locator('.app-header-menu-list a[href="/settings"]'),
+    "Expected settings link in compact header menu",
+  );
+  await expectVisible(
+    page.locator(".app-header-menu-list .logout-button"),
+    "Expected logout button in compact header menu",
+  );
+  const compactLayout = await page.evaluate(() => {
+    const header = document.querySelector(".app-header");
+    const actions = document.querySelector(".app-header-actions");
+    const menu = document.querySelector(".app-header-menu-list");
+    const menuRect = menu?.getBoundingClientRect();
+    return {
+      headerFits: header instanceof HTMLElement && header.scrollWidth <= header.clientWidth,
+      actionsHidden: actions instanceof HTMLElement && getComputedStyle(actions).display === "none",
+      menuFits:
+        menuRect !== undefined &&
+        menuRect.left >= 0 &&
+        menuRect.right <= document.documentElement.clientWidth,
+    };
+  });
+  assert(compactLayout.headerFits, "Expected narrow header to fit viewport");
+  assert(compactLayout.actionsHidden, "Expected regular header actions hidden at narrow width");
+  assert(compactLayout.menuFits, "Expected compact header menu to fit viewport");
+  await menuToggle.click();
   if (originalViewport) {
     await page.setViewportSize(originalViewport);
-  }
-
-  for (const measurement of measurements) {
-    assert(
-      measurement.scrollWidth <= measurement.clientWidth,
-      `${measurement.text} should fit in the mobile header button without clipping`,
-    );
   }
 }
 
@@ -447,10 +457,19 @@ async function assertSupportPage(page) {
     page.getByRole("heading", { name: "Need help with Planini?" }),
     "Expected public support page heading",
   );
-  await expectVisible(
-    page.getByRole("link", { name: "Support", exact: true }),
-    "Expected support header link",
-  );
+  const headerSupportLink = page.locator('.app-header-actions a[href="/support"]');
+  if (await headerSupportLink.isVisible()) {
+    await expectVisible(headerSupportLink, "Expected support header link");
+  } else {
+    const menuToggle = page.locator(".app-header-menu summary");
+    await expectVisible(menuToggle, "Expected compact header menu");
+    await menuToggle.click();
+    await expectVisible(
+      page.locator('.app-header-menu-list a[href="/support"]'),
+      "Expected support link in compact header menu",
+    );
+    await menuToggle.click();
+  }
 
   const emailLink = page.locator('a[href="mailto:planini-support@schaedler.rocks"]');
   await expectVisible(emailLink, "Expected direct support email option");
@@ -535,6 +554,40 @@ async function passkeysFromSession(requestContext) {
   return apiJson(requestContext, "/api/v1/auth/passkeys");
 }
 
+async function visibleAppHeaderLink(page, href, label) {
+  const regularLink = page.locator(`.app-header-actions a[href="${href}"]`);
+  if (await regularLink.isVisible()) {
+    return regularLink;
+  }
+
+  const menu = page.locator(".app-header-menu");
+  const menuToggle = menu.locator("summary");
+  await expectVisible(menuToggle, "Expected compact header menu");
+  if ((await menu.getAttribute("open")) === null) {
+    await menuToggle.click();
+  }
+  const compactLink = page.locator(`.app-header-menu-list a[href="${href}"]`);
+  await expectVisible(compactLink, `Expected ${label} link in compact header menu`);
+  return compactLink;
+}
+
+async function visibleAppHeaderLogout(page) {
+  const regularButton = page.locator(".app-header-actions .logout-button");
+  if (await regularButton.isVisible()) {
+    return regularButton;
+  }
+
+  const menu = page.locator(".app-header-menu");
+  const menuToggle = menu.locator("summary");
+  await expectVisible(menuToggle, "Expected compact header menu");
+  if ((await menu.getAttribute("open")) === null) {
+    await menuToggle.click();
+  }
+  const compactButton = page.locator(".app-header-menu-list .logout-button");
+  await expectVisible(compactButton, "Expected logout button in compact header menu");
+  return compactButton;
+}
+
 function normalizeText(value) {
   return value.replace(/\s+/gu, " ").trim();
 }
@@ -556,7 +609,7 @@ function localizedBrowserDate(value, locale) {
 }
 
 async function openSettingsPage(page) {
-  await page.getByRole("link", { name: "Settings" }).click();
+  await (await visibleAppHeaderLink(page, "/settings", "settings")).click();
   await page.waitForURL(/\/settings(\?|$)/);
 }
 
@@ -665,7 +718,7 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
   );
 
   logStep("Logging out and confirming the new passkey can log back in");
-  await page.getByRole("button", { name: "Logout" }).click();
+  await (await visibleAppHeaderLogout(page)).click();
   await page.waitForURL(/\/login(\?|$)/);
   await loginFromLoginPage(page, new URL("/", baseUrl).toString());
   await expectVisible(
@@ -1475,7 +1528,7 @@ async function main() {
     await screenshot(page, "promotion-list-of-lists");
     await assertFaviconAsset(page, context.request);
     await assertLinkPreviewMetadata(page, context.request);
-    await assertHeaderActionsFitTranslatedLabels(page);
+    await assertResponsiveHeaderActions(page);
     await runAdminPasskeyAddLinkFlow(page, seed, rpId);
     await runPasskeyManagementFlow(page, context, owner, rpId, authenticator);
     await runDashboardEmptyStateFlow(browser);
@@ -1488,7 +1541,7 @@ async function main() {
     const checkedStressListUrl = new URL(`/lists/${scenario.checkedStressListId}`, baseUrl).toString();
 
     if (owner.is_admin) {
-      await expectVisible(page.getByRole("link", { name: "Admin" }), "Expected admin link");
+      await visibleAppHeaderLink(page, "/admin", "admin");
 
       const adminPage = await context.newPage();
       await adminPage.goto(new URL("/admin", baseUrl).toString(), { waitUntil: "networkidle" });
