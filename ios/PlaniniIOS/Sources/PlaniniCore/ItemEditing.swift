@@ -216,6 +216,7 @@ public extension GroceryItemRecord {
             categoryID: payload.categoryID,
             checked: checked,
             checkedAt: checkedAt,
+            hiddenUntil: hiddenUntil,
             sortOrder: sortOrder
         )
     }
