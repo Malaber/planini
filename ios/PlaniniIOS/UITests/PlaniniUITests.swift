@@ -1520,7 +1520,7 @@ final class PlaniniUITests: XCTestCase {
 
             let grabber = dragHandle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             let target = targetRow.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: targetOffset))
-            grabber.press(forDuration: 1.2, thenDragTo: target)
+            grabber.press(forDuration: 0.1, thenDragTo: target)
             if waitForCategoryRow(movingRow, before: targetRow, timeout: 1) {
                 return true
             }
