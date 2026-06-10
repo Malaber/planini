@@ -725,7 +725,6 @@ final class PlaniniUITests: XCTestCase {
                 in: app
             )
         )
-        XCTAssertTrue(waitForElementLabel(settingsSaveState, containing: "Saving", timeout: 3))
         XCTAssertTrue(
             dragCategoryRow(
                 konservenRow,
@@ -733,6 +732,7 @@ final class PlaniniUITests: XCTestCase {
                 in: app
             )
         )
+        XCTAssertTrue(waitForElementLabel(settingsSaveState, containing: "Saving", timeout: 3))
         XCTAssertTrue(
             waitForFirstCategoryOrder(
                 listID: hostingListID,
@@ -1513,7 +1513,7 @@ final class PlaniniUITests: XCTestCase {
                 let grabber = movingRow.coordinate(withNormalizedOffset: CGVector(dx: grabberOffset, dy: 0.5))
                 let target = targetRow.coordinate(withNormalizedOffset: CGVector(dx: targetX, dy: targetOffset))
                 grabber.press(forDuration: 1.2, thenDragTo: target)
-                if waitForCategoryRow(movingRow, before: targetRow, timeout: 2) {
+                if waitForCategoryRow(movingRow, before: targetRow, timeout: 1) {
                     return true
                 }
                 RunLoop.current.run(until: Date().addingTimeInterval(0.5))

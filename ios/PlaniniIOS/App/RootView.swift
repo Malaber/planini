@@ -1509,6 +1509,7 @@ private struct ListSettingsSheet: View {
     @State private var saveState: ListSettingsSaveState = .saved
     @State private var nameSaveTask: Task<Void, Never>?
     @State private var busyCategoryID: UUID?
+    @State private var orderedCategories: [GroceryCategorySummary] = []
     @State private var pendingDisable: CategoryDisableConfirmation?
     @FocusState private var focusedField: ListSettingsFocusedField?
 
@@ -1544,10 +1545,12 @@ private struct ListSettingsSheet: View {
         }
         .onAppear {
             syncName()
+            syncOrderedCategories()
             syncCategoryOrderSaveState(viewModel.categoryOrderBackgroundSaveState)
         }
         .onChange(of: currentList?.name ?? "") { _ in syncName() }
         .onChange(of: name) { _ in scheduleNameAutosave() }
+        .onChange(of: viewModel.categoriesForSettings.map(\.id)) { _ in syncOrderedCategories() }
         .onChange(of: viewModel.categoryOrderBackgroundSaveState) { newValue in
             syncCategoryOrderSaveState(newValue)
         }
@@ -1594,13 +1597,12 @@ private struct ListSettingsSheet: View {
     }
 
     private var categoriesSection: some View {
-        let categories = viewModel.categoriesForSettings
-        return Section {
-            if categories.isEmpty {
+        Section {
+            if orderedCategories.isEmpty {
                 Label("No categories available", systemImage: "tray")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(categories) { category in
+                ForEach(orderedCategories) { category in
                     categoryRow(category: category)
                 }
                 .onMove(perform: moveCategories)
@@ -1683,10 +1685,16 @@ private struct ListSettingsSheet: View {
     }
 
     private func moveCategories(from source: IndexSet, to destination: Int) {
-        var categoryIDs = viewModel.categoriesForSettings.map(\.id)
-        categoryIDs.move(fromOffsets: source, toOffset: destination)
+        orderedCategories.move(fromOffsets: source, toOffset: destination)
         saveState = .saving
-        viewModel.saveCategoryOrderInBackground(categoryIDs: categoryIDs)
+        viewModel.saveCategoryOrderInBackground(categoryIDs: orderedCategories.map(\.id))
+    }
+
+    private func syncOrderedCategories() {
+        let categories = viewModel.categoriesForSettings
+        if orderedCategories.map(\.id) != categories.map(\.id) {
+            orderedCategories = categories
+        }
     }
 
     private func syncCategoryOrderSaveState(_ state: CategoryOrderBackgroundSaveState) {
