@@ -421,7 +421,7 @@ final class PlaniniUITests: XCTestCase {
         )
 
         let restoredItemRow = itemRow(itemID: restoredItemID, in: app)
-        XCTAssertTrue(openEditItemSheet(using: restoredItemRow, in: app))
+        XCTAssertTrue(openEditItemSheet(itemID: restoredItemID, using: restoredItemRow, in: app))
         let undoButton = firstExistingElement(
             [
                 app.buttons["edit-item-undo-button"],
@@ -568,7 +568,7 @@ final class PlaniniUITests: XCTestCase {
             "Expected checked seeded item row to be visible before opening edit sheet."
         )
         let seededMoveRow = itemRow(itemID: seededItemID, in: app)
-        XCTAssertTrue(openEditItemSheet(using: seededMoveRow, in: app))
+        XCTAssertTrue(openEditItemSheet(itemID: seededItemID, using: seededMoveRow, in: app))
         let hostingMoveButton = app.buttons["edit-item-move-list-\(hostingListID.uuidString)"]
         XCTAssertTrue(hostingMoveButton.waitForExistence(timeout: 3))
         scrollToHittable(hostingMoveButton, in: app)
@@ -629,7 +629,7 @@ final class PlaniniUITests: XCTestCase {
             "Expected categorized updated item row to be visible before failed undo coverage."
         )
         let updatedMoveRow = itemRow(itemID: updatedItemID, in: app)
-        XCTAssertTrue(openEditItemSheet(using: updatedMoveRow, in: app))
+        XCTAssertTrue(openEditItemSheet(itemID: updatedItemID, using: updatedMoveRow, in: app))
         let failedUndoMoveButton = app.buttons["edit-item-move-list-\(hostingListID.uuidString)"]
         XCTAssertTrue(failedUndoMoveButton.waitForExistence(timeout: 3))
         scrollToHittable(failedUndoMoveButton, in: app)
@@ -2212,11 +2212,13 @@ final class PlaniniUITests: XCTestCase {
     }
 
     private func openEditItemSheet(
+        itemID: UUID,
         using row: XCUIElement,
         in app: XCUIApplication,
         timeout: TimeInterval = 10
     ) -> Bool {
         let sheet = app.otherElements["edit-item-sheet"]
+        let editButton = app.buttons["edit-item-\(itemID.uuidString)"]
         let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
@@ -2233,7 +2235,10 @@ final class PlaniniUITests: XCTestCase {
                 let tabBar = app.tabBars.firstMatch
                 let rowIsAboveTabBar = tabBar.exists == false || row.frame.maxY <= tabBar.frame.minY
                 if row.isHittable && rowIsAboveTabBar {
-                    row.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+                    row.swipeLeft()
+                    if editButton.waitForExistence(timeout: 1) {
+                        tapElement(editButton)
+                    }
                 }
             }
             if sheet.waitForExistence(timeout: 1) {

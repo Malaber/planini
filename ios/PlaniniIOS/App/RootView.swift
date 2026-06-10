@@ -2032,6 +2032,7 @@ private struct ItemRow: View {
                 Label(l10n.t("common.edit"), systemImage: "pencil")
             }
             .tint(.blue)
+            .accessibilityIdentifier("edit-item-\(item.id.uuidString)")
         }
     }
 }
