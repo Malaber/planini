@@ -1944,6 +1944,10 @@ final class PlaniniUITests: XCTestCase {
         timeout: TimeInterval = 45
     ) -> Bool {
         let expectedListName = listName ?? initialListName
+        guard app.wait(for: .runningForeground, timeout: min(timeout, 15)) else {
+            return false
+        }
+
         let deadline = Date().addingTimeInterval(timeout)
         let initialListRow = app.buttons["list-row-\(expectedListName)"]
 
