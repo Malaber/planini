@@ -616,8 +616,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(moveNoticeMessage.label.contains("Hosting errands"))
         captureScreenshot(named: "ios-ui-moved-item-notice")
         let moveUndoButton = app.buttons["move-item-undo-button-\(seededItemID.uuidString)"]
-        XCTAssertTrue(moveUndoButton.waitForExistence(timeout: 5))
-        tapElement(moveUndoButton)
+        XCTAssertTrue(tapTransientElement(moveUndoButton, in: app))
         XCTAssertTrue(
             waitForItem(
                 named: "Brot",
@@ -674,8 +673,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(failedUndoNotice.waitForExistence(timeout: 5))
         try deleteItem(itemID: updatedItemID, accessToken: session.accessToken)
         let failedUndoButton = app.buttons["move-item-undo-button-\(updatedItemID.uuidString)"]
-        XCTAssertTrue(failedUndoButton.waitForExistence(timeout: 5))
-        tapElement(failedUndoButton)
+        XCTAssertTrue(tapTransientElement(failedUndoButton, in: app))
         let failedUndoError = app.staticTexts["item-move-notice-error-\(updatedItemID.uuidString)"]
         XCTAssertTrue(failedUndoError.waitForExistence(timeout: 5))
         XCTAssertTrue(failedUndoNotice.exists)
@@ -2151,6 +2149,23 @@ final class PlaniniUITests: XCTestCase {
         } else {
             element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
+    }
+
+    private func tapTransientElement(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        maxSwipes: Int = 4
+    ) -> Bool {
+        for attempt in 0...maxSwipes {
+            if element.exists && element.isHittable {
+                element.tap()
+                return true
+            }
+            if attempt < maxSwipes {
+                app.swipeUp()
+            }
+        }
+        return false
     }
 
     private func dismissKeyboard(in app: XCUIApplication) {

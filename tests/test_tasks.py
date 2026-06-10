@@ -628,6 +628,8 @@ def test_ios_testflight_workflow_adds_pr_build_component_and_variant_icon_colors
     assert '"icon_background_color":"#ddddc1"' in workflow
     assert '"icon_background_color":"#a7e79d"' in workflow
     assert '"icon_background_color":"#e18585"' in workflow
+    assert "for attempt in 1 2 3; do" in workflow
+    assert "Could not resolve the review PR after $attempt attempts." in workflow
     assert (
         'generate-ios-app-icons --background-color="${{ matrix.icon_background_color }}"'
         in workflow

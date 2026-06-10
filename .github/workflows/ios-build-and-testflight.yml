@@ -72,11 +72,20 @@ jobs:
           elif [ -n "$PULL_REQUEST_NUMBER" ]; then
             pr_number="$PULL_REQUEST_NUMBER"
           elif [ -z "$pr_number" ] && [ "$GITHUB_REF_TYPE" = "branch" ]; then
-            pr_number="$(
-              gh api \
-                "/repos/$GITHUB_REPOSITORY/pulls?head=$GITHUB_REPOSITORY_OWNER:$GITHUB_REF_NAME&state=open" \
-                --jq '.[0].number // empty'
-            )"
+            for attempt in 1 2 3; do
+              if pr_number="$(
+                gh api \
+                  "/repos/$GITHUB_REPOSITORY/pulls?head=$GITHUB_REPOSITORY_OWNER:$GITHUB_REF_NAME&state=open" \
+                  --jq '.[0].number // empty'
+              )"; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "Could not resolve the review PR after $attempt attempts." >&2
+                exit 1
+              fi
+              sleep 2
+            done
           fi
 
           if [ -n "$pr_number" ]; then
