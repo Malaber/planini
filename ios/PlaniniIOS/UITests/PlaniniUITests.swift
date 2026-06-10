@@ -213,14 +213,12 @@ final class PlaniniUITests: XCTestCase {
                 timeout: 20
             )
         )
-        let enterSavedItemLabel = app.staticTexts[enterSavedItemName]
-        scrollToElement(enterSavedItemLabel, in: app)
-        XCTAssertTrue(enterSavedItemLabel.waitForExistence(timeout: 15))
         let enterSavedItemID = try itemID(
             named: enterSavedItemName,
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
+        XCTAssertTrue(waitForItemRow(itemID: enterSavedItemID, named: enterSavedItemName, in: app, timeout: 15))
 
         XCTAssertTrue(
             hideItemUsingSwipe(
@@ -280,9 +278,13 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
         scrollToListTop(in: app)
-        scrollToElement(enterSavedItemLabel, in: app)
-        tapElement(enterSavedItemLabel)
-        XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            openEditItemSheet(
+                itemID: enterSavedItemID,
+                using: itemRow(itemID: enterSavedItemID, in: app),
+                in: app
+            )
+        )
         let editHideForLaterButton = app.buttons["edit-item-hide-for-later-button"]
         scrollToElement(editHideForLaterButton, in: app)
         XCTAssertTrue(editHideForLaterButton.waitForExistence(timeout: 5))
@@ -553,15 +555,17 @@ final class PlaniniUITests: XCTestCase {
         }
         XCTAssertTrue(waitForElementToDisappear(addItemSheet, timeout: 10))
 
-        try checkItem(itemID: seededItemID, accessToken: session.accessToken)
         XCTAssertTrue(
-            waitForItemCheckedState(
+            tapItemToggleButton(
+                itemID: seededItemID,
                 named: "Brot",
                 checked: true,
+                in: app,
                 inListNamed: initialListName,
                 accessToken: session.accessToken,
                 timeout: 20
-            )
+            ),
+            "Expected tapping the seeded item check button to mark it checked."
         )
         XCTAssertTrue(
             waitForItemRow(itemID: seededItemID, named: "Brot", in: app, timeout: 20),
@@ -925,7 +929,7 @@ final class PlaniniUITests: XCTestCase {
 
         try deleteItem(itemID: itemID, accessToken: session.accessToken)
         XCTAssertTrue(
-            waitForElementToDisappear(app.staticTexts[updatedName], timeout: 20),
+            waitForElementToDisappear(itemRow(itemID: itemID, in: app), timeout: 20),
             "Expected live-deleted item to disappear without manual refresh."
         )
     }
@@ -2218,26 +2222,36 @@ final class PlaniniUITests: XCTestCase {
         timeout: TimeInterval = 10
     ) -> Bool {
         let sheet = app.otherElements["edit-item-sheet"]
+        let editTrigger = app.buttons["edit-item-row-\(itemID.uuidString)"]
         let editButton = app.buttons["edit-item-\(itemID.uuidString)"]
+        let detailScreen = app.descendants(matching: .any)["list-detail-screen"]
+        let undoToast = app.otherElements["list-undo-toast"]
+        if undoToast.exists && waitForElementToDisappear(undoToast, timeout: 12) == false {
+            return false
+        }
         let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
             if sheet.exists {
                 return true
             }
-            if app.otherElements["list-detail-screen"].exists == false {
+            if detailScreen.exists == false {
                 _ = tapTab(initialListName, in: app, timeout: 2)
             }
-            if app.otherElements["list-detail-screen"].exists {
+            if detailScreen.exists {
                 scrollToHittable(row, in: app, maxSwipes: 12)
             }
             if row.exists {
                 let tabBar = app.tabBars.firstMatch
                 let rowIsAboveTabBar = tabBar.exists == false || row.frame.maxY <= tabBar.frame.minY
-                if row.isHittable && rowIsAboveTabBar {
-                    row.swipeLeft()
-                    if editButton.waitForExistence(timeout: 1) {
-                        tapElement(editButton)
+                if rowIsAboveTabBar {
+                    if editTrigger.exists && editTrigger.isHittable {
+                        tapElement(editTrigger)
+                    } else if row.isHittable {
+                        row.swipeLeft()
+                        if editButton.waitForExistence(timeout: 1) {
+                            tapElement(editButton)
+                        }
                     }
                 }
             }
