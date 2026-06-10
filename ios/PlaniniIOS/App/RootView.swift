@@ -1395,7 +1395,8 @@ private struct ListDetailScreen: View {
         }
     }
 
-    private func showUndoToast(message: String, action: @escaping ListUndoAction) {
+    @discardableResult
+    private func showUndoToast(message: String, action: @escaping ListUndoAction) -> UUID {
         undoDismissTask?.cancel()
         let toast = ListUndoToast(message: message, action: action)
         undoToast = toast
@@ -1407,20 +1408,30 @@ private struct ListDetailScreen: View {
                 undoToast = nil
             }
         }
+        return toast.id
     }
 
     private func deleteItem(_ item: GroceryItemRecord) {
-        Task { @MainActor in
-            let deleted = await viewModel.delete(item: item)
-            guard deleted else { return }
+        let deleteTask = Task { @MainActor in
+            await viewModel.delete(item: item)
+        }
+        let toastID = showUndoToast(
+            message: l10n.t("ios.undo.item_deleted_named", ["name": item.name]),
+            action: {
+                guard await deleteTask.value else { return false }
+                return await viewModel.restoreDeleted(item: item)
+            }
+        )
 
-            AppHaptics.destructiveAction()
-            showUndoToast(
-                message: l10n.t("ios.undo.item_deleted_named", ["name": item.name]),
-                action: {
-                    await viewModel.restoreDeleted(item: item)
+        Task { @MainActor in
+            if await deleteTask.value {
+                AppHaptics.destructiveAction()
+            } else {
+                undoDismissTask?.cancel()
+                if undoToast?.id == toastID {
+                    undoToast = nil
                 }
-            )
+            }
         }
     }
 

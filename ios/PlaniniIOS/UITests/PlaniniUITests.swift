@@ -1919,6 +1919,10 @@ final class PlaniniUITests: XCTestCase {
         listTitle: XCUIElement,
         timeout: TimeInterval = 45
     ) -> Bool {
+        guard app.wait(for: .runningForeground, timeout: min(timeout, 15)) else {
+            return false
+        }
+
         let deadline = Date().addingTimeInterval(timeout)
         let initialListRow = app.buttons["list-row-\(initialListName)"]
 
