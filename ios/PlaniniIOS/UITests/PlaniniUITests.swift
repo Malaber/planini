@@ -18,11 +18,11 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(loginApp.buttons["login-passkey-button"].waitForExistence(timeout: 10))
         captureScreenshot(named: "promotion-login-dialogue")
         assertAccountRegistrationAvailable(in: loginApp)
-        loginApp.terminate()
+        terminateAndWait(loginApp)
         loginApp.launch()
         XCTAssertTrue(loginApp.buttons["login-passkey-button"].waitForExistence(timeout: 10))
         assertReviewerOnboardingAvailable(in: loginApp)
-        loginApp.terminate()
+        terminateAndWait(loginApp)
 
         let session = if let injectedSession {
             injectedSession
@@ -778,7 +778,7 @@ final class PlaniniUITests: XCTestCase {
         assertAppearanceMode("Dark", in: app)
         captureScreenshot(named: "ios-ui-settings-dark-mode")
 
-        app.terminate()
+        terminateAndWait(app)
         app.launchEnvironment.removeValue(forKey: "PLANINI_UI_TEST_RESET_APPEARANCE_MODE")
         app.launch()
         XCTAssertTrue(openSettings(in: app, timeout: 15))
@@ -953,7 +953,7 @@ final class PlaniniUITests: XCTestCase {
             firstVisibleUncheckedToggle(in: app, timeout: 20) != nil,
             "Expected online launch to cache at least one unchecked seeded item before offline relaunch."
         )
-        app.terminate()
+        terminateAndWait(app)
 
         let offlineApp = XCUIApplication()
         configureLaunchLanguage(for: offlineApp)
@@ -1010,7 +1010,7 @@ final class PlaniniUITests: XCTestCase {
             "Expected offline item creation to avoid the generic error popup."
         )
         captureScreenshot(named: "ios-ui-offline-cache-banner")
-        offlineApp.terminate()
+        terminateAndWait(offlineApp)
 
         let syncApp = XCUIApplication()
         configureLaunchLanguage(for: syncApp)
@@ -1082,7 +1082,7 @@ final class PlaniniUITests: XCTestCase {
         )
         XCTAssertTrue(ownerApp.staticTexts["list-detail-title"].waitForExistence(timeout: 10))
         XCTAssertEqual(ownerApp.staticTexts["list-detail-title"].label, initialListName)
-        ownerApp.terminate()
+        terminateAndWait(ownerApp)
 
         let inviteeApp = launchedApp(
             session: inviteeSession,
