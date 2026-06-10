@@ -1605,10 +1605,6 @@ private struct ListSettingsSheet: View {
             } else {
                 ForEach(orderedCategories) { category in
                     categoryRow(category: category)
-                        .onDrag {
-                            draggedCategoryID = category.id
-                            return NSItemProvider(object: category.id.uuidString as NSString)
-                        }
                         .onDrop(
                             of: [.text],
                             delegate: CategoryReorderDropDelegate(
@@ -1635,6 +1631,10 @@ private struct ListSettingsSheet: View {
             isBusy: busyCategoryID == category.id,
             onToggleDisabled: { disabled in
                 set(category, disabled: disabled)
+            },
+            onDrag: {
+                draggedCategoryID = category.id
+                return NSItemProvider(object: category.id.uuidString as NSString)
             }
         )
     }
@@ -1754,6 +1754,7 @@ private struct CategorySettingsRow: View {
     let itemCount: Int
     let isBusy: Bool
     let onToggleDisabled: (Bool) -> Void
+    let onDrag: () -> NSItemProvider
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1787,8 +1788,11 @@ private struct CategorySettingsRow: View {
             Image(systemName: "line.3.horizontal")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 24, height: 32)
-                .accessibilityHidden(true)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+                .onDrag(onDrag)
+                .accessibilityIdentifier("category-drag-handle-\(category.id.uuidString)")
+                .accessibilityLabel("Reorder \(category.name)")
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)

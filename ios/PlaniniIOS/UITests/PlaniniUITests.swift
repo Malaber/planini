@@ -713,14 +713,19 @@ final class PlaniniUITests: XCTestCase {
         let haushaltRow = app.descendants(matching: .any)["category-settings-row-\(haushaltCategoryID.uuidString)"]
         let backwarenRow = app.descendants(matching: .any)["category-settings-row-\(backwarenCategoryID.uuidString)"]
         let konservenRow = app.descendants(matching: .any)["category-settings-row-\(hostingKonservenCategoryID.uuidString)"]
+        let backwarenHandle = app.descendants(matching: .any)["category-drag-handle-\(backwarenCategoryID.uuidString)"]
+        let konservenHandle = app.descendants(matching: .any)["category-drag-handle-\(hostingKonservenCategoryID.uuidString)"]
         scrollToHittable(haushaltRow, in: app)
         scrollToHittable(backwarenRow, in: app)
         XCTAssertTrue(haushaltRow.waitForExistence(timeout: 5))
         XCTAssertTrue(backwarenRow.waitForExistence(timeout: 5))
         XCTAssertTrue(konservenRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(backwarenHandle.waitForExistence(timeout: 5))
+        XCTAssertTrue(konservenHandle.waitForExistence(timeout: 5))
         XCTAssertTrue(
             dragCategoryRow(
                 backwarenRow,
+                using: backwarenHandle,
                 before: haushaltRow,
                 in: app
             )
@@ -728,6 +733,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(
             dragCategoryRow(
                 konservenRow,
+                using: konservenHandle,
                 before: backwarenRow,
                 in: app
             )
@@ -1496,27 +1502,29 @@ final class PlaniniUITests: XCTestCase {
 
     private func dragCategoryRow(
         _ movingRow: XCUIElement,
+        using dragHandle: XCUIElement,
         before targetRow: XCUIElement,
         in app: XCUIApplication
     ) -> Bool {
-        let grabberOffsets: [CGFloat] = [0.92, 0.75, 0.5]
         let targetOffsets: [CGFloat] = [0.25, 0.5, 0.75]
-        for grabberOffset in grabberOffsets {
-            for targetOffset in targetOffsets {
-                scrollToHittable(movingRow, in: app, maxSwipes: 2)
-                scrollToHittable(targetRow, in: app, maxSwipes: 2)
-                guard movingRow.waitForExistence(timeout: 3), targetRow.waitForExistence(timeout: 3) else {
-                    return false
-                }
-
-                let grabber = movingRow.coordinate(withNormalizedOffset: CGVector(dx: grabberOffset, dy: 0.5))
-                let target = targetRow.coordinate(withNormalizedOffset: CGVector(dx: grabberOffset, dy: targetOffset))
-                grabber.press(forDuration: 0.7, thenDragTo: target)
-                if waitForCategoryRow(movingRow, before: targetRow, timeout: 1) {
-                    return true
-                }
-                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        for targetOffset in targetOffsets {
+            scrollToHittable(movingRow, in: app, maxSwipes: 2)
+            scrollToHittable(targetRow, in: app, maxSwipes: 2)
+            guard
+                movingRow.waitForExistence(timeout: 3),
+                dragHandle.waitForExistence(timeout: 3),
+                targetRow.waitForExistence(timeout: 3)
+            else {
+                return false
             }
+
+            let grabber = dragHandle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let target = targetRow.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: targetOffset))
+            grabber.press(forDuration: 1.2, thenDragTo: target)
+            if waitForCategoryRow(movingRow, before: targetRow, timeout: 1) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
         return false
     }
