@@ -518,7 +518,11 @@ final class PlaniniUITests: XCTestCase {
         )
         captureScreenshot(named: "ios-ui-checked-item")
         let hostingListName = "Hosting errands"
-        let hostingListID = try listID(named: hostingListName, accessToken: session.accessToken)
+        let hostingListID = try normalizeListName(
+            prefixedBy: hostingListName,
+            to: hostingListName,
+            accessToken: session.accessToken
+        )
         let haushaltCategoryID = try categoryID(
             named: "Haushalt",
             inListNamed: hostingListName,
@@ -1009,8 +1013,16 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(prepareKeyboardForTyping(in: offlineApp, timeout: 3))
         offlineNameField.typeText(offlineCreatedName)
         XCTAssertTrue(tapAddItemSaveAndWaitForDismissal(in: offlineApp))
+        let offlineCreatedRow = offlineApp.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                "edit-item-row-",
+                offlineCreatedName
+            )
+        ).firstMatch
+        scrollToElement(offlineCreatedRow, in: offlineApp)
         XCTAssertTrue(
-            offlineApp.staticTexts[offlineCreatedName].waitForExistence(timeout: 5),
+            offlineCreatedRow.waitForExistence(timeout: 5),
             "Expected offline-created item to appear immediately."
         )
         XCTAssertFalse(
@@ -2781,6 +2793,32 @@ final class PlaniniUITests: XCTestCase {
             domain: "PlaniniUITests",
             code: 4,
             userInfo: [NSLocalizedDescriptionKey: "Could not find seeded list named \(listName)."]
+        )
+    }
+
+    private func normalizeListName(prefixedBy prefix: String, to canonicalName: String, accessToken: String) throws -> UUID {
+        let households = try fetchHouseholds(accessToken: accessToken)
+
+        for household in households {
+            let lists = try fetchLists(householdID: household.id, accessToken: accessToken)
+            if let matchingList = lists.first(where: { $0.name == canonicalName || $0.name.hasPrefix(prefix) }) {
+                if matchingList.name != canonicalName {
+                    let request = jsonRequest(
+                        path: "/api/v1/lists/\(matchingList.id.uuidString)",
+                        method: "PATCH",
+                        token: accessToken,
+                        body: ["name": canonicalName]
+                    )
+                    _ = try performRequest(request)
+                }
+                return matchingList.id
+            }
+        }
+
+        throw NSError(
+            domain: "PlaniniUITests",
+            code: 4,
+            userInfo: [NSLocalizedDescriptionKey: "Could not find seeded list prefixed by \(prefix)."]
         )
     }
 
