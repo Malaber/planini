@@ -1,5 +1,6 @@
 import PlaniniCore
 import SwiftUI
+import UniformTypeIdentifiers
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -1509,6 +1510,7 @@ private struct ListSettingsSheet: View {
     @State private var saveState: ListSettingsSaveState = .saved
     @State private var nameSaveTask: Task<Void, Never>?
     @State private var busyCategoryID: UUID?
+    @State private var draggedCategoryID: UUID?
     @State private var orderedCategories: [GroceryCategorySummary] = []
     @State private var pendingDisable: CategoryDisableConfirmation?
     @FocusState private var focusedField: ListSettingsFocusedField?
@@ -1583,7 +1585,6 @@ private struct ListSettingsSheet: View {
             listNameSection
             categoriesSection
         }
-        .environment(\.editMode, .constant(.active))
     }
 
     private var listNameSection: some View {
@@ -1604,8 +1605,20 @@ private struct ListSettingsSheet: View {
             } else {
                 ForEach(orderedCategories) { category in
                     categoryRow(category: category)
+                        .onDrag {
+                            draggedCategoryID = category.id
+                            return NSItemProvider(object: category.id.uuidString as NSString)
+                        }
+                        .onDrop(
+                            of: [.text],
+                            delegate: CategoryReorderDropDelegate(
+                                targetCategoryID: category.id,
+                                draggedCategoryID: $draggedCategoryID,
+                                orderedCategories: $orderedCategories,
+                                onOrderChanged: saveCategoryOrder
+                            )
+                        )
                 }
-                .onMove(perform: moveCategories)
             }
         } header: {
             Text("Categories")
@@ -1684,10 +1697,9 @@ private struct ListSettingsSheet: View {
         }
     }
 
-    private func moveCategories(from source: IndexSet, to destination: Int) {
-        orderedCategories.move(fromOffsets: source, toOffset: destination)
+    private func saveCategoryOrder(_ categoryIDs: [UUID]) {
         saveState = .saving
-        viewModel.saveCategoryOrderInBackground(categoryIDs: orderedCategories.map(\.id))
+        viewModel.saveCategoryOrderInBackground(categoryIDs: categoryIDs)
     }
 
     private func syncOrderedCategories() {
@@ -1771,6 +1783,12 @@ private struct CategorySettingsRow: View {
             .foregroundStyle(Color.accentColor)
             .accessibilityIdentifier("category-enabled-toggle-\(category.id.uuidString)")
             .accessibilityLabel(disabled ? "Show \(category.name)" : "Hide \(category.name)")
+
+            Image(systemName: "line.3.horizontal")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 32)
+                .accessibilityHidden(true)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
@@ -1780,6 +1798,44 @@ private struct CategorySettingsRow: View {
     private var metaText: String {
         let itemText = itemCount == 1 ? "1 item" : "\(itemCount) items"
         return disabled ? "Disabled for this list · \(itemText)" : "Enabled · \(itemText)"
+    }
+}
+
+private struct CategoryReorderDropDelegate: DropDelegate {
+    let targetCategoryID: UUID
+    @Binding var draggedCategoryID: UUID?
+    @Binding var orderedCategories: [GroceryCategorySummary]
+    let onOrderChanged: ([UUID]) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard
+            let draggedCategoryID,
+            draggedCategoryID != targetCategoryID,
+            let sourceIndex = orderedCategories.firstIndex(where: { $0.id == draggedCategoryID }),
+            let targetIndex = orderedCategories.firstIndex(where: { $0.id == targetCategoryID })
+        else {
+            return
+        }
+
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            orderedCategories.move(
+                fromOffsets: IndexSet(integer: sourceIndex),
+                toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
+            )
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard draggedCategoryID != nil else { return false }
+        draggedCategoryID = nil
+        onOrderChanged(orderedCategories.map(\.id))
+        return true
     }
 }
 
