@@ -100,17 +100,24 @@ def test_ios_marketing_seed_fixture_contains_only_polished_screenshot_data() -> 
         grocery_list for household in households for grocery_list in household["lists"]
     ]
     visible_names = [
-        payload["users"][0]["display_name"],
+        *(user["display_name"] for user in payload["users"]),
         *(household["name"] for household in households),
         *(grocery_list["name"] for grocery_list in grocery_lists),
         *(item["name"] for grocery_list in grocery_lists for item in grocery_list["items"]),
     ]
 
-    assert payload["users"][0]["email"] == "planini@schaedler.rocks"
+    assert [user["email"] for user in payload["users"]] == [
+        "planini@schaedler.rocks",
+        "planini-de@schaedler.rocks",
+    ]
     assert [grocery_list["name"] for grocery_list in grocery_lists] == [
         "Weekly groceries",
         "Dinner with friends",
         "Weekend brunch",
+        "Wocheneinkauf",
+        "Abendessen mit Freunden",
+        "Wochenendbrunch",
     ]
+    assert {"Dark chocolate", "Dunkle Schokolade"}.isdisjoint(visible_names)
     assert all("test" not in name.lower() for name in visible_names)
     assert all("updated" not in name.lower() for name in visible_names)

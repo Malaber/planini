@@ -110,6 +110,11 @@
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
+            key = "PLANINI_UI_TEST_LANGUAGE"
+            value = "$(PLANINI_UI_TEST_LANGUAGE)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
             key = "PLANINI_UI_TEST_USER_EMAIL"
             value = "$(PLANINI_UI_TEST_USER_EMAIL)"
             isEnabled = "YES">

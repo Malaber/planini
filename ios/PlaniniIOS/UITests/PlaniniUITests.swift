@@ -38,8 +38,9 @@ final class PlaniniUITests: XCTestCase {
         let nameField = app.textFields["add-item-name-field"]
         XCTAssertTrue(nameField.waitForExistence(timeout: 3))
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 5))
-        nameField.typeText("Dark chocolate")
-        XCTAssertTrue(waitForFieldValue(nameField, contains: "Dark chocolate"))
+        let itemName = configuredLanguage == "de" ? "Dunkle Schokolade" : "Dark chocolate"
+        nameField.typeText(itemName)
+        XCTAssertTrue(waitForFieldValue(nameField, contains: itemName))
         captureScreenshot(named: "app-store-iphone-03-add-item")
     }
 
@@ -1162,6 +1163,10 @@ final class PlaniniUITests: XCTestCase {
         environmentValue("PLANINI_UI_TEST_INITIAL_LIST_NAME") ?? initialListName
     }
 
+    private var configuredLanguage: String {
+        environmentValue("PLANINI_UI_TEST_LANGUAGE") ?? "en"
+    }
+
     private var injectedSession: UITestSession? {
         guard
             let accessToken = environmentValue("PLANINI_UI_TEST_ACCESS_TOKEN"),
@@ -1240,8 +1245,10 @@ final class PlaniniUITests: XCTestCase {
     }
 
     private func configureLaunchLanguage(for app: XCUIApplication) {
-        app.launchEnvironment["PLANINI_UI_TEST_LANGUAGE"] = "en"
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        let language = configuredLanguage
+        let locale = language == "de" ? "de_DE" : "en_US"
+        app.launchEnvironment["PLANINI_UI_TEST_LANGUAGE"] = language
+        app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", locale]
     }
 
     private func tapItemToggleButton(

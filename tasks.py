@@ -72,6 +72,8 @@ DEFAULT_IOS_MARKETING_SCREENSHOT_ARTIFACT_DIR = "e2e-artifacts/ios-marketing-scr
 DEFAULT_IOS_MARKETING_SCREENSHOT_SEED_PATH = "app/fixtures/ios_marketing_seed.json"
 DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE = "iPhone 14 Plus"
 DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST = "Weekly groceries"
+DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_USER_EMAIL = "planini-de@schaedler.rocks"
+DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_INITIAL_LIST = "Wocheneinkauf"
 DEFAULT_IOS_MARKETING_SCREENSHOT_TEST = "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
 DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE = (1284, 2778)
 DEFAULT_IOS_SIMULATOR_DESTINATION = "generic/platform=iOS Simulator"
@@ -228,6 +230,7 @@ def _ios_ui_test_env(
     user_email: str,
     artifact_dir: str,
     initial_list_name: str,
+    language: str = "en",
     access_token: str | None = None,
     display_name: str | None = None,
 ) -> dict[str, str]:
@@ -239,6 +242,7 @@ def _ios_ui_test_env(
             "PLANINI_UI_TEST_USER_EMAIL": user_email,
             "PLANINI_UI_TEST_ARTIFACT_DIR": str((ROOT / artifact_dir).resolve()),
             "PLANINI_UI_TEST_INITIAL_LIST_NAME": initial_list_name,
+            "PLANINI_UI_TEST_LANGUAGE": language,
         }
     )
     if access_token:
@@ -1940,6 +1944,7 @@ def run_ios_e2e(
         "artifact_dir": "Directory used to store native iOS UI screenshots.",
         "device_name": "Simulator device name used for XCUITest.",
         "initial_list_name": "Seeded list name that should open first inside the app.",
+        "language": "Language used by the app during XCUITest.",
         "only_testing": "Optional XCTest identifier to run instead of the full UI test bundle.",
         "expected_width": "Optional expected screenshot width in pixels.",
         "expected_height": "Optional expected screenshot height in pixels.",
@@ -1953,6 +1958,7 @@ def run_ios_ui_e2e(
     artifact_dir=DEFAULT_IOS_UI_E2E_ARTIFACT_DIR,
     device_name=DEFAULT_IOS_UI_E2E_DEVICE,
     initial_list_name=DEFAULT_IOS_UI_E2E_INITIAL_LIST,
+    language="en",
     access_token="",
     display_name="",
     attempts=1,
@@ -1973,6 +1979,7 @@ def run_ios_ui_e2e(
         user_email=user_email,
         artifact_dir=artifact_dir,
         initial_list_name=initial_list_name,
+        language=language,
         access_token=access_token or None,
         display_name=display_name or None,
     )
@@ -2238,15 +2245,18 @@ def check_ios_marketing_screenshots(
     database_url=DEFAULT_IOS_MARKETING_SCREENSHOT_DATABASE_URL,
     webauthn_rp_id="localhost",
     user_email=DEFAULT_IOS_E2E_USER_EMAIL,
+    german_user_email=DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_USER_EMAIL,
     artifact_dir=DEFAULT_IOS_MARKETING_SCREENSHOT_ARTIFACT_DIR,
     device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE,
     initial_list_name=DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST,
+    german_initial_list_name=DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_INITIAL_LIST,
     host=DEFAULT_HOST,
     port=DEFAULT_IOS_MARKETING_SCREENSHOT_PORT,
     log_path=DEFAULT_IOS_MARKETING_SCREENSHOT_LOG_PATH,
     pid_path=DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH,
 ) -> None:
     """Capture clean, App Store-sized iPhone screenshots from a fresh fixture."""
+    shutil.rmtree(ROOT / artifact_dir, ignore_errors=True)
     _reset_sqlite_database_file(database_url)
     start_app(
         c,
@@ -2261,26 +2271,31 @@ def check_ios_marketing_screenshots(
     )
     try:
         wait_for_app(c, url=f"http://{host}:{port}/health")
-        session = _bootstrap_ios_ui_test_session(
-            base_url=f"http://localhost:{port}",
-            user_email=user_email,
-        )
         generate_ios_app_icons.body(c)
         generate_ios_project.body(c)
-        run_ios_ui_e2e(
-            c,
-            base_url=f"http://localhost:{port}",
-            bootstrap_base_url=f"http://localhost:{port}",
-            user_email=user_email,
-            artifact_dir=artifact_dir,
-            device_name=device_name,
-            initial_list_name=initial_list_name,
-            access_token=session["access_token"],
-            display_name=session["display_name"],
-            only_testing=DEFAULT_IOS_MARKETING_SCREENSHOT_TEST,
-            expected_width=DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE[0],
-            expected_height=DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE[1],
-        )
+        for locale_dir, language, locale_user_email, locale_initial_list_name in [
+            ("en-US", "en", user_email, initial_list_name),
+            ("de-DE", "de", german_user_email, german_initial_list_name),
+        ]:
+            session = _bootstrap_ios_ui_test_session(
+                base_url=f"http://localhost:{port}",
+                user_email=locale_user_email,
+            )
+            run_ios_ui_e2e(
+                c,
+                base_url=f"http://localhost:{port}",
+                bootstrap_base_url=f"http://localhost:{port}",
+                user_email=locale_user_email,
+                artifact_dir=f"{artifact_dir}/{locale_dir}",
+                device_name=device_name,
+                initial_list_name=locale_initial_list_name,
+                language=language,
+                access_token=session["access_token"],
+                display_name=session["display_name"],
+                only_testing=DEFAULT_IOS_MARKETING_SCREENSHOT_TEST,
+                expected_width=DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE[0],
+                expected_height=DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE[1],
+            )
     finally:
         stop_app(c, pid_path=pid_path)
 

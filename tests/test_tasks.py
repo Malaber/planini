@@ -800,6 +800,7 @@ def test_ios_ui_test_env_uses_absolute_artifact_path(tmp_path: Path, monkeypatch
     assert env["PLANINI_UI_TEST_BOOTSTRAP_BASE_URL"] == "http://localhost:8018"
     assert env["PLANINI_UI_TEST_USER_EMAIL"] == "ios@example.com"
     assert env["PLANINI_UI_TEST_INITIAL_LIST_NAME"] == "Browser Test Shop"
+    assert env["PLANINI_UI_TEST_LANGUAGE"] == "en"
     assert env["PLANINI_UI_TEST_ARTIFACT_DIR"] == str(
         (tmp_path / "e2e-artifacts" / "ios-ui-e2e").resolve()
     )
@@ -1168,6 +1169,7 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
             "PLANINI_UI_TEST_USER_EMAIL": kwargs["user_email"],
             "PLANINI_UI_TEST_ARTIFACT_DIR": kwargs["artifact_dir"],
             "PLANINI_UI_TEST_INITIAL_LIST_NAME": kwargs["initial_list_name"],
+            "PLANINI_UI_TEST_LANGUAGE": kwargs["language"],
             "PLANINI_UI_TEST_ACCESS_TOKEN": kwargs["access_token"],
             "PLANINI_UI_TEST_DISPLAY_NAME": kwargs["display_name"],
         },
@@ -1212,6 +1214,7 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
                     "PLANINI_UI_TEST_USER_EMAIL": "ios@example.com",
                     "PLANINI_UI_TEST_ARTIFACT_DIR": "e2e-artifacts/ios-ui-e2e",
                     "PLANINI_UI_TEST_INITIAL_LIST_NAME": "Browser Test Shop",
+                    "PLANINI_UI_TEST_LANGUAGE": "en",
                     "PLANINI_UI_TEST_ACCESS_TOKEN": "token-123",
                     "PLANINI_UI_TEST_DISPLAY_NAME": "Test User",
                 },
@@ -1416,9 +1419,14 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
 
 def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_size(
     monkeypatch,
+    tmp_path: Path,
 ) -> None:
     calls: list[tuple[str, dict]] = []
 
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    stale_artifact = tmp_path / "e2e-artifacts" / "ios-marketing-screenshots" / "old-screenshot.png"
+    stale_artifact.parent.mkdir(parents=True)
+    stale_artifact.write_bytes(b"old")
     monkeypatch.setattr(
         tasks,
         "_reset_sqlite_database_file",
@@ -1430,7 +1438,13 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
         tasks,
         "_bootstrap_ios_ui_test_session",
         lambda **kwargs: calls.append(("bootstrap", kwargs))
-        or {"access_token": "token-123", "display_name": "Alex"},
+        or {
+            "access_token": f"{kwargs['user_email']}-token",
+            "display_name": "Alex",
+        },
+    )
+    monkeypatch.setattr(
+        tasks.generate_ios_app_icons, "body", lambda c: calls.append(("generate-icons", {}))
     )
     monkeypatch.setattr(
         tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
@@ -1440,20 +1454,44 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
 
     tasks.check_ios_marketing_screenshots.body(None)
 
-    run_call = next(call for call in calls if call[0] == "run")
+    run_calls = [call for call in calls if call[0] == "run"]
     assert calls[0] == (
         "reset",
         {"database_url": "sqlite+aiosqlite:///./tmp-ios-marketing-screenshots.db"},
     )
+    assert not stale_artifact.exists()
     assert next(call for call in calls if call[0] == "start")[1]["seed_path"] == (
         "app/fixtures/ios_marketing_seed.json"
     )
-    assert run_call[1]["artifact_dir"] == "e2e-artifacts/ios-marketing-screenshots"
-    assert run_call[1]["device_name"] == "iPhone 14 Plus"
-    assert run_call[1]["initial_list_name"] == "Weekly groceries"
-    assert run_call[1]["only_testing"] == "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
-    assert run_call[1]["expected_width"] == 1284
-    assert run_call[1]["expected_height"] == 2778
+    assert [
+        (
+            run_call[1]["user_email"],
+            run_call[1]["artifact_dir"],
+            run_call[1]["initial_list_name"],
+            run_call[1]["language"],
+        )
+        for run_call in run_calls
+    ] == [
+        (
+            "planini@schaedler.rocks",
+            "e2e-artifacts/ios-marketing-screenshots/en-US",
+            "Weekly groceries",
+            "en",
+        ),
+        (
+            "planini-de@schaedler.rocks",
+            "e2e-artifacts/ios-marketing-screenshots/de-DE",
+            "Wocheneinkauf",
+            "de",
+        ),
+    ]
+    assert all(run_call[1]["device_name"] == "iPhone 14 Plus" for run_call in run_calls)
+    assert all(
+        run_call[1]["only_testing"] == "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
+        for run_call in run_calls
+    )
+    assert all(run_call[1]["expected_width"] == 1284 for run_call in run_calls)
+    assert all(run_call[1]["expected_height"] == 2778 for run_call in run_calls)
     assert calls[-1] == ("stop", {"pid_path": "ios-marketing-screenshots-server.pid"})
 
 

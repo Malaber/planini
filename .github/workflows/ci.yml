@@ -185,10 +185,12 @@ jobs:
             echo "### Native iOS UI e2e" >> "$GITHUB_STEP_SUMMARY"
             cat e2e-artifacts/ios-ui-e2e/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ -f e2e-artifacts/ios-marketing-screenshots/summary.md ]; then
-            echo "### App Store iPhone screenshots" >> "$GITHUB_STEP_SUMMARY"
-            cat e2e-artifacts/ios-marketing-screenshots/summary.md >> "$GITHUB_STEP_SUMMARY"
-          fi
+          for summary in e2e-artifacts/ios-marketing-screenshots/*/summary.md; do
+            [ -f "$summary" ] || continue
+            locale="$(basename "$(dirname "$summary")")"
+            echo "### App Store iPhone screenshots ($locale)" >> "$GITHUB_STEP_SUMMARY"
+            cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+          done
 
   version:
     runs-on: ubuntu-latest

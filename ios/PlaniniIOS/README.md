@@ -108,8 +108,9 @@ Apple passkeys still validate against the shared review host.
    ```bash
    .venv/bin/inv check-ios-marketing-screenshots
    ```
-   This uses a fresh polished fixture and an iPhone 14 Plus simulator, then
-   verifies every generated screenshot is the App Store-ready `1284x2778` size.
+   This uses a fresh polished fixture and an iPhone 14 Plus simulator to capture
+   matching English and German sets under `en-US/` and `de-DE/`, then verifies
+   every generated screenshot is the App Store-ready `1284x2778` size.
 7. Launch from Xcode and verify:
    - the configured backend matches the build settings you generated the app with
    - passkey login succeeds for the selected backend
