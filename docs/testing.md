@@ -33,7 +33,7 @@ The CI workflow includes a seeded Playwright browser flow. It:
 ## Local review-style seeded testing
 
 ```bash
-SEED_DATA_PATH=app/fixtures/review_seed.json WEBAUTHN_RP_ID=localhost uvicorn app.main:app --reload
+PRIVACY_EMAIL=privacy@example.com SEED_DATA_PATH=app/fixtures/review_seed.json WEBAUTHN_RP_ID=localhost uvicorn app.main:app --reload
 ```
 
 Then open `http://localhost:8000/login`.

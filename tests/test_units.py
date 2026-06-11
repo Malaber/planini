@@ -34,7 +34,11 @@ from app.core.config import (
     settings,
 )
 from app.core import startup_checks
-from app.core.startup_checks import _sqlite_database_path, ensure_database_path_writable
+from app.core.startup_checks import (
+    _sqlite_database_path,
+    ensure_database_path_writable,
+    ensure_privacy_email_configured,
+)
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -443,12 +447,22 @@ def test_bootstrap_admin_email_helper_respects_config(monkeypatch) -> None:
     assert db.commit_calls == 0
 
 
-def test_settings_normalize_blank_bootstrap_admin_email() -> None:
+def test_settings_normalize_blank_emails() -> None:
     assert Settings(bootstrap_admin_email="").bootstrap_admin_email is None
     assert Settings(bootstrap_admin_email="   ").bootstrap_admin_email is None
+    assert Settings(privacy_email="").privacy_email is None
+    assert Settings(privacy_email="   ").privacy_email is None
     assert str(Settings(bootstrap_admin_email="admin@example.com").bootstrap_admin_email) == (
         "admin@example.com"
     )
+    assert str(Settings(privacy_email="privacy@example.com").privacy_email) == "privacy@example.com"
+
+
+def test_privacy_email_startup_check_requires_contact() -> None:
+    ensure_privacy_email_configured("privacy@example.com")
+
+    with pytest.raises(RuntimeError, match="PRIVACY_EMAIL must be set"):
+        ensure_privacy_email_configured(None)
 
 
 def test_load_settings_reports_invalid_json_env_value(monkeypatch) -> None:

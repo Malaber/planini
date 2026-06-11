@@ -273,6 +273,7 @@ async def llms_txt(request: Request) -> PlainTextResponse:
         f"- {_absolute_url(request, '/capabilities')}",
         f"- {_absolute_url(request, '/capabilities/live-demo')}",
         f"- {_absolute_url(request, '/support')}",
+        f"- {_absolute_url(request, '/privacy')}",
         f"- {canonical_root}login",
         f"- {_absolute_url(request, '/manifest.webmanifest')}",
         f"- {_absolute_url(request, '/robots.txt')}",
@@ -288,6 +289,7 @@ async def sitemap_xml(request: Request) -> FastAPIResponse:
         _absolute_url(request, "/capabilities"),
         _absolute_url(request, "/capabilities/live-demo"),
         _absolute_url(request, "/support"),
+        _absolute_url(request, "/privacy"),
         _absolute_url(request, "/login"),
         _absolute_url(request, "/settings"),
         _absolute_url(request, "/manifest.webmanifest"),
@@ -311,6 +313,16 @@ async def support_page(request: Request, db: AsyncSession = Depends(get_db)) -> 
         request,
         "support.html",
         _template_context(request, user),
+    )
+
+
+@router.get("/privacy", response_class=HTMLResponse, response_model=None)
+async def privacy_page(request: Request, db: AsyncSession = Depends(get_db)) -> Response:
+    user = await _get_session_user(request, db)
+    return templates.TemplateResponse(
+        request,
+        "privacy.html",
+        _template_context(request, user, privacy_email=str(settings.privacy_email)),
     )
 
 

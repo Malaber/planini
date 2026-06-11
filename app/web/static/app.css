@@ -56,6 +56,21 @@ main {
   padding: 0 2rem 2rem;
 }
 
+.app-footer {
+  padding: 0.5rem 2rem calc(1rem + env(safe-area-inset-bottom));
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.app-footer a {
+  color: inherit;
+  text-underline-offset: 0.2em;
+}
+
+.app-footer a:hover {
+  color: var(--brand-navy);
+}
 
 .app-header {
   display: flex;
@@ -3086,6 +3101,56 @@ main {
   margin-top: 0.25rem;
 }
 
+.privacy-shell {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.privacy-hero,
+.privacy-sections {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.privacy-hero {
+  grid-template-columns: minmax(0, 1.5fr) minmax(18rem, 1fr);
+  align-items: start;
+}
+
+.privacy-copy h1 {
+  margin: 0.35rem 0 1rem;
+  font-size: clamp(2.4rem, 5vw, 4.6rem);
+  line-height: 0.94;
+}
+
+.privacy-summary h2,
+.privacy-card h2,
+.privacy-contact h2 {
+  margin-bottom: 0;
+}
+
+.privacy-sections {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.privacy-card,
+.privacy-contact {
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
+}
+
+.privacy-contact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.privacy-contact .support-destination {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 720px) {
   .dashboard-hero {
     grid-template-columns: 1fr;
@@ -3094,7 +3159,10 @@ main {
   .capabilities-hero,
   .capabilities-grid,
   .support-hero,
-  .support-options {
+  .support-options,
+  .privacy-hero,
+  .privacy-sections,
+  .privacy-contact {
     grid-template-columns: 1fr;
   }
 

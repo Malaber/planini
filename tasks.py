@@ -44,6 +44,7 @@ DEFAULT_PREVIEW_BASE_URL = "http://localhost:8000"
 DEFAULT_BROWSER_SEED_PATH = "app/fixtures/review_seed_e2e.json"
 DEFAULT_BROWSER_DATABASE_URL = "sqlite+aiosqlite:///./tmp-ui-e2e-invoke.db"
 DEFAULT_BROWSER_BACKUP_DIRECTORY = "e2e-artifacts/backups"
+DEFAULT_PRIVACY_EMAIL = "privacy@example.com"
 DEFAULT_APP_LOG_PATH = "ui-e2e-server.log"
 DEFAULT_APP_PID_PATH = "ui-e2e-server.pid"
 DEFAULT_IOS_E2E_PORT = 8017
@@ -205,6 +206,7 @@ def _app_env(
         WEBAUTHN_RP_ID=webauthn_rp_id,
         WEBCREDENTIALS_APPS=webcredentials_apps,
         UI_TEST_BOOTSTRAP_ENABLED="true" if ui_test_bootstrap_enabled else "false",
+        PRIVACY_EMAIL=os.environ.get("PRIVACY_EMAIL", DEFAULT_PRIVACY_EMAIL),
     )
 
 

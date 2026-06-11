@@ -12,6 +12,7 @@ from app.admin import configure_admin
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import run_migrations
+from app.core.startup_checks import ensure_privacy_email_configured
 from app.services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 from app.services.fixture_seed import ensure_seed_data
 from app.web.routes import router as web_router
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI):
     backup_scheduler = None
     try:
+        ensure_privacy_email_configured(settings.privacy_email)
         logger.info("Running database migrations")
         await run_migrations()
         logger.info("Database migrations completed")

@@ -112,6 +112,9 @@
       </details>
     </header>
     <main>{% block content %}{% endblock %}</main>
+    <footer class="app-footer">
+      <a href="/privacy">{{ t("common.privacy") }}</a>
+    </footer>
     <script>
       window.__appI18n = {{ {"locale": locale, "catalogBase64": i18n_catalog_b64}|tojson }};
     </script>

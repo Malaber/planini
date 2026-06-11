@@ -4,6 +4,7 @@ services:
     restart: unless-stopped
     environment:
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in your .env file}
+      PRIVACY_EMAIL: ${PRIVACY_EMAIL:?set PRIVACY_EMAIL in your .env file}
       DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:////data/planini.db}
       BACKUP_DIRECTORY: ${BACKUP_DIRECTORY:-/backups}
       BACKUP_SLOTS: ${BACKUP_SLOTS:-[]}
