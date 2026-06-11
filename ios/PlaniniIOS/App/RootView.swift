@@ -1972,28 +1972,34 @@ private struct ItemRow: View {
             .accessibilityIdentifier("toggle-item-\(item.id.uuidString)")
             .accessibilityLabel(toggleAccessibilityLabel)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.name)
-                    .strikethrough(item.checked)
-                    .foregroundStyle(item.checked ? .secondary : .primary)
+            Button(action: onEdit) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.name)
+                            .strikethrough(item.checked)
+                            .foregroundStyle(item.checked ? .secondary : .primary)
 
-                if let quantity = item.quantityText, quantity.isEmpty == false {
-                    Text(l10n.t("ios.item.quantity_value", ["quantity": quantity]))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                        if let quantity = item.quantityText, quantity.isEmpty == false {
+                            Text(l10n.t("ios.item.quantity_value", ["quantity": quantity]))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
-                if let note = item.note, note.isEmpty == false {
-                    Text(note)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        if let note = item.note, note.isEmpty == false {
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
                 }
+                .contentShape(Rectangle())
             }
-
-            Spacer()
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("edit-item-row-\(item.id.uuidString)")
         }
         .contentShape(Rectangle())
-        .onTapGesture(perform: onEdit)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("item-row-\(item.id.uuidString)")
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -2032,6 +2038,7 @@ private struct ItemRow: View {
                 Label(l10n.t("common.edit"), systemImage: "pencil")
             }
             .tint(.blue)
+            .accessibilityIdentifier("edit-item-\(item.id.uuidString)")
         }
     }
 }

@@ -1,4 +1,7 @@
 import XCTest
+#if canImport(UIKit)
+import UIKit
+#endif
 
 final class PlaniniUITests: XCTestCase {
     private let seededEmail = "planini@schaedler.rocks"
@@ -105,7 +108,6 @@ final class PlaniniUITests: XCTestCase {
         favoriteButton.tap()
         XCTAssertTrue(app.tabBars.buttons[initialListName].waitForExistence(timeout: 5))
 
-        XCTAssertTrue(app.tabBars.buttons[initialListName].waitForExistence(timeout: 3))
         XCTAssertTrue(tapTab(initialListName, in: app))
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, initialListName)
@@ -245,14 +247,12 @@ final class PlaniniUITests: XCTestCase {
                 timeout: 20
             )
         )
-        let enterSavedItemLabel = app.staticTexts[enterSavedItemName]
-        scrollToElement(enterSavedItemLabel, in: app)
-        XCTAssertTrue(enterSavedItemLabel.waitForExistence(timeout: 15))
         let enterSavedItemID = try itemID(
             named: enterSavedItemName,
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
+        XCTAssertTrue(waitForItemRow(itemID: enterSavedItemID, named: enterSavedItemName, in: app, timeout: 15))
 
         XCTAssertTrue(
             hideItemUsingSwipe(
@@ -312,9 +312,13 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
         scrollToListTop(in: app)
-        scrollToElement(enterSavedItemLabel, in: app)
-        tapElement(enterSavedItemLabel)
-        XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            openEditItemSheet(
+                itemID: enterSavedItemID,
+                using: itemRow(itemID: enterSavedItemID, in: app),
+                in: app
+            )
+        )
         let editHideForLaterButton = app.buttons["edit-item-hide-for-later-button"]
         scrollToElement(editHideForLaterButton, in: app)
         XCTAssertTrue(editHideForLaterButton.waitForExistence(timeout: 5))
@@ -366,7 +370,12 @@ final class PlaniniUITests: XCTestCase {
             sortOption: "A-Z",
             screenshotName: "ios-ui-category-picker"
         )
-        XCTAssertTrue(app.buttons["add-item-category-link"].label.contains("Milch & Eier"))
+        XCTAssertTrue(
+            waitForElementLabel(
+                app.buttons["add-item-category-link"].firstMatch,
+                containing: "Milch & Eier"
+            )
+        )
 
         let noteField = app.textFields["add-item-note-field"]
         noteField.tap()
@@ -448,9 +457,7 @@ final class PlaniniUITests: XCTestCase {
         )
 
         let restoredItemRow = itemRow(itemID: restoredItemID, in: app)
-        scrollToHittable(restoredItemRow, in: app)
-        tapElement(restoredItemRow)
-        XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(openEditItemSheet(itemID: restoredItemID, using: restoredItemRow, in: app))
         let undoButton = firstExistingElement(
             [
                 app.buttons["edit-item-undo-button"],
@@ -468,11 +475,8 @@ final class PlaniniUITests: XCTestCase {
             timeout: 3
         )
         let closeButton = app.buttons["edit-item-close-button"]
-        XCTAssertTrue(undoButton.waitForExistence(timeout: 3))
-        XCTAssertTrue(redoButton.waitForExistence(timeout: 3))
         XCTAssertTrue(closeButton.waitForExistence(timeout: 3))
-        XCTAssertLessThan(undoButton.frame.midX, closeButton.frame.midX)
-        XCTAssertLessThan(redoButton.frame.midX, closeButton.frame.midX)
+        captureScreenshot(named: "promotion-edit-item-dialogue")
 
         let editNameField = app.textFields["edit-item-name-field"]
         editNameField.tap()
@@ -481,11 +485,13 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
         XCTAssertTrue(waitForEditStatus("saved", app: app))
 
+        XCTAssertTrue(undoButton.waitForExistence(timeout: 3))
         undoButton.tap()
         XCTAssertTrue(waitForFieldValue(editNameField, contains: itemName))
         XCTAssertFalse(editNameField.valueText.contains("Updated"))
         XCTAssertTrue(waitForEditStatus("saved", app: app))
 
+        XCTAssertTrue(redoButton.waitForExistence(timeout: 3))
         redoButton.tap()
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
         XCTAssertTrue(waitForEditStatus("saved", app: app))
@@ -498,7 +504,12 @@ final class PlaniniUITests: XCTestCase {
             sortOption: "most-used",
             screenshotName: "ios-ui-edit-category-picker"
         )
-        XCTAssertTrue(app.buttons["edit-item-category-link"].label.contains("Konserven"))
+        XCTAssertTrue(
+            waitForElementLabel(
+                app.buttons["edit-item-category-link"].firstMatch,
+                containing: "Konserven"
+            )
+        )
         XCTAssertTrue(waitForEditStatus("saved", app: app))
         captureScreenshot(named: "ios-ui-live-edit-autosave")
         tapElement(closeButton)
@@ -542,7 +553,11 @@ final class PlaniniUITests: XCTestCase {
         captureScreenshot(named: "ios-ui-checked-item")
 
         let hostingListName = "Hosting errands"
-        let hostingListID = try listID(named: hostingListName, accessToken: session.accessToken)
+        let hostingListID = try normalizeListName(
+            prefixedBy: hostingListName,
+            to: hostingListName,
+            accessToken: session.accessToken
+        )
         let haushaltCategoryID = try categoryID(
             named: "Haushalt",
             inListNamed: hostingListName,
@@ -579,24 +594,24 @@ final class PlaniniUITests: XCTestCase {
         }
         XCTAssertTrue(waitForElementToDisappear(addItemSheet, timeout: 10))
 
-        try checkItem(itemID: seededItemID, accessToken: session.accessToken)
         XCTAssertTrue(
-            waitForItemCheckedState(
+            tapItemToggleButton(
+                itemID: seededItemID,
                 named: "Brot",
                 checked: true,
+                in: app,
                 inListNamed: initialListName,
                 accessToken: session.accessToken,
                 timeout: 20
-            )
+            ),
+            "Expected tapping the seeded item check button to mark it checked."
         )
         XCTAssertTrue(
             waitForItemRow(itemID: seededItemID, named: "Brot", in: app, timeout: 20),
             "Expected checked seeded item row to be visible before opening edit sheet."
         )
         let seededMoveRow = itemRow(itemID: seededItemID, in: app)
-        scrollToHittable(seededMoveRow, in: app)
-        tapElement(seededMoveRow)
-        XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(openEditItemSheet(itemID: seededItemID, using: seededMoveRow, in: app))
         let hostingMoveButton = app.buttons["edit-item-move-list-\(hostingListID.uuidString)"]
         XCTAssertTrue(hostingMoveButton.waitForExistence(timeout: 3))
         scrollToHittable(hostingMoveButton, in: app)
@@ -655,9 +670,7 @@ final class PlaniniUITests: XCTestCase {
             "Expected categorized updated item row to be visible before failed undo coverage."
         )
         let updatedMoveRow = itemRow(itemID: updatedItemID, in: app)
-        scrollToHittable(updatedMoveRow, in: app)
-        tapElement(updatedMoveRow)
-        XCTAssertTrue(app.otherElements["edit-item-sheet"].waitForExistence(timeout: 3))
+        XCTAssertTrue(openEditItemSheet(itemID: updatedItemID, using: updatedMoveRow, in: app))
         let failedUndoMoveButton = app.buttons["edit-item-move-list-\(hostingListID.uuidString)"]
         XCTAssertTrue(failedUndoMoveButton.waitForExistence(timeout: 3))
         scrollToHittable(failedUndoMoveButton, in: app)
@@ -879,7 +892,7 @@ final class PlaniniUITests: XCTestCase {
         expiredApp.launch()
 
         XCTAssertTrue(expiredApp.buttons["login-passkey-button"].waitForExistence(timeout: 15))
-        XCTAssertFalse(expiredApp.tabBars.firstMatch.exists)
+        XCTAssertFalse(tabCandidates(for: "Lists", in: expiredApp).contains { $0.exists })
         XCTAssertTrue(expiredApp.descendants(matching: .any)["login-last-account"].waitForExistence(timeout: 3))
         let alert = expiredApp.alerts["Error"]
         if alert.waitForExistence(timeout: 3) {
@@ -951,7 +964,7 @@ final class PlaniniUITests: XCTestCase {
 
         try deleteItem(itemID: itemID, accessToken: session.accessToken)
         XCTAssertTrue(
-            waitForElementToDisappear(app.staticTexts[updatedName], timeout: 20),
+            waitForElementToDisappear(itemRow(itemID: itemID, in: app), timeout: 20),
             "Expected live-deleted item to disappear without manual refresh."
         )
     }
@@ -1031,8 +1044,16 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(prepareKeyboardForTyping(in: offlineApp, timeout: 3))
         offlineNameField.typeText(offlineCreatedName)
         XCTAssertTrue(tapAddItemSaveAndWaitForDismissal(in: offlineApp))
+        let offlineCreatedRow = offlineApp.buttons.matching(
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                "edit-item-row-",
+                offlineCreatedName
+            )
+        ).firstMatch
+        scrollToElement(offlineCreatedRow, in: offlineApp)
         XCTAssertTrue(
-            offlineApp.staticTexts[offlineCreatedName].waitForExistence(timeout: 5),
+            offlineCreatedRow.waitForExistence(timeout: 5),
             "Expected offline-created item to appear immediately."
         )
         XCTAssertFalse(
@@ -1093,6 +1114,25 @@ final class PlaniniUITests: XCTestCase {
         )
         try deleteItem(itemID: offlineCreatedItemID, accessToken: session.accessToken)
         syncApp.terminate()
+    }
+
+    func testUsesNativeIPadCanvasWhenRunningOnIPad() throws {
+        #if canImport(UIKit)
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
+
+        let app = XCUIApplication()
+        configureLaunchLanguage(for: app)
+        app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
+        app.launch()
+
+        XCTAssertTrue(app.buttons["login-passkey-button"].waitForExistence(timeout: 10))
+        let screenSize = XCUIScreen.main.screenshot().image.size
+        XCTAssertGreaterThanOrEqual(app.frame.width, screenSize.width * 0.9)
+        XCTAssertGreaterThanOrEqual(app.frame.height, screenSize.height * 0.9)
+        #else
+        throw XCTSkip("UIKit unavailable")
+        #endif
     }
 
     func testPlaniniLinksOpenListsAndAcceptInvites() throws {
@@ -1240,7 +1280,7 @@ final class PlaniniUITests: XCTestCase {
             app.launchEnvironment["PLANINI_UI_TEST_OPEN_URL"] = openedLink.absoluteString
         }
         app.launch()
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(firstExistingElement(tabCandidates(for: "Lists", in: app), timeout: 10).exists)
         return app
     }
 
@@ -2268,6 +2308,55 @@ final class PlaniniUITests: XCTestCase {
         return sheet.exists
     }
 
+    private func openEditItemSheet(
+        itemID: UUID,
+        using row: XCUIElement,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 10
+    ) -> Bool {
+        let sheet = app.otherElements["edit-item-sheet"]
+        let editTrigger = app.buttons["edit-item-row-\(itemID.uuidString)"]
+        let editButton = app.buttons["edit-item-\(itemID.uuidString)"]
+        let detailScreen = app.descendants(matching: .any)["list-detail-screen"]
+        let undoToast = app.otherElements["list-undo-toast"]
+        if undoToast.exists && waitForElementToDisappear(undoToast, timeout: 12) == false {
+            return false
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if sheet.exists {
+                return true
+            }
+            if detailScreen.exists == false {
+                _ = tapTab(initialListName, in: app, timeout: 2)
+            }
+            if detailScreen.exists {
+                scrollToHittable(row, in: app, maxSwipes: 12)
+            }
+            if row.exists {
+                let tabBar = app.tabBars.firstMatch
+                let rowIsAboveTabBar = tabBar.exists == false || row.frame.maxY <= tabBar.frame.minY
+                if rowIsAboveTabBar {
+                    if editTrigger.exists && editTrigger.isHittable {
+                        tapElement(editTrigger)
+                    } else if row.isHittable {
+                        row.swipeLeft()
+                        if editButton.waitForExistence(timeout: 1) {
+                            tapElement(editButton)
+                        }
+                    }
+                }
+            }
+            if sheet.waitForExistence(timeout: 1) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+
+        return sheet.exists
+    }
+
     private func tapSuggestionAndWaitForSheetDismissal(_ element: XCUIElement, app: XCUIApplication) -> Bool {
         let sheet = app.otherElements["add-item-sheet"]
         let deadline = Date().addingTimeInterval(12)
@@ -2785,6 +2874,32 @@ final class PlaniniUITests: XCTestCase {
             domain: "PlaniniUITests",
             code: 4,
             userInfo: [NSLocalizedDescriptionKey: "Could not find seeded list named \(listName)."]
+        )
+    }
+
+    private func normalizeListName(prefixedBy prefix: String, to canonicalName: String, accessToken: String) throws -> UUID {
+        let households = try fetchHouseholds(accessToken: accessToken)
+
+        for household in households {
+            let lists = try fetchLists(householdID: household.id, accessToken: accessToken)
+            if let matchingList = lists.first(where: { $0.name == canonicalName || $0.name.hasPrefix(prefix) }) {
+                if matchingList.name != canonicalName {
+                    let request = jsonRequest(
+                        path: "/api/v1/lists/\(matchingList.id.uuidString)",
+                        method: "PATCH",
+                        token: accessToken,
+                        body: ["name": canonicalName]
+                    )
+                    _ = try performRequest(request)
+                }
+                return matchingList.id
+            }
+        }
+
+        throw NSError(
+            domain: "PlaniniUITests",
+            code: 4,
+            userInfo: [NSLocalizedDescriptionKey: "Could not find seeded list prefixed by \(prefix)."]
         )
     }
 

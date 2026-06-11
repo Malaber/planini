@@ -6,6 +6,12 @@ from sqlalchemy.engine import make_url
 from app.core.config import settings
 
 
+def ensure_required_email_configured(email: object | None, env_name: str) -> None:
+    if email is not None:
+        return
+    raise RuntimeError(f"{env_name} must be set to a valid contact email before Planini can start.")
+
+
 def _sqlite_database_path(database_url: str) -> Path | None:
     url = make_url(database_url)
     if url.get_backend_name() != "sqlite":
@@ -48,6 +54,8 @@ def ensure_database_path_writable(database_url: str) -> None:
 
 
 def main() -> int:
+    ensure_required_email_configured(settings.privacy_email, "PRIVACY_EMAIL")
+    ensure_required_email_configured(settings.support_email, "SUPPORT_EMAIL")
     ensure_database_path_writable(settings.database_url)
     return 0
 

@@ -1,6 +1,6 @@
-# Planini iPhone app
+# Planini iOS app
 
-This folder contains a starter SwiftUI iPhone client for Planini plus a Swift package with automated tests for the app's core logic.
+This folder contains a universal SwiftUI iPhone and iPad client for Planini plus a Swift package with automated tests for the app's core logic.
 
 ## Folder layout
 
@@ -58,8 +58,12 @@ Apple passkeys still validate against the shared review host.
 
 1. Open Xcode 16 or newer on macOS.
 2. Open `ios/PlaniniIOS/PlaniniApp.xcodeproj`.
-3. Use the `Planini` scheme to build and run the native app on an iPhone simulator or device.
+3. Use the `Planini` scheme to build and run the native app on an iPhone or iPad simulator or device.
 4. Open `ios/PlaniniIOS/Package.swift` in Xcode as needed to inspect or run the Swift package tests for `PlaniniCore`.
+
+The app target supports both iPhone and iPad natively. The CI UI e2e matrix runs the same XCTest
+suite on both device families and verifies that iPad uses the full native canvas instead of iPhone
+compatibility mode.
 
 ## Included app flow
 
@@ -224,6 +228,18 @@ for only the individual `pr-<PR>` app host to serve the AASA response.
 6. Archive the app in Xcode, validate it, and upload it through Organizer.
 7. In App Store Connect, create the app record, complete screenshots, pricing, age rating, and submission notes.
 8. Submit for App Review and be ready to provide a demo account or backend test environment if Apple asks for one.
+
+### iPad release requirements
+
+- The universal iPhone/iPad app uses the existing App ID, bundle identifier, signing certificate,
+  provisioning profile, associated domains, App Group, and watch App IDs. No new Apple Developer
+  group or capability is required solely for iPad support.
+- App Store Connect requires iPad screenshots for a version that supports iPad. Capture and upload
+  the required current iPad display-size screenshots before submitting the next version.
+- Ad-hoc installation on a physical iPad requires registering that iPad UDID and regenerating the
+  ad-hoc provisioning profile, exactly like adding another physical iPhone test device.
+- Test passkeys, keyboard behavior, rotation, split view, and Stage Manager on a physical iPad
+  before release.
 
 
 ## GitHub Actions automation

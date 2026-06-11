@@ -11,6 +11,8 @@ const seedPath = process.env.E2E_SEED_PATH ?? "app/fixtures/review_seed_e2e.json
 const deviceName = process.env.E2E_DEVICE ?? "desktop";
 const browserLocale = process.env.E2E_LOCALE ?? "en-US";
 const browserTimeZone = process.env.E2E_TIMEZONE ?? "Europe/Berlin";
+const privacyEmail = process.env.PRIVACY_EMAIL ?? "privacy@example.com";
+const supportEmail = process.env.SUPPORT_EMAIL ?? "support@example.com";
 const browserChannel = process.env.E2E_BROWSER_CHANNEL?.trim() || undefined;
 const recordVideo = !["0", "false", "no"].includes(
   (process.env.E2E_RECORD_VIDEO ?? "true").trim().toLowerCase(),
@@ -471,15 +473,35 @@ async function assertSupportPage(page) {
     await menuToggle.click();
   }
 
-  const emailLink = page.locator('a[href="mailto:planini-support@schaedler.rocks"]');
+  const emailLink = page.locator(`a[href="mailto:${supportEmail}"]`);
   await expectVisible(emailLink, "Expected direct support email option");
-  assert.equal(await emailLink.getAttribute("href"), "mailto:planini-support@schaedler.rocks");
+  assert.equal(await emailLink.getAttribute("href"), `mailto:${supportEmail}`);
 
   const githubLink = page.locator('a[href="https://github.com/Malaber/planini/issues"]');
   await expectVisible(githubLink, "Expected GitHub issue option");
   assert.equal(await githubLink.getAttribute("target"), "_blank");
   assert.equal(await githubLink.getAttribute("rel"), "noopener noreferrer");
   await screenshot(page, "support-page");
+}
+
+async function assertPrivacyPage(page) {
+  logStep("Checking public privacy page and configured contact");
+  await page.goto(new URL("/privacy", baseUrl).toString(), { waitUntil: "networkidle" });
+  await expectVisible(
+    page.getByRole("heading", { name: "Privacy at Planini" }),
+    "Expected public privacy page heading",
+  );
+  await expectVisible(
+    page.getByRole("heading", { name: "No analytics or advertising" }),
+    "Expected no-analytics privacy summary",
+  );
+  const contactLink = page.locator(`a[href="mailto:${privacyEmail}"]`);
+  await expectVisible(contactLink, "Expected configured privacy contact");
+  await expectVisible(
+    page.locator('.app-footer a[href="/privacy"]'),
+    "Expected privacy footer link",
+  );
+  await screenshot(page, "privacy-page");
 }
 
 async function screenshot(page, name) {
@@ -1523,6 +1545,7 @@ async function main() {
     const authenticator = await createVirtualAuthenticator(page);
     await installSeededPasskey(authenticator, owner, rpId);
     await assertSupportPage(page);
+    await assertPrivacyPage(page);
     logStep("Signing in with the seeded owner passkey");
     await loginFromRoot(page, owner, "Households and Lists");
     await screenshot(page, "promotion-list-of-lists");
@@ -2059,7 +2082,7 @@ async function main() {
   const summary = [
     "## UI E2E",
     "",
-    `Browser UI flow passed for ${deviceName} using seeded real database data and passkey auth for public support contacts, route rendering, login gating, multi-passkey enrollment and deletion, add/edit flows, fuzzy duplicate suggestions, undo toasts, category alias search, category disabling, admin navigation, websocket updates, and household invite acceptance.`,
+    `Browser UI flow passed for ${deviceName} using seeded real database data and passkey auth for public support and privacy contacts, route rendering, login gating, multi-passkey enrollment and deletion, add/edit flows, fuzzy duplicate suggestions, undo toasts, category alias search, category disabling, admin navigation, websocket updates, and household invite acceptance.`,
     "",
   ].join("\n");
   await fs.writeFile(path.join(artifactDir, "summary.md"), summary);

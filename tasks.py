@@ -45,6 +45,8 @@ DEFAULT_PREVIEW_BASE_URL = "http://localhost:8000"
 DEFAULT_BROWSER_SEED_PATH = "app/fixtures/review_seed_e2e.json"
 DEFAULT_BROWSER_DATABASE_URL = "sqlite+aiosqlite:///./tmp-ui-e2e-invoke.db"
 DEFAULT_BROWSER_BACKUP_DIRECTORY = "e2e-artifacts/backups"
+DEFAULT_PRIVACY_EMAIL = "privacy@example.com"
+DEFAULT_SUPPORT_EMAIL = "support@example.com"
 DEFAULT_APP_LOG_PATH = "ui-e2e-server.log"
 DEFAULT_APP_PID_PATH = "ui-e2e-server.pid"
 DEFAULT_IOS_E2E_PORT = 8017
@@ -109,6 +111,15 @@ IOS_APP_ICON_FILES = {
     "Icon-40@3x.png": 120,
     "Icon-60@2x.png": 120,
     "Icon-60@3x.png": 180,
+    "Icon-iPad-20.png": 20,
+    "Icon-iPad-20@2x.png": 40,
+    "Icon-iPad-29.png": 29,
+    "Icon-iPad-29@2x.png": 58,
+    "Icon-iPad-40.png": 40,
+    "Icon-iPad-40@2x.png": 80,
+    "Icon-iPad-76.png": 76,
+    "Icon-iPad-76@2x.png": 152,
+    "Icon-iPad-83.5@2x.png": 167,
     "Icon-1024.png": 1024,
 }
 IOS_WATCH_APP_ICON_FILES = {
@@ -220,6 +231,8 @@ def _app_env(
         WEBAUTHN_RP_ID=webauthn_rp_id,
         WEBCREDENTIALS_APPS=webcredentials_apps,
         UI_TEST_BOOTSTRAP_ENABLED="true" if ui_test_bootstrap_enabled else "false",
+        PRIVACY_EMAIL=os.environ.get("PRIVACY_EMAIL", DEFAULT_PRIVACY_EMAIL),
+        SUPPORT_EMAIL=os.environ.get("SUPPORT_EMAIL", DEFAULT_SUPPORT_EMAIL),
     )
 
 
@@ -1543,6 +1556,8 @@ def run_browser_e2e(
             "WEBAUTHN_RP_ID": webauthn_rp_id,
             "PREVIEW_ARTIFACT_DIR": artifact_dir,
             "PREVIEW_BACKUP_DIR": DEFAULT_BROWSER_BACKUP_DIRECTORY,
+            "PRIVACY_EMAIL": os.environ.get("PRIVACY_EMAIL", DEFAULT_PRIVACY_EMAIL),
+            "SUPPORT_EMAIL": os.environ.get("SUPPORT_EMAIL", DEFAULT_SUPPORT_EMAIL),
         }
     )
     if device != "desktop":
@@ -1945,7 +1960,7 @@ def run_ios_e2e(
         "device_name": "Simulator device name used for XCUITest.",
         "initial_list_name": "Seeded list name that should open first inside the app.",
         "language": "Language used by the app during XCUITest.",
-        "only_testing": "Optional XCTest identifier to run instead of the full UI test bundle.",
+        "only_testing": "Xcode test target, class, or method passed to -only-testing.",
         "expected_width": "Optional expected screenshot width in pixels.",
         "expected_height": "Optional expected screenshot height in pixels.",
     }
@@ -2183,11 +2198,12 @@ def check_ios_e2e(
         "artifact_dir": "Directory used to store native iOS UI screenshots.",
         "device_name": "Simulator device name used for XCUITest.",
         "initial_list_name": "Seeded list name that should open first inside the app.",
-        "attempts": "Maximum xcodebuild attempts for transient simulator failures.",
         "host": "Host to bind the local app server to.",
         "port": "Port to bind the local app server to.",
         "log_path": "File used for uvicorn logs.",
         "pid_path": "File used to store the started server PID.",
+        "attempts": "Maximum xcodebuild attempts for transient simulator startup failures.",
+        "only_testing": "Xcode test target, class, or method passed to -only-testing.",
     }
 )
 def check_ios_ui_e2e(
@@ -2199,11 +2215,12 @@ def check_ios_ui_e2e(
     artifact_dir=DEFAULT_IOS_UI_E2E_ARTIFACT_DIR,
     device_name=DEFAULT_IOS_UI_E2E_DEVICE,
     initial_list_name=DEFAULT_IOS_UI_E2E_INITIAL_LIST,
-    attempts=2,
     host=DEFAULT_HOST,
     port=DEFAULT_IOS_UI_E2E_PORT,
     log_path=DEFAULT_IOS_UI_E2E_LOG_PATH,
     pid_path=DEFAULT_IOS_UI_E2E_PID_PATH,
+    attempts=2,
+    only_testing="PlaniniUITests",
 ) -> None:
     _reset_sqlite_database_file(database_url)
     start_app(
@@ -2236,6 +2253,7 @@ def check_ios_ui_e2e(
             access_token=session["access_token"],
             display_name=session["display_name"],
             attempts=attempts,
+            only_testing=only_testing,
         )
     finally:
         stop_app(c, pid_path=pid_path)
