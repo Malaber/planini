@@ -20,6 +20,7 @@ The published container is intended to run behind Docker Compose. For a low-traf
 PLANINI_IMAGE=ghcr.io/malaber/planini:0.1.2
 SECRET_KEY=replace-this-with-a-long-random-secret
 PRIVACY_EMAIL=privacy@example.com
+SUPPORT_EMAIL=support@example.com
 APP_BASE_URL=https://planini.example.com
 WEBAUTHN_RP_ID=planini.example.com
 WEBCREDENTIALS_APPS=["VWKG94374J.de.malaber.planini"]
@@ -40,6 +41,7 @@ services:
     environment:
       SECRET_KEY: ${SECRET_KEY}
       PRIVACY_EMAIL: ${PRIVACY_EMAIL}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL}
       DATABASE_URL: sqlite+aiosqlite:////data/planini.db
       BACKUP_DIRECTORY: ${BACKUP_DIRECTORY}
       BACKUP_SLOTS: ${BACKUP_SLOTS}
@@ -101,6 +103,7 @@ Notes:
 
 - set a strong `SECRET_KEY`
 - set `PRIVACY_EMAIL` to a monitored contact address; Planini refuses startup without it
+- set `SUPPORT_EMAIL` to a monitored support address; Planini refuses startup without it
 - keep `SECURE_COOKIES=true` when serving over HTTPS
 - put the app behind a reverse proxy or load balancer that terminates TLS
 - set `APP_BASE_URL` to the public HTTPS origin users and passkey clients reach

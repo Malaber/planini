@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 os.environ.setdefault("PRIVACY_EMAIL", "privacy@example.com")
+os.environ.setdefault("SUPPORT_EMAIL", "support@example.com")
 
 from app.main import app  # noqa: E402
 from db_utils import dispose_db, reset_db  # noqa: E402

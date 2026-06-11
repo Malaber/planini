@@ -12,6 +12,7 @@ const deviceName = process.env.E2E_DEVICE ?? "desktop";
 const browserLocale = process.env.E2E_LOCALE ?? "en-US";
 const browserTimeZone = process.env.E2E_TIMEZONE ?? "Europe/Berlin";
 const privacyEmail = process.env.PRIVACY_EMAIL ?? "privacy@example.com";
+const supportEmail = process.env.SUPPORT_EMAIL ?? "support@example.com";
 const browserChannel = process.env.E2E_BROWSER_CHANNEL?.trim() || undefined;
 const recordVideo = !["0", "false", "no"].includes(
   (process.env.E2E_RECORD_VIDEO ?? "true").trim().toLowerCase(),
@@ -472,9 +473,9 @@ async function assertSupportPage(page) {
     await menuToggle.click();
   }
 
-  const emailLink = page.locator('a[href="mailto:planini-support@schaedler.rocks"]');
+  const emailLink = page.locator(`a[href="mailto:${supportEmail}"]`);
   await expectVisible(emailLink, "Expected direct support email option");
-  assert.equal(await emailLink.getAttribute("href"), "mailto:planini-support@schaedler.rocks");
+  assert.equal(await emailLink.getAttribute("href"), `mailto:${supportEmail}`);
 
   const githubLink = page.locator('a[href="https://github.com/Malaber/planini/issues"]');
   await expectVisible(githubLink, "Expected GitHub issue option");

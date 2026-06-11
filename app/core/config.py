@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     seed_data_path: str | None = None
     bootstrap_admin_email: EmailStr | None = None
     privacy_email: EmailStr | None = None
+    support_email: EmailStr | None = None
     ui_test_bootstrap_enabled: bool = False
     backup_directory: str | None = None
     backup_slots: list[str] = []
@@ -81,7 +82,7 @@ class Settings(BaseSettings):
             return [entry.strip() for entry in value.split(",") if entry.strip()]
         return value
 
-    @field_validator("bootstrap_admin_email", "privacy_email", mode="before")
+    @field_validator("bootstrap_admin_email", "privacy_email", "support_email", mode="before")
     @classmethod
     def normalize_blank_email(cls, value: object) -> object:
         if isinstance(value, str) and value.strip() == "":

@@ -312,7 +312,7 @@ async def support_page(request: Request, db: AsyncSession = Depends(get_db)) -> 
     return templates.TemplateResponse(
         request,
         "support.html",
-        _template_context(request, user),
+        _template_context(request, user, support_email=str(settings.support_email)),
     )
 
 

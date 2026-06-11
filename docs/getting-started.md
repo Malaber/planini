@@ -10,7 +10,8 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Set `PRIVACY_EMAIL` in `.env` to a monitored contact address. Planini refuses startup without it.
+Set `PRIVACY_EMAIL` and `SUPPORT_EMAIL` in `.env` to monitored contact addresses. Planini
+refuses startup without either one.
 
 Open `http://localhost:8000/docs`.
 

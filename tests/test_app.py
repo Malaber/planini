@@ -227,7 +227,7 @@ def test_support_page_is_public_and_offers_email_and_github_options(client) -> N
 
     assert response.status_code == 200
     assert "Need help with Planini?" in response.text
-    assert 'href="mailto:planini-support@schaedler.rocks"' in response.text
+    assert 'href="mailto:support@example.com"' in response.text
     assert 'href="https://github.com/Malaber/planini/issues"' in response.text
     assert 'target="_blank"' in response.text
     assert 'rel="noopener noreferrer"' in response.text
