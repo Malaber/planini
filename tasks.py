@@ -2183,6 +2183,7 @@ def check_ios_e2e(
         "artifact_dir": "Directory used to store native iOS UI screenshots.",
         "device_name": "Simulator device name used for XCUITest.",
         "initial_list_name": "Seeded list name that should open first inside the app.",
+        "attempts": "Maximum xcodebuild attempts for transient simulator failures.",
         "host": "Host to bind the local app server to.",
         "port": "Port to bind the local app server to.",
         "log_path": "File used for uvicorn logs.",
@@ -2198,6 +2199,7 @@ def check_ios_ui_e2e(
     artifact_dir=DEFAULT_IOS_UI_E2E_ARTIFACT_DIR,
     device_name=DEFAULT_IOS_UI_E2E_DEVICE,
     initial_list_name=DEFAULT_IOS_UI_E2E_INITIAL_LIST,
+    attempts=2,
     host=DEFAULT_HOST,
     port=DEFAULT_IOS_UI_E2E_PORT,
     log_path=DEFAULT_IOS_UI_E2E_LOG_PATH,
@@ -2233,6 +2235,7 @@ def check_ios_ui_e2e(
             initial_list_name=initial_list_name,
             access_token=session["access_token"],
             display_name=session["display_name"],
+            attempts=attempts,
         )
     finally:
         stop_app(c, pid_path=pid_path)
