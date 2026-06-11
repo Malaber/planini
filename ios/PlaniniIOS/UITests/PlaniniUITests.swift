@@ -846,7 +846,7 @@ final class PlaniniUITests: XCTestCase {
     func testEmptyOnboardingGuidesListSetupAndFavoriteChoice() throws {
         try assertLocalTestBackend()
 
-        let emptySession = try bootstrapSession(email: "preview-invitee@example.com")
+        let emptySession = try bootstrapSession(email: "ios-empty@example.com")
         let emptyApp = launchedApp(session: emptySession)
 
         XCTAssertTrue(emptyApp.staticTexts["No favorite list yet"].waitForExistence(timeout: 10))
