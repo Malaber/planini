@@ -301,7 +301,7 @@ struct RootView: View {
     private var appTabs: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                FavoriteListTab()
+                FavoriteListTab(selectedTab: $selectedTab)
             }
             .tabItem {
                 Label(
@@ -564,17 +564,51 @@ private struct ReviewerOnboardingSheet: View {
 private struct FavoriteListTab: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
+    @Binding var selectedTab: AppTab
 
     var body: some View {
         Group {
             if let favoriteList = viewModel.favoriteList {
                 ListDetailScreen(listID: favoriteList.id, showsFavoriteButton: false)
             } else {
-                EmptyStateView(
-                    title: l10n.t("ios.favorite.empty_title"),
-                    systemImage: "star",
-                    message: l10n.t("ios.favorite.empty_message")
-                )
+                VStack(spacing: 0) {
+                    EmptyStateView(
+                        title: l10n.t("ios.favorite.empty_title"),
+                        systemImage: "star",
+                        message: l10n.t(
+                            viewModel.lists.isEmpty
+                                ? "ios.favorite.no_lists_message"
+                                : "ios.favorite.empty_message"
+                        )
+                    )
+
+                    if viewModel.lists.isEmpty {
+                        Button {
+                            selectedTab = .settings
+                        } label: {
+                            Label(l10n.t("ios.favorite.open_settings"), systemImage: "gearshape")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("favorite-empty-open-settings-button")
+                    } else {
+                        Menu {
+                            ForEach(viewModel.lists) { list in
+                                Button {
+                                    viewModel.setFavoriteList(id: list.id)
+                                    Task { await viewModel.showFavoriteList() }
+                                } label: {
+                                    Label(list.name, systemImage: "star")
+                                }
+                                .accessibilityIdentifier("favorite-choice-\(list.id.uuidString)")
+                            }
+                        } label: {
+                            Label(l10n.t("ios.favorite.choose_list"), systemImage: "star.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("favorite-empty-choose-list-menu")
+                    }
+                }
+                .padding(.horizontal, 24)
                 .navigationTitle(l10n.t("ios.tabs.favorite"))
             }
         }
@@ -596,34 +630,54 @@ private struct ListsTab: View {
 
     var body: some View {
         List {
-            ForEach(householdSections, id: \.name) { section in
-                Section(section.name) {
-                    ForEach(section.lists) { list in
-                        NavigationLink(value: list.id) {
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(list.name)
-                                    if list.id == viewModel.favoriteListID {
-                                        Label(l10n.t("ios.favorite.favorite_list"), systemImage: "star.fill")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
+            if householdSections.isEmpty {
+                VStack(spacing: 0) {
+                    EmptyStateView(
+                        title: l10n.t("ios.lists.empty_title"),
+                        systemImage: "rectangle.grid.1x2",
+                        message: l10n.t("ios.lists.empty_message")
+                    )
 
-                                Spacer()
+                    Button {
+                        selectedTab = .settings
+                    } label: {
+                        Label(l10n.t("ios.lists.open_settings"), systemImage: "gearshape")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("lists-empty-open-settings-button")
+                }
+                .frame(maxWidth: .infinity)
+                .listRowSeparator(.hidden)
+            } else {
+                ForEach(householdSections, id: \.name) { section in
+                    Section(section.name) {
+                        ForEach(section.lists) { list in
+                            NavigationLink(value: list.id) {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(list.name)
+                                        if list.id == viewModel.favoriteListID {
+                                            Label(l10n.t("ios.favorite.favorite_list"), systemImage: "star.fill")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
                             }
-                            .contentShape(Rectangle())
-                        }
-                        .accessibilityIdentifier("list-row-\(list.name)")
-                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                            Button {
-                                viewModel.setFavoriteList(id: list.id)
-                                selectedTab = .favorite
-                                Task { await viewModel.showFavoriteList() }
-                            } label: {
-                                Label(l10n.t("ios.tabs.favorite"), systemImage: "star.fill")
+                            .accessibilityIdentifier("list-row-\(list.name)")
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                Button {
+                                    viewModel.setFavoriteList(id: list.id)
+                                    selectedTab = .favorite
+                                    Task { await viewModel.showFavoriteList() }
+                                } label: {
+                                    Label(l10n.t("ios.tabs.favorite"), systemImage: "star.fill")
+                                }
+                                .tint(.yellow)
                             }
-                            .tint(.yellow)
                         }
                     }
                 }

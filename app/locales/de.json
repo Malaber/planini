@@ -429,9 +429,17 @@
     },
     "favorite": {
       "empty_title": "Noch keine Favoritenliste",
-      "empty_message": "Wähle eine Liste im Tab Listen, damit sie nur einen Tipp entfernt ist.",
+      "empty_message": "Wähle eine deiner Listen, damit sie nur einen Tipp entfernt ist.",
+      "no_lists_message": "Erstelle in den Einstellungen einen Haushalt und eine Liste und wähle dann hier deinen Favoriten.",
+      "choose_list": "Favoritenliste wählen",
+      "open_settings": "Einstellungen öffnen",
       "favorite_list": "Favoritenliste",
       "unfavorite": "Favorit entfernen"
+    },
+    "lists": {
+      "empty_title": "Noch keine Listen",
+      "empty_message": "Erstelle in den Einstellungen einen Haushalt und eine Liste, um loszulegen.",
+      "open_settings": "Einstellungen öffnen"
     },
     "settings": {
       "account": "Konto",
