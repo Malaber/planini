@@ -429,9 +429,17 @@
     },
     "favorite": {
       "empty_title": "No favorite list yet",
-      "empty_message": "Pick a list in the Lists tab to keep it one tap away.",
+      "empty_message": "Choose one of your lists to keep it one tap away.",
+      "no_lists_message": "Create a household and list in Settings, then choose your favorite here.",
+      "choose_list": "Choose favorite list",
+      "open_settings": "Open Settings",
       "favorite_list": "Favorite list",
       "unfavorite": "Unfavorite"
+    },
+    "lists": {
+      "empty_title": "No lists yet",
+      "empty_message": "Create a household and list in Settings to get started.",
+      "open_settings": "Open Settings"
     },
     "settings": {
       "account": "Account",

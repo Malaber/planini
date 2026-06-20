@@ -874,6 +874,68 @@ final class PlaniniUITests: XCTestCase {
         terminateAndWait(relaunchedApp)
     }
 
+    func testEmptyOnboardingGuidesListSetupAndFavoriteChoice() throws {
+        try assertLocalTestBackend()
+
+        let emptySession = try bootstrapSession(email: "ios-empty@example.com")
+        let emptyApp = launchedApp(session: emptySession)
+
+        XCTAssertTrue(emptyApp.staticTexts["No favorite list yet"].waitForExistence(timeout: 10))
+        let favoriteSettingsButton = firstExistingElement(
+            [
+                emptyApp.buttons["favorite-empty-open-settings-button"],
+                emptyApp.buttons["Open Settings"],
+            ],
+            timeout: 3
+        )
+        XCTAssertTrue(favoriteSettingsButton.waitForExistence(timeout: 3))
+        favoriteSettingsButton.tap()
+        XCTAssertTrue(emptyApp.buttons["settings-household-management-link"].waitForExistence(timeout: 5))
+
+        XCTAssertTrue(tapTab("Lists", in: emptyApp))
+        XCTAssertTrue(emptyApp.staticTexts["No lists yet"].waitForExistence(timeout: 5))
+        let listsSettingsButton = firstExistingElement(
+            [
+                emptyApp.buttons["lists-empty-open-settings-button"],
+                emptyApp.buttons["Open Settings"],
+            ],
+            timeout: 3
+        )
+        XCTAssertTrue(listsSettingsButton.waitForExistence(timeout: 3))
+        listsSettingsButton.tap()
+        XCTAssertTrue(emptyApp.buttons["settings-household-management-link"].waitForExistence(timeout: 5))
+        terminateAndWait(emptyApp)
+
+        let ownerSession = try bootstrapSession(email: seededEmail)
+        let favoriteApp = launchedApp(session: ownerSession)
+        let favoriteMenu = firstExistingElement(
+            [
+                favoriteApp.buttons["favorite-empty-choose-list-menu"],
+                favoriteApp.buttons["Choose favorite list"],
+            ],
+            timeout: 5
+        )
+        XCTAssertTrue(favoriteMenu.waitForExistence(timeout: 10))
+        favoriteMenu.tap()
+
+        let favoriteListID = try listID(named: initialListName, accessToken: ownerSession.accessToken)
+        let favoriteChoice = firstExistingElement(
+            [
+                favoriteApp.buttons["favorite-choice-\(favoriteListID.uuidString)"],
+                favoriteApp.buttons[initialListName],
+                favoriteApp.menuItems[initialListName],
+            ],
+            timeout: 5
+        )
+        XCTAssertTrue(favoriteChoice.waitForExistence(timeout: 5))
+        favoriteChoice.tap()
+
+        let listTitle = favoriteApp.staticTexts["list-detail-title"]
+        XCTAssertTrue(listTitle.waitForExistence(timeout: 10))
+        XCTAssertEqual(listTitle.label, initialListName)
+        terminateAndWait(favoriteApp)
+    }
+
     func testInvalidStoredSessionShowsLogin() throws {
         try assertLocalTestBackend()
         let session = if let injectedSession {
