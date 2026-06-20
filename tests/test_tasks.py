@@ -1053,6 +1053,7 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
         initial_list_name="Browser Test Shop",
         access_token="token-123",
         display_name="Test User",
+        only_testing="PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad",
     )
 
     assert calls == [
@@ -1062,7 +1063,8 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
             "-destination-timeout 120 "
             f"-resultBundlePath {str(result_bundle_path.resolve())} -quiet "
             "-parallel-testing-enabled NO -maximum-parallel-testing-workers 1 "
-            "-only-testing:PlaniniUITests test",
+            "-only-testing:PlaniniUITests/PlaniniUITests/"
+            "testUsesNativeIPadCanvasWhenRunningOnIPad test",
             {
                 "env": {
                     "PLANINI_UI_TEST_BASE_URL": "http://localhost:8018",
@@ -1226,6 +1228,7 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
         port=8018,
         log_path="ios-ui-e2e-server.log",
         pid_path="ios-ui-e2e-server.pid",
+        only_testing="PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad",
     )
 
     assert calls == [
@@ -1263,6 +1266,10 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
                 "initial_list_name": "Browser Test Shop",
                 "access_token": "token-123",
                 "display_name": "Test User",
+                "attempts": 2,
+                "only_testing": (
+                    "PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad"
+                ),
             },
         ),
         ("stop", {"pid_path": "ios-ui-e2e-server.pid"}),

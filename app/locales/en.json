@@ -4,6 +4,7 @@
     "app_tagline": "Households and grocery lists",
     "home_aria": "Planini home",
     "support": "Support",
+    "privacy": "Privacy",
     "settings": "Settings",
     "admin": "Admin",
     "logout": "Logout",
@@ -220,6 +221,29 @@
     "github_body": "Best for reproducible bugs, feature requests, and ideas that others can discuss and follow.",
     "github_action": "Open GitHub issues"
   },
+  "privacy": {
+    "kicker": "Privacy",
+    "title": "Privacy at Planini",
+    "intro": "Planini handles only the data needed to run shared household lists and keep your account secure.",
+    "summary_label": "At a glance",
+    "summary_title": "No analytics or advertising",
+    "summary_body": "This Planini instance does not use analytics, advertising trackers, or profiling.",
+    "sections_aria": "Privacy details",
+    "data_title": "Data Planini handles",
+    "data_body": "Planini stores account email and display name, passkey credential metadata, and the households, lists, and items you choose to create.",
+    "session_title": "Essential session cookie",
+    "session_body": "A strictly necessary session cookie keeps you signed in and protects access to your private household data.",
+    "logs_title": "Server logs",
+    "logs_body": "The server keeps basic error logs for reliability and diagnostics. These logs do not contain user data.",
+    "retention_title": "Retention and deletion",
+    "retention_body": "Data is kept while needed to operate this Planini instance. Contact the instance operator to request deletion.",
+    "rights_title": "Your rights",
+    "rights_body": "Under the GDPR, you may request access, correction, deletion, restriction, or object to the processing of your personal data.",
+    "contact_label": "Privacy contact",
+    "contact_title": "Contact the instance operator",
+    "contact_body": "Use this email for privacy questions or to exercise your data protection rights.",
+    "contact_action": "Email privacy contact"
+  },
   "capabilities": {
     "kicker": "Feature roundup",
     "title": "What Planini can do for shared grocery and to-do lists.",
@@ -405,9 +429,17 @@
     },
     "favorite": {
       "empty_title": "No favorite list yet",
-      "empty_message": "Pick a list in the Lists tab to keep it one tap away.",
+      "empty_message": "Choose one of your lists to keep it one tap away.",
+      "no_lists_message": "Create a household and list in Settings, then choose your favorite here.",
+      "choose_list": "Choose favorite list",
+      "open_settings": "Open Settings",
       "favorite_list": "Favorite list",
       "unfavorite": "Unfavorite"
+    },
+    "lists": {
+      "empty_title": "No lists yet",
+      "empty_message": "Create a household and list in Settings to get started.",
+      "open_settings": "Open Settings"
     },
     "settings": {
       "account": "Account",

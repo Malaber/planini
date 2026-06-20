@@ -53,6 +53,11 @@
       }
     },
     {
+      "email": "ios-empty@example.com",
+      "display_name": "iOS Empty User",
+      "is_admin": false
+    },
+    {
       "email": "review-neighbor@example.com",
       "display_name": "Review Neighbor",
       "is_admin": false

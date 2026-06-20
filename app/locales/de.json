@@ -4,6 +4,7 @@
     "app_tagline": "Haushalte und Einkaufslisten",
     "home_aria": "Planini Startseite",
     "support": "Support",
+    "privacy": "Datenschutz",
     "settings": "Einstellungen",
     "admin": "Admin",
     "logout": "Abmelden",
@@ -220,6 +221,29 @@
     "github_body": "Am besten für reproduzierbare Fehler, Funktionswünsche und Ideen, denen andere folgen können.",
     "github_action": "GitHub-Issues öffnen"
   },
+  "privacy": {
+    "kicker": "Datenschutz",
+    "title": "Datenschutz bei Planini",
+    "intro": "Planini verarbeitet nur die Daten, die für gemeinsame Haushaltslisten und ein sicheres Konto erforderlich sind.",
+    "summary_label": "Auf einen Blick",
+    "summary_title": "Keine Analyse oder Werbung",
+    "summary_body": "Diese Planini-Instanz verwendet keine Analysedienste, Werbetracker oder Profilbildung.",
+    "sections_aria": "Datenschutzdetails",
+    "data_title": "Von Planini verarbeitete Daten",
+    "data_body": "Planini speichert E-Mail-Adresse und Anzeigename des Kontos, Passkey-Metadaten sowie die Haushalte, Listen und Einträge, die du erstellst.",
+    "session_title": "Erforderliches Sitzungs-Cookie",
+    "session_body": "Ein technisch notwendiges Sitzungs-Cookie hält dich angemeldet und schützt den Zugriff auf deine privaten Haushaltsdaten.",
+    "logs_title": "Serverprotokolle",
+    "logs_body": "Der Server speichert grundlegende Fehlerprotokolle für Zuverlässigkeit und Diagnose. Diese Protokolle enthalten keine Nutzerdaten.",
+    "retention_title": "Speicherung und Löschung",
+    "retention_body": "Daten werden so lange gespeichert, wie sie für den Betrieb dieser Planini-Instanz benötigt werden. Kontaktiere den Betreiber, um eine Löschung anzufordern.",
+    "rights_title": "Deine Rechte",
+    "rights_body": "Nach der DSGVO kannst du Auskunft, Berichtigung, Löschung oder Einschränkung verlangen oder der Verarbeitung deiner personenbezogenen Daten widersprechen.",
+    "contact_label": "Datenschutzkontakt",
+    "contact_title": "Kontaktiere den Betreiber",
+    "contact_body": "Nutze diese E-Mail-Adresse für Datenschutzfragen oder um deine Datenschutzrechte auszuüben.",
+    "contact_action": "Datenschutzkontakt anschreiben"
+  },
   "capabilities": {
     "kicker": "Funktionsüberblick",
     "title": "Was Planini für gemeinsame Einkaufs- und To-do-Listen kann.",
@@ -405,9 +429,17 @@
     },
     "favorite": {
       "empty_title": "Noch keine Favoritenliste",
-      "empty_message": "Wähle eine Liste im Tab Listen, damit sie nur einen Tipp entfernt ist.",
+      "empty_message": "Wähle eine deiner Listen, damit sie nur einen Tipp entfernt ist.",
+      "no_lists_message": "Erstelle in den Einstellungen einen Haushalt und eine Liste und wähle dann hier deinen Favoriten.",
+      "choose_list": "Favoritenliste wählen",
+      "open_settings": "Einstellungen öffnen",
       "favorite_list": "Favoritenliste",
       "unfavorite": "Favorit entfernen"
+    },
+    "lists": {
+      "empty_title": "Noch keine Listen",
+      "empty_message": "Erstelle in den Einstellungen einen Haushalt und eine Liste, um loszulegen.",
+      "open_settings": "Einstellungen öffnen"
     },
     "settings": {
       "account": "Konto",

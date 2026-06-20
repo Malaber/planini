@@ -446,7 +446,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n\nicon_dir=\"${PROJECT_DIR}/Assets.xcassets/AppIcon.appiconset\"\n\nmissing=0\nfor file in \\\n  Icon-20@2x.png \\\n  Icon-20@3x.png \\\n  Icon-29@2x.png \\\n  Icon-29@3x.png \\\n  Icon-40@2x.png \\\n  Icon-40@3x.png \\\n  Icon-60@2x.png \\\n  Icon-60@3x.png \\\n  Icon-1024.png\ndo\n  if [ ! -f \"${icon_dir}/${file}\" ]; then\n    echo \"error: Missing generated app icon: ${icon_dir}/${file}\"\n    missing=1\n  fi\ndone\n\nif [ \"${missing}\" -ne 0 ]; then\n  echo \"error: Run from repo root: .venv/bin/inv generate-ios-app-icons\"\n  exit 1\nfi\n\ntouch \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			shellScript = "set -euo pipefail\n\nicon_dir=\"${PROJECT_DIR}/Assets.xcassets/AppIcon.appiconset\"\n\nmissing=0\nfor file in \\\n  Icon-20@2x.png \\\n  Icon-20@3x.png \\\n  Icon-29@2x.png \\\n  Icon-29@3x.png \\\n  Icon-40@2x.png \\\n  Icon-40@3x.png \\\n  Icon-60@2x.png \\\n  Icon-60@3x.png \\\n  Icon-iPad-20.png \\\n  Icon-iPad-20@2x.png \\\n  Icon-iPad-29.png \\\n  Icon-iPad-29@2x.png \\\n  Icon-iPad-40.png \\\n  Icon-iPad-40@2x.png \\\n  Icon-iPad-76.png \\\n  Icon-iPad-76@2x.png \\\n  Icon-iPad-83.5@2x.png \\\n  Icon-1024.png\ndo\n  if [ ! -f \"${icon_dir}/${file}\" ]; then\n    echo \"error: Missing generated app icon: ${icon_dir}/${file}\"\n    missing=1\n  fi\ndone\n\nif [ \"${missing}\" -ne 0 ]; then\n  echo \"error: Run from repo root: .venv/bin/inv generate-ios-app-icons\"\n  exit 1\nfi\n\ntouch \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 		};
 		2F838D9D72F5C4EC94028D5E /* Check Generated Watch App Icons */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -559,6 +559,8 @@
 				INFOPLIST_KEY_PlaniniBackendBaseURL = "https://planini.top";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -571,7 +573,7 @@
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 5.1;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -784,6 +786,8 @@
 				INFOPLIST_KEY_PlaniniBackendBaseURL = "https://planini.top";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -796,7 +800,7 @@
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 5.1;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
