@@ -405,6 +405,117 @@ def test_validate_ios_screenshot_sizes_rejects_missing_and_invalid_pngs(
         raise AssertionError("expected invalid PNG to fail")
 
 
+def test_capture_watch_marketing_screenshot_launches_localized_watch_and_validates(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, object]] = []
+    env = {"DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"}
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        tasks.run_ios_simulators_fresh,
+        "body",
+        lambda c, **kwargs: calls.append(("fresh", kwargs)),
+    )
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: env)
+    monkeypatch.setattr(
+        tasks,
+        "_find_simulator_udid",
+        lambda received_env, name: calls.append(("find", (received_env, name))) or "watch-123",
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_terminate_if_running",
+        lambda received_env, udid, bundle_id: calls.append(
+            ("terminate", (received_env, udid, bundle_id))
+        ),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_run_command",
+        lambda command, **kwargs: calls.append(("command", (command, kwargs))),
+    )
+    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: calls.append(("sleep", seconds)))
+    monkeypatch.setattr(
+        tasks,
+        "_validate_ios_screenshot_sizes",
+        lambda artifact_dir, expected_size: calls.append(
+            ("validate", (artifact_dir, expected_size))
+        ),
+    )
+
+    tasks._capture_watch_marketing_screenshot(
+        None,
+        base_url="http://localhost:8019",
+        bootstrap_email="planini-de@schaedler.rocks",
+        initial_list_name="Wocheneinkauf",
+        language="de",
+        locale="de-DE",
+        artifact_dir="e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
+        phone_device="iPhone 17 Pro",
+        watch_device="Apple Watch Ultra 2 (49mm)",
+    )
+
+    screenshot_path = (
+        tmp_path
+        / "e2e-artifacts"
+        / "ios-marketing-screenshots"
+        / "watchos"
+        / "de-DE"
+        / "app-store-watch-01-lists.png"
+    )
+    assert calls == [
+        (
+            "fresh",
+            {
+                "phone_device": "iPhone 17 Pro",
+                "watch_device": "Apple Watch Ultra 2 (49mm)",
+                "derived_data_path": "ios/PlaniniIOS/.derived-marketing-watch-de",
+                "backend_url_override": "http://localhost:8019",
+                "bootstrap_email": "planini-de@schaedler.rocks",
+                "initial_list_name": "Wocheneinkauf",
+            },
+        ),
+        ("find", (env, "Apple Watch Ultra 2 (49mm)")),
+        ("sleep", 4),
+        ("terminate", (env, "watch-123", "de.malaber.planini.watchkitapp")),
+        (
+            "command",
+            (
+                [
+                    "xcrun",
+                    "simctl",
+                    "launch",
+                    "watch-123",
+                    "de.malaber.planini.watchkitapp",
+                    "-AppleLanguages",
+                    "(de)",
+                    "-AppleLocale",
+                    "de_DE",
+                ],
+                {"env": env},
+            ),
+        ),
+        ("sleep", 4),
+        (
+            "command",
+            (
+                ["xcrun", "simctl", "io", "watch-123", "screenshot", str(screenshot_path)],
+                {"env": env},
+            ),
+        ),
+        (
+            "validate",
+            (
+                "e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
+                (410, 502),
+            ),
+        ),
+    ]
+    assert screenshot_path.parent.is_dir()
+
+
 def test_ios_simulator_destination_pins_latest_os_and_arm64_on_apple_silicon(
     monkeypatch,
 ) -> None:
@@ -1458,6 +1569,11 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
         tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
     )
     monkeypatch.setattr(tasks, "run_ios_ui_e2e", lambda c, **kwargs: calls.append(("run", kwargs)))
+    monkeypatch.setattr(
+        tasks,
+        "_capture_watch_marketing_screenshot",
+        lambda c, **kwargs: calls.append(("watch", kwargs)),
+    )
     monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: calls.append(("stop", kwargs)))
 
     tasks.check_ios_marketing_screenshots.body(None)
@@ -1482,24 +1598,65 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
     ] == [
         (
             "planini@schaedler.rocks",
-            "e2e-artifacts/ios-marketing-screenshots/en-US",
+            "e2e-artifacts/ios-marketing-screenshots/iphone/en-US",
+            "Weekly groceries",
+            "en",
+        ),
+        (
+            "planini@schaedler.rocks",
+            "e2e-artifacts/ios-marketing-screenshots/ipad/en-US",
             "Weekly groceries",
             "en",
         ),
         (
             "planini-de@schaedler.rocks",
-            "e2e-artifacts/ios-marketing-screenshots/de-DE",
+            "e2e-artifacts/ios-marketing-screenshots/iphone/de-DE",
+            "Wocheneinkauf",
+            "de",
+        ),
+        (
+            "planini-de@schaedler.rocks",
+            "e2e-artifacts/ios-marketing-screenshots/ipad/de-DE",
             "Wocheneinkauf",
             "de",
         ),
     ]
-    assert all(run_call[1]["device_name"] == "iPhone 14 Plus" for run_call in run_calls)
+    assert [run_call[1]["device_name"] for run_call in run_calls] == [
+        "iPhone 14 Plus",
+        "iPad Pro 13-inch (M5)",
+        "iPhone 14 Plus",
+        "iPad Pro 13-inch (M5)",
+    ]
     assert all(
         run_call[1]["only_testing"] == "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
         for run_call in run_calls
     )
-    assert all(run_call[1]["expected_width"] == 1284 for run_call in run_calls)
-    assert all(run_call[1]["expected_height"] == 2778 for run_call in run_calls)
+    assert [
+        (run_call[1]["expected_width"], run_call[1]["expected_height"]) for run_call in run_calls
+    ] == [(1284, 2778), (2064, 2752), (1284, 2778), (2064, 2752)]
+    watch_calls = [call[1] for call in calls if call[0] == "watch"]
+    assert watch_calls == [
+        {
+            "base_url": "http://localhost:8019",
+            "bootstrap_email": "planini@schaedler.rocks",
+            "initial_list_name": "Weekly groceries",
+            "language": "en",
+            "locale": "en-US",
+            "artifact_dir": "e2e-artifacts/ios-marketing-screenshots/watchos/en-US",
+            "phone_device": "iPhone 17 Pro",
+            "watch_device": "Apple Watch Ultra 2 (49mm)",
+        },
+        {
+            "base_url": "http://localhost:8019",
+            "bootstrap_email": "planini-de@schaedler.rocks",
+            "initial_list_name": "Wocheneinkauf",
+            "language": "de",
+            "locale": "de-DE",
+            "artifact_dir": "e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
+            "phone_device": "iPhone 17 Pro",
+            "watch_device": "Apple Watch Ultra 2 (49mm)",
+        },
+    ]
     assert calls[-1] == ("stop", {"pid_path": "ios-marketing-screenshots-server.pid"})
 
 

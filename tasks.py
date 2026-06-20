@@ -73,11 +73,16 @@ DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH = "ios-marketing-screenshots-server.pi
 DEFAULT_IOS_MARKETING_SCREENSHOT_ARTIFACT_DIR = "e2e-artifacts/ios-marketing-screenshots"
 DEFAULT_IOS_MARKETING_SCREENSHOT_SEED_PATH = "app/fixtures/ios_marketing_seed.json"
 DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE = "iPhone 14 Plus"
+DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_DEVICE = "iPad Pro 13-inch (M5)"
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_PHONE_DEVICE = "iPhone 17 Pro"
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_DEVICE = "Apple Watch Ultra 2 (49mm)"
 DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST = "Weekly groceries"
 DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_USER_EMAIL = "planini-de@schaedler.rocks"
 DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_INITIAL_LIST = "Wocheneinkauf"
 DEFAULT_IOS_MARKETING_SCREENSHOT_TEST = "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
 DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE = (1284, 2778)
+DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_SIZE = (2064, 2752)
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_SIZE = (410, 502)
 DEFAULT_IOS_SIMULATOR_DESTINATION = "generic/platform=iOS Simulator"
 DEFAULT_IOS_APP_BACKEND_URL = "https://planini.malaber.de"
 DEFAULT_IOS_APP_BUNDLE_IDENTIFIER = "de.malaber.planini"
@@ -743,6 +748,59 @@ def _validate_ios_screenshot_sizes(
             f"Expected iOS screenshots sized {expected_width}x{expected_height}; "
             f"found {', '.join(invalid_sizes)}"
         )
+
+
+def _capture_watch_marketing_screenshot(
+    c,
+    *,
+    base_url: str,
+    bootstrap_email: str,
+    initial_list_name: str,
+    language: str,
+    locale: str,
+    artifact_dir: str,
+    phone_device: str,
+    watch_device: str,
+) -> None:
+    run_ios_simulators_fresh.body(
+        c,
+        phone_device=phone_device,
+        watch_device=watch_device,
+        derived_data_path=f"ios/PlaniniIOS/.derived-marketing-watch-{language}",
+        backend_url_override=base_url,
+        bootstrap_email=bootstrap_email,
+        initial_list_name=initial_list_name,
+    )
+    env = _ios_toolchain_env()
+    watch_udid = _find_simulator_udid(env, watch_device)
+    time.sleep(4)
+    _terminate_if_running(env, watch_udid, DEFAULT_IOS_WATCH_APP_BUNDLE_IDENTIFIER)
+    _run_command(
+        [
+            "xcrun",
+            "simctl",
+            "launch",
+            watch_udid,
+            DEFAULT_IOS_WATCH_APP_BUNDLE_IDENTIFIER,
+            "-AppleLanguages",
+            f"({language})",
+            "-AppleLocale",
+            locale.replace("-", "_"),
+        ],
+        env=env,
+    )
+    time.sleep(4)
+    screenshot_dir = ROOT / artifact_dir
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    screenshot_path = screenshot_dir / "app-store-watch-01-lists.png"
+    _run_command(
+        ["xcrun", "simctl", "io", watch_udid, "screenshot", str(screenshot_path)],
+        env=env,
+    )
+    _validate_ios_screenshot_sizes(
+        artifact_dir,
+        DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_SIZE,
+    )
 
 
 def _bootstrap_ios_ui_test_session(*, base_url: str, user_email: str) -> dict[str, str]:
@@ -2269,6 +2327,9 @@ def check_ios_marketing_screenshots(
     german_user_email=DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_USER_EMAIL,
     artifact_dir=DEFAULT_IOS_MARKETING_SCREENSHOT_ARTIFACT_DIR,
     device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE,
+    ipad_device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_DEVICE,
+    watch_phone_device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_PHONE_DEVICE,
+    watch_device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_DEVICE,
     initial_list_name=DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST,
     german_initial_list_name=DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_INITIAL_LIST,
     host=DEFAULT_HOST,
@@ -2276,7 +2337,7 @@ def check_ios_marketing_screenshots(
     log_path=DEFAULT_IOS_MARKETING_SCREENSHOT_LOG_PATH,
     pid_path=DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH,
 ) -> None:
-    """Capture clean, App Store-sized iPhone screenshots from a fresh fixture."""
+    """Capture App Store-sized iPhone, iPad, and watchOS screenshots."""
     shutil.rmtree(ROOT / artifact_dir, ignore_errors=True)
     _reset_sqlite_database_file(database_url)
     start_app(
@@ -2302,20 +2363,35 @@ def check_ios_marketing_screenshots(
                 base_url=f"http://localhost:{port}",
                 user_email=locale_user_email,
             )
-            run_ios_ui_e2e(
+            for platform_dir, platform_device_name, expected_size in [
+                ("iphone", device_name, DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE),
+                ("ipad", ipad_device_name, DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_SIZE),
+            ]:
+                run_ios_ui_e2e(
+                    c,
+                    base_url=f"http://localhost:{port}",
+                    bootstrap_base_url=f"http://localhost:{port}",
+                    user_email=locale_user_email,
+                    artifact_dir=f"{artifact_dir}/{platform_dir}/{locale_dir}",
+                    device_name=platform_device_name,
+                    initial_list_name=locale_initial_list_name,
+                    language=language,
+                    access_token=session["access_token"],
+                    display_name=session["display_name"],
+                    only_testing=DEFAULT_IOS_MARKETING_SCREENSHOT_TEST,
+                    expected_width=expected_size[0],
+                    expected_height=expected_size[1],
+                )
+            _capture_watch_marketing_screenshot(
                 c,
                 base_url=f"http://localhost:{port}",
-                bootstrap_base_url=f"http://localhost:{port}",
-                user_email=locale_user_email,
-                artifact_dir=f"{artifact_dir}/{locale_dir}",
-                device_name=device_name,
+                bootstrap_email=locale_user_email,
                 initial_list_name=locale_initial_list_name,
                 language=language,
-                access_token=session["access_token"],
-                display_name=session["display_name"],
-                only_testing=DEFAULT_IOS_MARKETING_SCREENSHOT_TEST,
-                expected_width=DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE[0],
-                expected_height=DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE[1],
+                locale=locale_dir,
+                artifact_dir=f"{artifact_dir}/watchos/{locale_dir}",
+                phone_device=watch_phone_device_name,
+                watch_device=watch_device_name,
             )
     finally:
         stop_app(c, pid_path=pid_path)

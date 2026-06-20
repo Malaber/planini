@@ -112,9 +112,9 @@ compatibility mode.
    ```bash
    .venv/bin/inv check-ios-marketing-screenshots
    ```
-   This uses a fresh polished fixture and an iPhone 14 Plus simulator to capture
-   matching English and German sets under `en-US/` and `de-DE/`, then verifies
-   every generated screenshot is the App Store-ready `1284x2778` size.
+   This uses a fresh polished fixture to capture matching English and German sets
+   under `iphone/`, `ipad/`, and `watchos/`. It verifies the App Store-ready sizes:
+   iPhone 14 Plus `1284x2778`, 13-inch iPad `2064x2752`, and 49mm Watch `410x502`.
 7. Launch from Xcode and verify:
    - the configured backend matches the build settings you generated the app with
    - passkey login succeeds for the selected backend
@@ -234,8 +234,8 @@ for only the individual `pr-<PR>` app host to serve the AASA response.
 - The universal iPhone/iPad app uses the existing App ID, bundle identifier, signing certificate,
   provisioning profile, associated domains, App Group, and watch App IDs. No new Apple Developer
   group or capability is required solely for iPad support.
-- App Store Connect requires iPad screenshots for a version that supports iPad. Capture and upload
-  the required current iPad display-size screenshots before submitting the next version.
+- App Store Connect requires iPad screenshots for a version that supports iPad. The
+  `check-ios-marketing-screenshots` task captures the required 13-inch iPad set.
 - Ad-hoc installation on a physical iPad requires registering that iPad UDID and regenerating the
   ad-hoc provisioning profile, exactly like adding another physical iPhone test device.
 - Test passkeys, keyboard behavior, rotation, split view, and Stage Manager on a physical iPad
