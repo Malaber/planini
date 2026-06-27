@@ -846,12 +846,17 @@ main {
 .item-card {
   display: block;
   position: relative;
-  overflow: hidden;
+  z-index: 0;
+  overflow: visible;
   border: 0;
   border-top: 1px solid rgba(217, 197, 179, 0.72);
   border-radius: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.item-card:has(.item-more-menu:not([hidden])) {
+  z-index: 5;
 }
 
 .item-card-content {
@@ -1163,7 +1168,7 @@ main {
   border: 1px solid var(--border);
   border-radius: 18px;
   background: var(--surface-strong);
-  overflow: hidden;
+  overflow: visible;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
