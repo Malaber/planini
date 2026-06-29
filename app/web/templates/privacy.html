@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="privacy-shell">
+  <section class="privacy-hero">
+    <div class="privacy-copy">
+      <p class="dashboard-kicker">{{ t("privacy.kicker") }}</p>
+      <h1>{{ t("privacy.title") }}</h1>
+      <p class="dashboard-intro">{{ t("privacy.intro") }}</p>
+    </div>
+
+    <aside class="dashboard-card dashboard-card-accent privacy-summary">
+      <p class="dashboard-label">{{ t("privacy.summary_label") }}</p>
+      <h2>{{ t("privacy.summary_title") }}</h2>
+      <p class="dashboard-helper">{{ t("privacy.summary_body") }}</p>
+    </aside>
+  </section>
+
+  <section class="privacy-sections" aria-label="{{ t("privacy.sections_aria") }}">
+    <article class="dashboard-card privacy-card">
+      <h2>{{ t("privacy.data_title") }}</h2>
+      <p class="dashboard-helper">{{ t("privacy.data_body") }}</p>
+    </article>
+    <article class="dashboard-card privacy-card">
+      <h2>{{ t("privacy.session_title") }}</h2>
+      <p class="dashboard-helper">{{ t("privacy.session_body") }}</p>
+    </article>
+    <article class="dashboard-card privacy-card">
+      <h2>{{ t("privacy.logs_title") }}</h2>
+      <p class="dashboard-helper">{{ t("privacy.logs_body") }}</p>
+    </article>
+    <article class="dashboard-card privacy-card">
+      <h2>{{ t("privacy.retention_title") }}</h2>
+      <p class="dashboard-helper">{{ t("privacy.retention_body") }}</p>
+    </article>
+    <article class="dashboard-card privacy-card">
+      <h2>{{ t("privacy.rights_title") }}</h2>
+      <p class="dashboard-helper">{{ t("privacy.rights_body") }}</p>
+    </article>
+  </section>
+
+  <section class="dashboard-card dashboard-card-accent privacy-contact">
+    <div>
+      <p class="dashboard-label">{{ t("privacy.contact_label") }}</p>
+      <h2>{{ t("privacy.contact_title") }}</h2>
+      <p class="dashboard-helper">{{ t("privacy.contact_body") }}</p>
+    </div>
+    <a class="primary-button" href="mailto:{{ privacy_email }}">
+      {{ t("privacy.contact_action") }}
+    </a>
+    <strong class="support-destination">{{ privacy_email }}</strong>
+  </section>
+</section>
+{% endblock %}

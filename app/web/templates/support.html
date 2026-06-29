@@ -18,12 +18,12 @@
   <section class="support-options" aria-label="{{ t("support.options_aria") }}">
     <a
       class="dashboard-card support-card"
-      href="mailto:planini-support@schaedler.rocks"
+      href="mailto:{{ support_email }}"
     >
       <p class="dashboard-label">{{ t("support.email_label") }}</p>
       <h2>{{ t("support.email_title") }}</h2>
       <p class="dashboard-helper">{{ t("support.email_body") }}</p>
-      <strong class="support-destination">planini-support@schaedler.rocks</strong>
+      <strong class="support-destination">{{ support_email }}</strong>
       <span class="primary-button support-action">{{ t("support.email_action") }}</span>
     </a>
 

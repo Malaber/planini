@@ -217,6 +217,7 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
     public let categoryID: UUID?
     public let checked: Bool
     public let checkedAt: Date?
+    public let hiddenUntil: Date?
     public let sortOrder: Int
 
     public init(
@@ -228,6 +229,7 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
         categoryID: UUID?,
         checked: Bool,
         checkedAt: Date?,
+        hiddenUntil: Date? = nil,
         sortOrder: Int
     ) {
         self.id = id
@@ -238,6 +240,7 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
         self.categoryID = categoryID
         self.checked = checked
         self.checkedAt = checkedAt
+        self.hiddenUntil = hiddenUntil
         self.sortOrder = sortOrder
     }
 
@@ -252,12 +255,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
             return nil
         }
 
-        let checkedAt: Date?
-        if let checkedAtText = json["checked_at"] as? String {
-            checkedAt = Self.parseCheckedAt(checkedAtText)
-        } else {
-            checkedAt = nil
-        }
+        let checkedAt = Self.parseDate(json["checked_at"] as? String)
+        let hiddenUntil = Self.parseDate(json["hidden_until"] as? String)
 
         self.init(
             id: id,
@@ -268,11 +267,18 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
             categoryID: (json["category_id"] as? String).flatMap(UUID.init(uuidString:)),
             checked: (json["checked"] as? Bool) ?? false,
             checkedAt: checkedAt,
+            hiddenUntil: hiddenUntil,
             sortOrder: (json["sort_order"] as? Int) ?? 0
         )
     }
 
-    private static func parseCheckedAt(_ value: String) -> Date? {
+    public func isHiddenForLater(at now: Date = Date()) -> Bool {
+        guard checked == false, let hiddenUntil else { return false }
+        return hiddenUntil > now
+    }
+
+    private static func parseDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
         let formatterWithFractions = ISO8601DateFormatter()
         formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let parsed = formatterWithFractions.date(from: value) {
@@ -281,7 +287,20 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
+        if let parsed = formatter.date(from: value) {
+            return parsed
+        }
+
+        let sqliteFormatter = DateFormatter()
+        sqliteFormatter.locale = Locale(identifier: "en_US_POSIX")
+        sqliteFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss"] {
+            sqliteFormatter.dateFormat = format
+            if let parsed = sqliteFormatter.date(from: value) {
+                return parsed
+            }
+        }
+        return nil
     }
 }
 
@@ -429,6 +448,7 @@ public enum GroceryItemSuggestionMatcher {
 public enum GroceryItemSectionKind: Hashable, Sendable {
     case uncategorized
     case category(UUID)
+    case hidden
     case checked
 }
 
@@ -459,6 +479,8 @@ public struct GroceryItemSection: Identifiable, Equatable, Sendable {
             return "uncategorized"
         case let .category(categoryID):
             return "category-\(categoryID.uuidString)"
+        case .hidden:
+            return "hidden"
         case .checked:
             return "checked"
         }
@@ -469,13 +491,24 @@ public enum GroceryItemSectionBuilder {
     public static func build(
         items: [GroceryItemRecord],
         categories: [GroceryCategorySummary],
-        categoryOrder: [ListCategoryOrderEntry]
+        categoryOrder: [ListCategoryOrderEntry],
+        now: Date = Date()
     ) -> [GroceryItemSection] {
         let categoryLookup = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0) })
         let explicitOrder = Dictionary(uniqueKeysWithValues: categoryOrder.map { ($0.categoryID, $0.sortOrder) })
 
         let activeItems = items
-            .filter { $0.checked == false }
+            .filter { $0.checked == false && $0.isHiddenForLater(at: now) == false }
+            .sorted { left, right in
+                compareActiveItems(
+                    left,
+                    right,
+                    categoryLookup: categoryLookup,
+                    explicitOrder: explicitOrder
+                )
+            }
+        let hiddenItems = items
+            .filter { $0.isHiddenForLater(at: now) }
             .sorted { left, right in
                 compareActiveItems(
                     left,
@@ -556,6 +589,18 @@ public enum GroceryItemSectionBuilder {
                     itemCount: sectionItems.count,
                     colorHex: category.colorHex,
                     items: sectionItems
+                )
+            )
+        }
+
+        if hiddenItems.isEmpty == false {
+            sections.append(
+                GroceryItemSection(
+                    kind: .hidden,
+                    title: "Saved for later",
+                    itemCount: hiddenItems.count,
+                    colorHex: "#94a3b8",
+                    items: hiddenItems
                 )
             )
         }

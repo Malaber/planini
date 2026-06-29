@@ -217,6 +217,26 @@ def test_lifespan_logs_and_reraises_startup_failures(monkeypatch) -> None:
             pass
 
 
+def test_lifespan_refuses_missing_privacy_email(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.settings.privacy_email", None)
+
+    from fastapi.testclient import TestClient
+
+    with pytest.raises(RuntimeError, match="PRIVACY_EMAIL must be set"):
+        with TestClient(app):
+            pass
+
+
+def test_lifespan_refuses_missing_support_email(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.settings.support_email", None)
+
+    from fastapi.testclient import TestClient
+
+    with pytest.raises(RuntimeError, match="SUPPORT_EMAIL must be set"):
+        with TestClient(app):
+            pass
+
+
 def test_seed_data_enforces_preview_member_and_admin_membership_rules(tmp_path) -> None:
     fixture_path = tmp_path / "seed-preview-users.json"
     fixture_path.write_text(

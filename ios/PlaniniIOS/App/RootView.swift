@@ -20,6 +20,92 @@ private struct AddItemPresentation: Identifiable {
     let categoryID: UUID?
 }
 
+private struct ItemMoveNotice: Identifiable, Equatable {
+    let id: UUID
+    let sourceListID: UUID
+    let targetListID: UUID
+    let targetListName: String
+    let sourceItem: GroceryItemRecord
+    let movedItem: GroceryItemRecord
+    var isExpiring = false
+    var restoreErrorMessage: String?
+
+    var itemName: String {
+        movedItem.name
+    }
+}
+
+private enum ListRowContent: Identifiable, Equatable {
+    case item(GroceryItemRecord)
+    case moveNotice(ItemMoveNotice)
+
+    var id: String {
+        switch self {
+        case let .item(item):
+            return item.id.uuidString
+        case let .moveNotice(notice):
+            return "move-notice-\(notice.id.uuidString)"
+        }
+    }
+
+    var sortOrder: Int {
+        switch self {
+        case let .item(item):
+            return item.sortOrder
+        case let .moveNotice(notice):
+            return notice.sourceItem.sortOrder
+        }
+    }
+
+    var name: String {
+        switch self {
+        case let .item(item):
+            return item.name
+        case let .moveNotice(notice):
+            return notice.itemName
+        }
+    }
+}
+
+private struct ListDisplaySection: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let colorHex: String?
+    let kind: GroceryItemSectionKind
+    var rows: [ListRowContent]
+
+    var itemCount: Int {
+        rows.reduce(0) { count, row in
+            if case .item = row {
+                return count + 1
+            }
+            return count
+        }
+    }
+
+    init(
+        id: String,
+        title: String,
+        colorHex: String?,
+        kind: GroceryItemSectionKind,
+        rows: [ListRowContent]
+    ) {
+        self.id = id
+        self.title = title
+        self.colorHex = colorHex
+        self.kind = kind
+        self.rows = rows
+    }
+
+    init(section: GroceryItemSection) {
+        id = section.id
+        title = section.title
+        colorHex = section.colorHex
+        kind = section.kind
+        rows = section.items.map(ListRowContent.item)
+    }
+}
+
 private typealias ListUndoAction = @MainActor () async -> Bool
 
 private struct ListUndoToast: Identifiable {
@@ -91,6 +177,7 @@ struct RootView: View {
     @State private var selectedTab: AppTab = .favorite
     @State private var presentedError: AppErrorAlert?
     @State private var showingReviewerOnboarding = false
+    @State private var showingAccountRegistration = false
     @State private var passkeyAddLinkInput = ""
     @State private var listNavigationPath: [UUID] = []
 
@@ -124,7 +211,16 @@ struct RootView: View {
             }
         }
         .sheet(isPresented: $showingReviewerOnboarding) {
-            ReviewerOnboardingSheet(initialPasskeyAddInput: passkeyAddLinkInput)
+            ReviewerOnboardingSheet(
+                initialPasskeyAddInput: passkeyAddLinkInput,
+                showsPasskeyAddSection: true
+            )
+        }
+        .sheet(isPresented: $showingAccountRegistration) {
+            ReviewerOnboardingSheet(
+                initialPasskeyAddInput: "",
+                showsPasskeyAddSection: false
+            )
         }
         .onOpenURL { url in
             handleIncomingURL(url)
@@ -139,7 +235,7 @@ struct RootView: View {
             listNavigationPath = [request.listID]
         }
         .onChange(of: viewModel.errorMessage) { newValue in
-            guard showingReviewerOnboarding == false else { return }
+            guard showingReviewerOnboarding == false, showingAccountRegistration == false else { return }
             if let newValue, newValue.isEmpty == false {
                 presentedError = AppErrorAlert(message: newValue)
             } else {
@@ -190,6 +286,14 @@ struct RootView: View {
                 }
                 .disabled(viewModel.isAuthenticating)
                 .accessibilityIdentifier("login-passkey-button")
+
+                Button {
+                    showingAccountRegistration = true
+                } label: {
+                    Label(l10n.t("ios.onboarding.create_account"), systemImage: "person.crop.circle.badge.plus")
+                }
+                .disabled(viewModel.isAuthenticating)
+                .accessibilityIdentifier("login-create-account-button")
             }
         }
     }
@@ -197,13 +301,14 @@ struct RootView: View {
     private var appTabs: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                FavoriteListTab()
+                FavoriteListTab(selectedTab: $selectedTab)
             }
             .tabItem {
                 Label(
                     viewModel.favoriteList?.name ?? l10n.t("ios.tabs.favorite"),
                     systemImage: viewModel.favoriteListID == nil ? "star" : "star.fill"
                 )
+                .accessibilityIdentifier("tab-favorite-button")
             }
             .tag(AppTab.favorite)
             .accessibilityIdentifier("tab-favorite")
@@ -216,6 +321,7 @@ struct RootView: View {
             }
             .tabItem {
                 Label(l10n.t("ios.tabs.lists"), systemImage: "rectangle.grid.1x2")
+                    .accessibilityIdentifier("tab-lists-button")
             }
             .tag(AppTab.lists)
             .accessibilityIdentifier("tab-lists")
@@ -225,6 +331,7 @@ struct RootView: View {
             }
             .tabItem {
                 Label(l10n.t("common.settings"), systemImage: "gearshape")
+                    .accessibilityIdentifier("tab-settings-button")
             }
             .tag(AppTab.settings)
             .accessibilityIdentifier("tab-settings")
@@ -287,6 +394,7 @@ private struct ReviewerOnboardingSheet: View {
     }
 
     let initialPasskeyAddInput: String
+    let showsPasskeyAddSection: Bool
 
     @State private var passkeyAddInput: String
     @State private var registrationDisplayName = ""
@@ -295,55 +403,58 @@ private struct ReviewerOnboardingSheet: View {
     @State private var addPasskeyErrorMessage: String?
     @State private var registrationErrorMessage: String?
 
-    init(initialPasskeyAddInput: String) {
+    init(initialPasskeyAddInput: String, showsPasskeyAddSection: Bool) {
         self.initialPasskeyAddInput = initialPasskeyAddInput
+        self.showsPasskeyAddSection = showsPasskeyAddSection
         _passkeyAddInput = State(initialValue: initialPasskeyAddInput)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section(l10n.t("ios.onboarding.add_passkey")) {
-                    TextField(l10n.t("ios.onboarding.passkey_add_link_or_key"), text: $passkeyAddInput, axis: .vertical)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .accessibilityIdentifier("passkey-add-link-field")
+                if showsPasskeyAddSection {
+                    Section(l10n.t("ios.onboarding.add_passkey")) {
+                        TextField(l10n.t("ios.onboarding.passkey_add_link_or_key"), text: $passkeyAddInput, axis: .vertical)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .accessibilityIdentifier("passkey-add-link-field")
 
-                    Button {
-                        closeKeyboard()
-                        Task {
-                            busyAction = .addPasskey
-                            addPasskeyErrorMessage = nil
-                            registrationErrorMessage = nil
-                            viewModel.errorMessage = nil
-                            let added = await viewModel.addPasskeyFromLinkInput(passkeyAddInput)
-                            busyAction = nil
-                            if added {
-                                AppHaptics.confirmation()
-                                dismiss()
+                        Button {
+                            closeKeyboard()
+                            Task {
+                                busyAction = .addPasskey
+                                addPasskeyErrorMessage = nil
+                                registrationErrorMessage = nil
+                                viewModel.errorMessage = nil
+                                let added = await viewModel.addPasskeyFromLinkInput(passkeyAddInput)
+                                busyAction = nil
+                                if added {
+                                    AppHaptics.confirmation()
+                                    dismiss()
+                                } else {
+                                    addPasskeyErrorMessage = viewModel.errorMessage
+                                        ?? l10n.t("ios.onboarding.could_not_add_passkey")
+                                }
+                            }
+                        } label: {
+                            if busyAction == .addPasskey {
+                                HStack {
+                                    ProgressView()
+                                    Text(l10n.t("ios.onboarding.adding_passkey"))
+                                }
                             } else {
-                                addPasskeyErrorMessage = viewModel.errorMessage
-                                    ?? l10n.t("ios.onboarding.could_not_add_passkey")
+                                Label(l10n.t("ios.onboarding.add_passkey"), systemImage: "person.badge.key")
                             }
                         }
-                    } label: {
-                        if busyAction == .addPasskey {
-                            HStack {
-                                ProgressView()
-                                Text(l10n.t("ios.onboarding.adding_passkey"))
-                            }
-                        } else {
-                            Label(l10n.t("ios.onboarding.add_passkey"), systemImage: "person.badge.key")
-                        }
-                    }
-                    .disabled(busyAction != nil || trimmedPasskeyAddInput.isEmpty)
-                    .accessibilityIdentifier("passkey-add-submit-button")
+                        .disabled(busyAction != nil || trimmedPasskeyAddInput.isEmpty)
+                        .accessibilityIdentifier("passkey-add-submit-button")
 
-                    if let addPasskeyErrorMessage, addPasskeyErrorMessage.isEmpty == false {
-                        Label(addPasskeyErrorMessage, systemImage: "exclamationmark.triangle")
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .accessibilityIdentifier("passkey-add-error")
+                        if let addPasskeyErrorMessage, addPasskeyErrorMessage.isEmpty == false {
+                            Label(addPasskeyErrorMessage, systemImage: "exclamationmark.triangle")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("passkey-add-error")
+                        }
                     }
                 }
 
@@ -407,7 +518,9 @@ private struct ReviewerOnboardingSheet: View {
                     }
                 }
             }
-            .navigationTitle(l10n.t("ios.onboarding.sign_in_help"))
+            .navigationTitle(
+                l10n.t(showsPasskeyAddSection ? "ios.onboarding.sign_in_help" : "ios.onboarding.create_account")
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -419,7 +532,9 @@ private struct ReviewerOnboardingSheet: View {
         .onChange(of: initialPasskeyAddInput) { newValue in
             passkeyAddInput = newValue
         }
-        .accessibilityIdentifier("reviewer-onboarding-sheet")
+        .accessibilityIdentifier(
+            showsPasskeyAddSection ? "reviewer-onboarding-sheet" : "account-registration-sheet"
+        )
     }
 
     private var trimmedPasskeyAddInput: String {
@@ -449,17 +564,51 @@ private struct ReviewerOnboardingSheet: View {
 private struct FavoriteListTab: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
+    @Binding var selectedTab: AppTab
 
     var body: some View {
         Group {
             if let favoriteList = viewModel.favoriteList {
                 ListDetailScreen(listID: favoriteList.id, showsFavoriteButton: false)
             } else {
-                EmptyStateView(
-                    title: l10n.t("ios.favorite.empty_title"),
-                    systemImage: "star",
-                    message: l10n.t("ios.favorite.empty_message")
-                )
+                VStack(spacing: 0) {
+                    EmptyStateView(
+                        title: l10n.t("ios.favorite.empty_title"),
+                        systemImage: "star",
+                        message: l10n.t(
+                            viewModel.lists.isEmpty
+                                ? "ios.favorite.no_lists_message"
+                                : "ios.favorite.empty_message"
+                        )
+                    )
+
+                    if viewModel.lists.isEmpty {
+                        Button {
+                            selectedTab = .settings
+                        } label: {
+                            Label(l10n.t("ios.favorite.open_settings"), systemImage: "gearshape")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("favorite-empty-open-settings-button")
+                    } else {
+                        Menu {
+                            ForEach(viewModel.lists) { list in
+                                Button {
+                                    viewModel.setFavoriteList(id: list.id)
+                                    Task { await viewModel.showFavoriteList() }
+                                } label: {
+                                    Label(list.name, systemImage: "star")
+                                }
+                                .accessibilityIdentifier("favorite-choice-\(list.id.uuidString)")
+                            }
+                        } label: {
+                            Label(l10n.t("ios.favorite.choose_list"), systemImage: "star.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("favorite-empty-choose-list-menu")
+                    }
+                }
+                .padding(.horizontal, 24)
                 .navigationTitle(l10n.t("ios.tabs.favorite"))
             }
         }
@@ -481,34 +630,54 @@ private struct ListsTab: View {
 
     var body: some View {
         List {
-            ForEach(householdSections, id: \.name) { section in
-                Section(section.name) {
-                    ForEach(section.lists) { list in
-                        NavigationLink(value: list.id) {
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(list.name)
-                                    if list.id == viewModel.favoriteListID {
-                                        Label(l10n.t("ios.favorite.favorite_list"), systemImage: "star.fill")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
+            if householdSections.isEmpty {
+                VStack(spacing: 0) {
+                    EmptyStateView(
+                        title: l10n.t("ios.lists.empty_title"),
+                        systemImage: "rectangle.grid.1x2",
+                        message: l10n.t("ios.lists.empty_message")
+                    )
 
-                                Spacer()
+                    Button {
+                        selectedTab = .settings
+                    } label: {
+                        Label(l10n.t("ios.lists.open_settings"), systemImage: "gearshape")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("lists-empty-open-settings-button")
+                }
+                .frame(maxWidth: .infinity)
+                .listRowSeparator(.hidden)
+            } else {
+                ForEach(householdSections, id: \.name) { section in
+                    Section(section.name) {
+                        ForEach(section.lists) { list in
+                            NavigationLink(value: list.id) {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(list.name)
+                                        if list.id == viewModel.favoriteListID {
+                                            Label(l10n.t("ios.favorite.favorite_list"), systemImage: "star.fill")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
                             }
-                            .contentShape(Rectangle())
-                        }
-                        .accessibilityIdentifier("list-row-\(list.name)")
-                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                            Button {
-                                viewModel.setFavoriteList(id: list.id)
-                                selectedTab = .favorite
-                                Task { await viewModel.showFavoriteList() }
-                            } label: {
-                                Label(l10n.t("ios.tabs.favorite"), systemImage: "star.fill")
+                            .accessibilityIdentifier("list-row-\(list.name)")
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                Button {
+                                    viewModel.setFavoriteList(id: list.id)
+                                    selectedTab = .favorite
+                                    Task { await viewModel.showFavoriteList() }
+                                } label: {
+                                    Label(l10n.t("ios.tabs.favorite"), systemImage: "star.fill")
+                                }
+                                .tint(.yellow)
                             }
-                            .tint(.yellow)
                         }
                     }
                 }
@@ -987,6 +1156,9 @@ private struct ListDetailScreen: View {
     @State private var displayedListID: UUID
     @State private var editingItem: GroceryItemRecord?
     @State private var addItemPresentation: AddItemPresentation?
+    @State private var highlightedItemID: UUID?
+    @State private var moveNotice: ItemMoveNotice?
+    @State private var moveNoticeDismissTask: Task<Void, Never>?
     @State private var undoToast: ListUndoToast?
     @State private var undoDismissTask: Task<Void, Never>?
     @State private var isRunningUndo = false
@@ -1010,9 +1182,24 @@ private struct ListDetailScreen: View {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private var visibleItemIDs: [UUID] {
-        viewModel.sections.flatMap { section in
-            section.items.map(\.id)
+    private var displaySections: [ListDisplaySection] {
+        var sections = viewModel.sections.map(ListDisplaySection.init)
+        guard let moveNotice else { return sections }
+
+        let noticeSection = displaySection(for: moveNotice)
+        if let index = sections.firstIndex(where: { $0.id == noticeSection.id }) {
+            sections[index].rows.append(.moveNotice(moveNotice))
+            sections[index].rows.sort(by: compareRows)
+            return sections
+        }
+
+        sections.insert(noticeSection, at: insertionIndex(for: noticeSection, in: sections))
+        return sections
+    }
+
+    private var visibleRowIDs: [String] {
+        displaySections.flatMap { section in
+            section.rows.map(\.id)
         }
     }
 
@@ -1043,7 +1230,7 @@ private struct ListDetailScreen: View {
                 }
             }
 
-            if viewModel.sections.isEmpty {
+            if displaySections.isEmpty {
                 Section {
                     EmptyStateView(
                         title: l10n.t("ios.list.empty_title"),
@@ -1052,13 +1239,25 @@ private struct ListDetailScreen: View {
                     )
                 }
             } else {
-                ForEach(viewModel.sections) { section in
+                ForEach(displaySections) { section in
                     Section {
-                        ForEach(section.items) { item in
-                            ItemRow(item: item) {
-                                editingItem = item
-                            } onUndoableAction: { message, action in
-                                showUndoToast(message: message, action: action)
+                        ForEach(section.rows) { row in
+                            switch row {
+                            case let .item(item):
+                                ItemRow(item: item) {
+                                    editingItem = item
+                                } onDelete: {
+                                    deleteItem(item)
+                                } onUndoableAction: { message, action in
+                                    showUndoToast(message: message, action: action)
+                                }
+                                .background(rowHighlight(for: item))
+                            case let .moveNotice(notice):
+                                ItemMoveNoticeRow(notice: notice) {
+                                    undoMove(notice)
+                                }
+                                .opacity(notice.isExpiring ? 0 : 1)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                             }
                         }
                     } header: {
@@ -1142,7 +1341,15 @@ private struct ListDetailScreen: View {
             displayedListID = newValue
         }
         .sheet(item: $editingItem) { item in
-            EditItemSheet(item: item)
+            EditItemSheet(
+                item: item,
+                onUndoableAction: { message, action in
+                    showUndoToast(message: message, action: action)
+                },
+                onMoved: { notice in
+                    showMoveNotice(notice)
+                }
+            )
         }
         .sheet(item: $addItemPresentation) { presentation in
             AddItemSheet(initialCategoryID: presentation.categoryID) { message, action in
@@ -1165,15 +1372,118 @@ private struct ListDetailScreen: View {
         .sheet(isPresented: $showingListSettings) {
             ListSettingsSheet(listID: displayedListID)
         }
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: visibleItemIDs)
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: visibleRowIDs)
+        .animation(.easeInOut(duration: 0.22), value: highlightedItemID)
+        .animation(.easeInOut(duration: 0.22), value: moveNotice)
         .animation(.spring(response: 0.28, dampingFraction: 0.9), value: undoToast?.id)
         .onDisappear {
+            moveNoticeDismissTask?.cancel()
             undoDismissTask?.cancel()
         }
         .accessibilityIdentifier("list-detail-screen")
     }
 
-    private func showUndoToast(message: String, action: @escaping ListUndoAction) {
+    private func displaySection(for notice: ItemMoveNotice) -> ListDisplaySection {
+        let sourceItem = notice.sourceItem
+        let kind: GroceryItemSectionKind
+        let title: String
+        let colorHex: String?
+
+        if sourceItem.checked {
+            kind = .checked
+            title = l10n.t("ios.list.checked_off")
+            colorHex = nil
+        } else if sourceItem.isHiddenForLater() {
+            kind = .hidden
+            title = l10n.t("ios.list.hidden_for_later")
+            colorHex = nil
+        } else if let categoryID = sourceItem.categoryID,
+            let category = viewModel.categories.first(where: { $0.id == categoryID })
+        {
+            kind = .category(categoryID)
+            title = category.name
+            colorHex = category.colorHex
+        } else {
+            kind = .uncategorized
+            title = l10n.t("ios.list.uncategorized")
+            colorHex = nil
+        }
+
+        return ListDisplaySection(
+            id: sectionID(for: kind),
+            title: title,
+            colorHex: colorHex,
+            kind: kind,
+            rows: [.moveNotice(notice)]
+        )
+    }
+
+    private func sectionID(for kind: GroceryItemSectionKind) -> String {
+        switch kind {
+        case .uncategorized:
+            return "uncategorized"
+        case let .category(categoryID):
+            return "category-\(categoryID.uuidString)"
+        case .hidden:
+            return "hidden"
+        case .checked:
+            return "checked"
+        }
+    }
+
+    private func insertionIndex(for section: ListDisplaySection, in sections: [ListDisplaySection]) -> Int {
+        switch section.kind {
+        case .uncategorized:
+            return 0
+        case .hidden:
+            return sections.firstIndex { $0.kind == .checked } ?? sections.endIndex
+        case .checked:
+            return sections.endIndex
+        case let .category(categoryID):
+            let sortOrder = viewModel.categoryOrder.first { $0.categoryID == categoryID }?.sortOrder ?? Int.max
+            return sections.firstIndex { existing in
+                switch existing.kind {
+                case .hidden, .checked:
+                    return true
+                case let .category(existingID):
+                    let existingSortOrder = viewModel.categoryOrder.first { $0.categoryID == existingID }?.sortOrder ?? Int.max
+                    return existingSortOrder > sortOrder
+                case .uncategorized:
+                    return false
+                }
+            } ?? sections.endIndex
+        }
+    }
+
+    private func compareRows(_ left: ListRowContent, _ right: ListRowContent) -> Bool {
+        if left.sortOrder != right.sortOrder {
+            return left.sortOrder < right.sortOrder
+        }
+        return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
+    }
+
+    private func showMoveNotice(_ notice: ItemMoveNotice) {
+        moveNoticeDismissTask?.cancel()
+        var activeNotice = notice
+        activeNotice.isExpiring = false
+        moveNotice = activeNotice
+
+        moveNoticeDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard Task.isCancelled == false else { return }
+            await MainActor.run {
+                moveNotice?.isExpiring = true
+            }
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            guard Task.isCancelled == false else { return }
+            await MainActor.run {
+                moveNotice = nil
+            }
+        }
+    }
+
+    @discardableResult
+    private func showUndoToast(message: String, action: @escaping ListUndoAction) -> UUID {
         undoDismissTask?.cancel()
         let toast = ListUndoToast(message: message, action: action)
         undoToast = toast
@@ -1185,6 +1495,59 @@ private struct ListDetailScreen: View {
                 undoToast = nil
             }
         }
+        return toast.id
+    }
+
+    private func deleteItem(_ item: GroceryItemRecord) {
+        let deleteTask = Task { @MainActor in
+            await viewModel.delete(item: item)
+        }
+        let toastID = showUndoToast(
+            message: l10n.t("ios.undo.item_deleted_named", ["name": item.name]),
+            action: {
+                guard await deleteTask.value else { return false }
+                return await viewModel.restoreDeleted(item: item)
+            }
+        )
+
+        Task { @MainActor in
+            if await deleteTask.value {
+                AppHaptics.destructiveAction()
+            } else {
+                undoDismissTask?.cancel()
+                if undoToast?.id == toastID {
+                    undoToast = nil
+                }
+            }
+        }
+    }
+
+    private func undoMove(_ notice: ItemMoveNotice) {
+        moveNoticeDismissTask?.cancel()
+        Task {
+            let restoredItem = await viewModel.move(
+                item: notice.movedItem,
+                to: notice.sourceListID,
+                payload: GroceryItemEditPayload(item: notice.movedItem)
+            )
+            await MainActor.run {
+                guard let restoredItem else {
+                    var failedNotice = notice
+                    failedNotice.isExpiring = false
+                    failedNotice.restoreErrorMessage = l10n.t("ios.item.move_undo_failed")
+                    moveNotice = failedNotice
+                    return
+                }
+
+                AppHaptics.confirmation()
+                moveNotice = nil
+                highlightedItemID = restoredItem.id
+            }
+        }
+    }
+
+    private func rowHighlight(for item: GroceryItemRecord) -> Color {
+        item.id == highlightedItemID ? Color.accentColor.opacity(0.16) : Color.clear
     }
 
     private func runUndoToast(_ toast: ListUndoToast) {
@@ -1203,10 +1566,12 @@ private struct ListDetailScreen: View {
         }
     }
 
-    private func localizedTitle(for section: GroceryItemSection) -> String {
+    private func localizedTitle(for section: ListDisplaySection) -> String {
         switch section.kind {
         case .uncategorized:
             return l10n.t("ios.list.uncategorized")
+        case .hidden:
+            return l10n.t("ios.list.hidden_for_later")
         case .checked:
             return l10n.t("ios.list.checked_off")
         case .category:
@@ -1534,13 +1899,13 @@ private struct FloatingUndoToastView: View {
 
 private struct SectionHeader: View {
     @EnvironmentObject private var l10n: AppLocalization
-    let section: GroceryItemSection
+    let section: ListDisplaySection
     let title: String
     let onQuickAdd: (UUID?) -> Void
 
     private var allowsQuickAdd: Bool {
         switch section.kind {
-        case .checked:
+        case .hidden, .checked:
             return false
         case .uncategorized, .category:
             return true
@@ -1549,7 +1914,7 @@ private struct SectionHeader: View {
 
     private var quickAddCategoryID: UUID? {
         switch section.kind {
-        case .uncategorized, .checked:
+        case .uncategorized, .hidden, .checked:
             return nil
         case let .category(categoryID):
             return categoryID
@@ -1584,7 +1949,7 @@ private struct SectionHeader: View {
             }
         }
         .textCase(nil)
-        .accessibilityIdentifier("section-\(section.id)")
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -1617,82 +1982,142 @@ private struct ItemRow: View {
     @EnvironmentObject private var l10n: AppLocalization
     let item: GroceryItemRecord
     let onEdit: () -> Void
+    let onDelete: () -> Void
     let onUndoableAction: (String, @escaping ListUndoAction) -> Void
+
+    private var isHiddenForLater: Bool {
+        item.isHiddenForLater()
+    }
+
+    private var toggleSystemImageName: String {
+        if isHiddenForLater {
+            return "hourglass.circle"
+        }
+        return item.checked ? "checkmark.circle.fill" : "circle"
+    }
+
+    private var toggleForegroundStyle: Color {
+        if isHiddenForLater {
+            return .orange
+        }
+        return item.checked ? .green : .secondary
+    }
+
+    private var toggleAccessibilityLabel: String {
+        if isHiddenForLater {
+            return l10n.t("ios.item.show_hidden", ["name": item.name])
+        }
+        return item.checked
+            ? l10n.t("ios.item.uncheck", ["name": item.name])
+            : l10n.t("ios.item.check", ["name": item.name])
+    }
 
     var body: some View {
         HStack(spacing: 12) {
             Button {
                 Task {
-                    let wasChecked = item.checked
-                    let toggled = await viewModel.toggle(item)
-                    if toggled {
-                        AppHaptics.itemToggle()
-                        onUndoableAction(
-                            wasChecked
-                                ? l10n.t("ios.undo.item_unchecked_named", ["name": item.name])
-                                : l10n.t("ios.undo.item_checked_named", ["name": item.name]),
-                            {
-                                await viewModel.setChecked(itemID: item.id, checked: wasChecked)
-                            }
-                        )
+                    if isHiddenForLater {
+                        let previousHiddenUntil = item.hiddenUntil
+                        let restored = await viewModel.restoreHiddenItem(item)
+                        if restored {
+                            AppHaptics.itemToggle()
+                            onUndoableAction(
+                                l10n.t("ios.undo.item_shown_now_named", ["name": item.name]),
+                                {
+                                    guard let previousHiddenUntil else { return false }
+                                    return await viewModel.setHiddenUntil(
+                                        itemID: item.id,
+                                        hiddenUntil: previousHiddenUntil
+                                    )
+                                }
+                            )
+                        }
+                    } else {
+                        let wasChecked = item.checked
+                        let toggled = await viewModel.toggle(item)
+                        if toggled {
+                            AppHaptics.itemToggle()
+                            onUndoableAction(
+                                wasChecked
+                                    ? l10n.t("ios.undo.item_unchecked_named", ["name": item.name])
+                                    : l10n.t("ios.undo.item_checked_named", ["name": item.name]),
+                                {
+                                    await viewModel.setChecked(itemID: item.id, checked: wasChecked)
+                                }
+                            )
+                        }
                     }
                 }
             } label: {
-                Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                Image(systemName: toggleSystemImageName)
                     .font(.title3)
-                    .foregroundStyle(item.checked ? .green : .secondary)
+                    .foregroundStyle(toggleForegroundStyle)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("toggle-item-\(item.id.uuidString)")
-            .accessibilityLabel(
-                item.checked
-                    ? l10n.t("ios.item.uncheck", ["name": item.name])
-                    : l10n.t("ios.item.check", ["name": item.name])
-            )
+            .accessibilityLabel(toggleAccessibilityLabel)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.name)
-                    .strikethrough(item.checked)
-                    .foregroundStyle(item.checked ? .secondary : .primary)
+            Button(action: onEdit) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.name)
+                            .strikethrough(item.checked)
+                            .foregroundStyle(item.checked ? .secondary : .primary)
 
-                if let quantity = item.quantityText, quantity.isEmpty == false {
-                    Text(l10n.t("ios.item.quantity_value", ["quantity": quantity]))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        if let quantity = item.quantityText, quantity.isEmpty == false {
+                            Text(l10n.t("ios.item.quantity_value", ["quantity": quantity]))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let note = item.note, note.isEmpty == false {
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
                 }
-
-                if let note = item.note, note.isEmpty == false {
-                    Text(note)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                .contentShape(Rectangle())
             }
-
-            Spacer()
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("edit-item-row-\(item.id.uuidString)")
         }
         .contentShape(Rectangle())
-        .onTapGesture(perform: onEdit)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("item-row-\(item.id.uuidString)")
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if item.checked == false && isHiddenForLater == false {
+                Button {
+                    Task {
+                        let hidden = await viewModel.hideForLater(item)
+                        if hidden {
+                            AppHaptics.itemToggle()
+                            onUndoableAction(
+                                l10n.t("ios.undo.item_saved_for_later_named", ["name": item.name]),
+                                {
+                                    await viewModel.restoreHiddenItem(item)
+                                }
+                            )
+                        }
+                    }
+                } label: {
+                    Label(l10n.t("ios.item.hide_for_later_short"), systemImage: "hourglass")
+                }
+                .tint(.orange)
+                .accessibilityIdentifier("hide-item-\(item.id.uuidString)")
+            }
+        }
         .swipeActions {
             Button(role: .destructive) {
-                Task {
-                    let deleted = await viewModel.delete(item: item)
-                    if deleted {
-                        AppHaptics.destructiveAction()
-                        onUndoableAction(
-                            l10n.t("ios.undo.item_deleted_named", ["name": item.name]),
-                            {
-                                await viewModel.restoreDeleted(item: item)
-                            }
-                        )
-                    }
-                }
+                onDelete()
             } label: {
                 Label(l10n.t("common.delete"), systemImage: "trash")
             }
+            .accessibilityIdentifier("delete-item-\(item.id.uuidString)")
 
             Button {
                 onEdit()
@@ -1700,7 +2125,47 @@ private struct ItemRow: View {
                 Label(l10n.t("common.edit"), systemImage: "pencil")
             }
             .tint(.blue)
+            .accessibilityIdentifier("edit-item-\(item.id.uuidString)")
         }
+    }
+}
+
+private struct ItemMoveNoticeRow: View {
+    @EnvironmentObject private var l10n: AppLocalization
+    let notice: ItemMoveNotice
+    let onUndo: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.right.circle.fill")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(l10n.t("ios.item.move_notice", ["name": notice.itemName, "list": notice.targetListName]))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .accessibilityIdentifier("item-move-notice-message-\(notice.id.uuidString)")
+
+                if let restoreErrorMessage = notice.restoreErrorMessage {
+                    Text(restoreErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("item-move-notice-error-\(notice.id.uuidString)")
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Button("Undo", action: onUndo)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("move-item-undo-button-\(notice.id.uuidString)")
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("item-move-notice-\(notice.id.uuidString)")
     }
 }
 
@@ -2119,6 +2584,8 @@ private struct EditItemSheet: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
     let item: GroceryItemRecord
+    let onUndoableAction: (String, @escaping ListUndoAction) -> Void
+    let onMoved: (ItemMoveNotice) -> Void
 
     @State private var name: String
     @State private var quantity: String
@@ -2129,6 +2596,8 @@ private struct EditItemSheet: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var saveStatus: SaveStatus = .saved
     @State private var suppressHistoryRecording = false
+    @State private var isMoving = false
+    @State private var didMoveItem = false
 
     private enum SaveStatus: Equatable {
         case saved
@@ -2149,6 +2618,19 @@ private struct EditItemSheet: View {
             }
         }
 
+        var accessibilityValue: String {
+            switch self {
+            case .saved:
+                return "saved"
+            case .saving:
+                return "saving"
+            case .offline:
+                return "saved-offline"
+            case .invalid:
+                return "invalid"
+            }
+        }
+
         var systemImage: String {
             switch self {
             case .saved:
@@ -2163,8 +2645,14 @@ private struct EditItemSheet: View {
         }
     }
 
-    init(item: GroceryItemRecord) {
+    init(
+        item: GroceryItemRecord,
+        onUndoableAction: @escaping (String, @escaping ListUndoAction) -> Void,
+        onMoved: @escaping (ItemMoveNotice) -> Void
+    ) {
         self.item = item
+        self.onUndoableAction = onUndoableAction
+        self.onMoved = onMoved
         let payload = GroceryItemEditPayload(item: item)
         _name = State(initialValue: item.name)
         _quantity = State(initialValue: item.quantityText ?? "")
@@ -2172,6 +2660,10 @@ private struct EditItemSheet: View {
         _categoryID = State(initialValue: item.categoryID)
         _history = State(initialValue: Self.loadHistory(itemID: item.id))
         _lastSavedPayload = State(initialValue: payload)
+    }
+
+    private var isHiddenForLater: Bool {
+        item.isHiddenForLater()
     }
 
     var body: some View {
@@ -2201,6 +2693,48 @@ private struct EditItemSheet: View {
                     .accessibilityIdentifier("edit-item-category-link")
                 }
 
+                if moveTargets.count > 1 {
+                    Section(l10n.t("ios.item.move_section")) {
+                        ForEach(moveTargets) { list in
+                            if list.id == item.listID {
+                                Label {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(list.name)
+                                        Text(l10n.t("ios.item.current_list"))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                } icon: {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                }
+                                .accessibilityIdentifier("edit-item-current-list-\(list.id.uuidString)")
+                            } else {
+                                Button {
+                                    move(to: list.id)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Text(list.name)
+                                        Spacer()
+                                        Image(systemName: "arrow.right")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .disabled(isMoving)
+                                .accessibilityIdentifier("edit-item-move-list-\(list.id.uuidString)")
+                                .accessibilityLabel(l10n.t("ios.item.move_to_list_named", ["list": list.name]))
+                            }
+                        }
+
+                        if isMoving {
+                            Label(l10n.t("ios.item.moving"), systemImage: "arrow.right")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 Section(l10n.t("ios.item.notes_section")) {
                     TextField(l10n.t("ios.item.note"), text: $note, axis: .vertical)
                         .accessibilityIdentifier("edit-item-note-field")
@@ -2211,6 +2745,28 @@ private struct EditItemSheet: View {
                         .font(.footnote)
                         .foregroundStyle(saveStatus == .invalid ? .red : .secondary)
                         .accessibilityIdentifier("edit-item-save-status")
+                        .accessibilityValue(saveStatus.accessibilityValue)
+                }
+
+                if item.checked == false {
+                    Section {
+                        Button {
+                            performHiddenForLaterAction()
+                        } label: {
+                            Label(
+                                isHiddenForLater
+                                    ? l10n.t("ios.item.show_now_action")
+                                    : l10n.t("ios.item.save_for_later_action"),
+                                systemImage: isHiddenForLater ? "hourglass.circle" : "hourglass"
+                            )
+                        }
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier(
+                            isHiddenForLater
+                                ? "edit-item-restore-hidden-button"
+                                : "edit-item-hide-for-later-button"
+                        )
+                    }
                 }
             }
             .navigationTitle(l10n.t("ios.item.edit_title"))
@@ -2255,7 +2811,9 @@ private struct EditItemSheet: View {
         .onChange(of: categoryID) { _ in scheduleAutosave() }
         .onDisappear {
             persistHistory()
-            flushCurrentEdit()
+            if didMoveItem == false {
+                flushCurrentEdit()
+            }
         }
         .accessibilityIdentifier("edit-item-sheet")
     }
@@ -2267,6 +2825,10 @@ private struct EditItemSheet: View {
             note: note,
             categoryID: categoryID
         )
+    }
+
+    private var moveTargets: [GroceryListSummary] {
+        viewModel.moveTargetLists(for: item)
     }
 
     private var selectedCategory: GroceryCategorySummary? {
@@ -2353,6 +2915,84 @@ private struct EditItemSheet: View {
     private func applyRedo() {
         guard let payload = history.redo(current: currentPayload) else { return }
         apply(payload)
+    }
+
+    private func performHiddenForLaterAction() {
+        flushCurrentEdit()
+        let previousHiddenUntil = item.hiddenUntil
+        Task {
+            let didChange: Bool
+            if isHiddenForLater {
+                didChange = await viewModel.restoreHiddenItem(item)
+            } else {
+                didChange = await viewModel.hideForLater(item)
+            }
+            guard didChange else { return }
+            await MainActor.run {
+                AppHaptics.itemToggle()
+                if isHiddenForLater {
+                    onUndoableAction(
+                        l10n.t("ios.undo.item_shown_now_named", ["name": item.name]),
+                        {
+                            guard let previousHiddenUntil else { return false }
+                            return await viewModel.setHiddenUntil(itemID: item.id, hiddenUntil: previousHiddenUntil)
+                        }
+                    )
+                } else {
+                    onUndoableAction(
+                        l10n.t("ios.undo.item_saved_for_later_named", ["name": item.name]),
+                        {
+                            await viewModel.restoreHiddenItem(item)
+                        }
+                    )
+                }
+                dismiss()
+            }
+        }
+    }
+
+    private func move(to targetListID: UUID) {
+        guard targetListID != item.listID, isMoving == false else { return }
+        guard let targetList = moveTargets.first(where: { $0.id == targetListID }) else {
+            return
+        }
+
+        saveTask?.cancel()
+        let payload = currentPayload
+        guard payload.isValid else {
+            saveStatus = .invalid
+            return
+        }
+
+        isMoving = true
+        saveStatus = .saving
+        Task {
+            let movedItem = await viewModel.move(item: item, to: targetListID, payload: payload)
+            await MainActor.run {
+                isMoving = false
+                guard let movedItem else {
+                    saveStatus = .saved
+                    return
+                }
+
+                didMoveItem = true
+                lastSavedPayload = payload
+                persistHistory()
+                onMoved(
+                    ItemMoveNotice(
+                        id: item.id,
+                        sourceListID: item.listID,
+                        targetListID: targetListID,
+                        targetListName: targetList.name,
+                        sourceItem: item.applyingEditPayload(payload),
+                        movedItem: movedItem,
+                        isExpiring: false
+                    )
+                )
+                AppHaptics.confirmation()
+                dismiss()
+            }
+        }
     }
 
     private func flushCurrentEdit() {

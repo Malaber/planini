@@ -130,10 +130,19 @@ def test_ios_ui_e2e_failure_summaries_reads_xcresulttool_json(tmp_path: Path, mo
             }
           ]
         }
-        """
+    """
 
     def fake_run(command, **kwargs):
-        assert command[:5] == ["xcrun", "xcresulttool", "get", "test-results", "summary"]
+        assert command == [
+            "xcrun",
+            "xcresulttool",
+            "get",
+            "test-results",
+            "summary",
+            "--path",
+            str(bundle_path),
+            "--compact",
+        ]
         assert kwargs == {"capture_output": True, "text": True, "check": False}
         return Result()
 
@@ -142,6 +151,130 @@ def test_ios_ui_e2e_failure_summaries_reads_xcresulttool_json(tmp_path: Path, mo
     assert tasks._ios_ui_e2e_failure_summaries(bundle_path) == [
         "PlaniniUITests.testListReceivesLiveUpdates(): "
         "XCTAssertTrue failed while waiting for UI Live item"
+    ]
+
+
+def test_ios_ui_e2e_failure_summaries_include_xcresult_details_and_activity(
+    tmp_path: Path, monkeypatch
+) -> None:
+    bundle_path = tmp_path / "PlaniniUITests.xcresult"
+    bundle_path.mkdir()
+    commands: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        assert kwargs == {"capture_output": True, "text": True, "check": False}
+        if command[4] == "summary":
+            return Result(
+                """
+                {
+                  "testFailures": [
+                    {
+                      "testName": "PlaniniUITests.testListViewFlow()",
+                      "failureText": "XCTAssertTrue failed",
+                      "testIdentifierString": "PlaniniUITests/testListViewFlow()"
+                    }
+                  ]
+                }
+                """
+            )
+        if command[4] == "test-details":
+            return Result(
+                """
+                {
+                  "testName": "PlaniniUITests.testListViewFlow()",
+                  "testRuns": [
+                    {
+                      "nodeType": "Test Case Run",
+                      "result": "Failed",
+                      "children": [
+                        {
+                          "nodeType": "Source Code Reference",
+                          "name": "PlaniniUITests.swift:95"
+                        },
+                        {
+                          "nodeType": "Expression",
+                          "name": "openAddItemSheet(using: quickAddUncategorized, in: app)"
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """
+            )
+        assert command[4] == "activities"
+        return Result(
+            """
+            {
+              "testName": "PlaniniUITests.testListViewFlow()",
+              "testRuns": {
+                "activities": [
+                  {
+                    "title": "Quick add uncategorized item",
+                    "childActivities": [
+                      {
+                        "title": "Wait for add item sheet",
+                        "isAssociatedWithFailure": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """
+        )
+
+    monkeypatch.setattr(tasks.subprocess, "run", fake_run)
+
+    assert tasks._ios_ui_e2e_failure_summaries(bundle_path) == [
+        "PlaniniUITests.testListViewFlow(): XCTAssertTrue failed",
+        "PlaniniUITests.testListViewFlow(): Source: PlaniniUITests.swift:95",
+        "PlaniniUITests.testListViewFlow(): "
+        "Expression: openAddItemSheet(using: quickAddUncategorized, in: app)",
+        "PlaniniUITests.testListViewFlow(): "
+        "Failure activity: Quick add uncategorized item > Wait for add item sheet",
+    ]
+    assert commands == [
+        [
+            "xcrun",
+            "xcresulttool",
+            "get",
+            "test-results",
+            "summary",
+            "--path",
+            str(bundle_path),
+            "--compact",
+        ],
+        [
+            "xcrun",
+            "xcresulttool",
+            "get",
+            "test-results",
+            "test-details",
+            "--path",
+            str(bundle_path),
+            "--compact",
+            "--test-id",
+            "PlaniniUITests/testListViewFlow()",
+        ],
+        [
+            "xcrun",
+            "xcresulttool",
+            "get",
+            "test-results",
+            "activities",
+            "--path",
+            str(bundle_path),
+            "--compact",
+            "--test-id",
+            "PlaniniUITests/testListViewFlow()",
+        ],
     ]
 
 
@@ -920,6 +1053,7 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
         initial_list_name="Browser Test Shop",
         access_token="token-123",
         display_name="Test User",
+        only_testing="PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad",
     )
 
     assert calls == [
@@ -929,7 +1063,8 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
             "-destination-timeout 120 "
             f"-resultBundlePath {str(result_bundle_path.resolve())} -quiet "
             "-parallel-testing-enabled NO -maximum-parallel-testing-workers 1 "
-            "-only-testing:PlaniniUITests test",
+            "-only-testing:PlaniniUITests/PlaniniUITests/"
+            "testUsesNativeIPadCanvasWhenRunningOnIPad test",
             {
                 "env": {
                     "PLANINI_UI_TEST_BASE_URL": "http://localhost:8018",
@@ -1093,6 +1228,7 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
         port=8018,
         log_path="ios-ui-e2e-server.log",
         pid_path="ios-ui-e2e-server.pid",
+        only_testing="PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad",
     )
 
     assert calls == [
@@ -1130,6 +1266,10 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
                 "initial_list_name": "Browser Test Shop",
                 "access_token": "token-123",
                 "display_name": "Test User",
+                "attempts": 2,
+                "only_testing": (
+                    "PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad"
+                ),
             },
         ),
         ("stop", {"pid_path": "ios-ui-e2e-server.pid"}),

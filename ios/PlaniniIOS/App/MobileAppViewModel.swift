@@ -120,6 +120,7 @@ struct LinkedListNavigationRequest: Equatable {
 
 @MainActor
 final class MobileAppViewModel: ObservableObject {
+    private static let itemHideDuration: TimeInterval = 4 * 60 * 60
     private static let favoriteListKey = "planini.favoriteListID"
     private static let authTokenKey = "planini.authToken"
     private static let displayNameKey = "planini.displayName"
@@ -695,6 +696,15 @@ final class MobileAppViewModel: ObservableObject {
         pendingItemEdits.contains { $0.itemID == itemID }
     }
 
+    func moveTargetLists(for item: GroceryItemRecord) -> [GroceryListSummary] {
+        guard let sourceList = lists.first(where: { $0.id == item.listID }) else {
+            return lists.filter { $0.archived == false }
+        }
+        return lists.filter {
+            $0.archived == false && $0.householdID == sourceList.householdID
+        }
+    }
+
     func reloadAllData() async throws {
         guard let backendURL, let authToken else { return }
 
@@ -1125,6 +1135,51 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     @discardableResult
+    func hideForLater(_ item: GroceryItemRecord, now: Date = Date()) async -> Bool {
+        guard item.checked == false else { return false }
+        return await setHiddenUntil(
+            itemID: item.id,
+            hiddenUntil: now.addingTimeInterval(Self.itemHideDuration)
+        )
+    }
+
+    @discardableResult
+    func restoreHiddenItem(_ item: GroceryItemRecord) async -> Bool {
+        await setHiddenUntil(itemID: item.id, hiddenUntil: nil)
+    }
+
+    @discardableResult
+    func setHiddenUntil(itemID: UUID, hiddenUntil: Date?) async -> Bool {
+        guard let backendURL, let authToken else { return false }
+        let hiddenUntilBodyValue: Any
+        if let hiddenUntil {
+            hiddenUntilBodyValue = apiTimestamp(from: hiddenUntil)
+        } else {
+            hiddenUntilBodyValue = NSNull()
+        }
+
+        do {
+            let saved = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/items/\(itemID.uuidString)",
+                method: "PATCH",
+                body: ["hidden_until": hiddenUntilBodyValue],
+                token: authToken
+            )
+            if let savedItem = GroceryItemRecord(json: saved) {
+                upsertLocalItem(savedItem)
+            } else {
+                try await reloadItems()
+            }
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult
     func saveEdit(
         item: GroceryItemRecord,
         name: String,
@@ -1184,6 +1239,46 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     @discardableResult
+    func move(
+        item: GroceryItemRecord,
+        to targetListID: UUID,
+        payload: GroceryItemEditPayload
+    ) async -> GroceryItemRecord? {
+        guard payload.isValid else { return nil }
+        guard targetListID != item.listID else { return item }
+        guard let backendURL, let authToken else {
+            errorMessage = "Move items while online so both lists stay in sync."
+            return nil
+        }
+
+        var body = payload.jsonBody
+        body["list_id"] = targetListID.uuidString
+
+        do {
+            let saved = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/items/\(item.id.uuidString)",
+                method: "PATCH",
+                body: body,
+                token: authToken
+            )
+            removePendingItemEdit(itemID: item.id)
+            let movedItem = GroceryItemRecord(json: saved)
+                ?? item.applyingEditPayload(payload).moving(to: targetListID)
+            if movedItem.listID == selectedListID {
+                upsertLocalItem(movedItem)
+            } else {
+                items.removeAll { $0.id == item.id }
+            }
+            watchSyncCoordinator.publishCurrentState()
+            return movedItem
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    @discardableResult
     func delete(item: GroceryItemRecord) async -> Bool {
         guard let backendURL, let authToken else { return false }
 
@@ -1195,7 +1290,7 @@ final class MobileAppViewModel: ObservableObject {
                 body: nil,
                 token: authToken
             )
-            try await reloadItems()
+            items.removeAll { $0.id == item.id }
             clearOfflineStatus()
             watchSyncCoordinator.publishCurrentState()
             return true
@@ -2070,6 +2165,12 @@ final class MobileAppViewModel: ObservableObject {
             )
         }
         return nil
+    }
+
+    private func apiTimestamp(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 }
 
