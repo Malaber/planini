@@ -664,6 +664,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(tapTab("Lists", in: app))
         returnToListsRootIfNeeded(app)
         let hostingListRow = app.buttons["list-row-\(hostingListName)"]
+        scrollToHittable(hostingListRow, in: app, maxSwipes: 4)
         XCTAssertTrue(hostingListRow.waitForExistence(timeout: 10))
         hostingListRow.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
@@ -997,6 +998,93 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(
             waitForElementToDisappear(itemRow(itemID: itemID, in: app), timeout: 20),
             "Expected live-deleted item to disappear without manual refresh."
+        )
+    }
+
+    func testLongPressDragMovesItemToCategory() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+
+        let app = XCUIApplication()
+        configureLaunchLanguage(for: app)
+        app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
+        app.launchEnvironment["PLANINI_UI_TEST_ACCESS_TOKEN"] = session.accessToken
+        app.launchEnvironment["PLANINI_UI_TEST_DISPLAY_NAME"] = session.displayName
+        app.launchEnvironment["PLANINI_UI_TEST_INITIAL_LIST_NAME"] = initialListName
+        app.launch()
+
+        let listTitle = app.staticTexts["list-detail-title"]
+        XCTAssertTrue(
+            openInitialListDetail(in: app, listTitle: listTitle),
+            "Expected bootstrapped initial list to open before item drag checks."
+        )
+        XCTAssertEqual(listTitle.label, initialListName)
+        XCTAssertTrue(
+            waitForLiveUpdatesConnection(
+                app: app,
+                listName: initialListName,
+                accessToken: session.accessToken
+            ),
+            "Expected live updates before creating drag item."
+        )
+
+        let targetCategoryID = try categoryID(
+            named: "Konserven",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        let targetItemName = "A UI Drag Target \(UUID().uuidString.prefix(8))"
+        let targetItemID = try createItem(
+            named: targetItemName,
+            note: "",
+            inListNamed: initialListName,
+            categoryID: targetCategoryID,
+            accessToken: session.accessToken
+        )
+        XCTAssertTrue(waitForItemRow(itemID: targetItemID, named: targetItemName, in: app, timeout: 20))
+
+        let itemName = "A UI Drag \(UUID().uuidString.prefix(8))"
+        let itemID = try createItem(
+            named: itemName,
+            note: "",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        XCTAssertTrue(waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 20))
+
+        let targetRow = itemRow(itemID: targetItemID, in: app)
+        XCTAssertTrue(
+            dragItemRow(
+                itemID: itemID,
+                named: itemName,
+                toCategoryTarget: targetRow,
+                in: app,
+                categoryName: "Konserven",
+                listName: initialListName,
+                accessToken: session.accessToken
+            ),
+            "Expected long-press drag to move item to target category."
+        )
+        captureScreenshot(named: "ios-ui-drag-item-to-category")
+
+        let undoButton = app.buttons["list-undo-button"]
+        let undoMessage = app.staticTexts["list-undo-message"]
+        XCTAssertTrue(undoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(undoMessage.label.contains(itemName))
+        XCTAssertTrue(undoMessage.label.contains("Konserven"))
+        tapElement(undoButton)
+        XCTAssertTrue(
+            waitForItemCategoryNil(
+                named: itemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
         )
     }
 
@@ -1562,6 +1650,24 @@ final class PlaniniUITests: XCTestCase {
         return false
     }
 
+    private func waitForItemCategoryNil(
+        named itemName: String,
+        inListNamed listName: String,
+        accessToken: String,
+        timeout: TimeInterval = 8
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let items = try? fetchItems(inListNamed: listName, accessToken: accessToken),
+                items.contains(where: { $0.name == itemName && $0.categoryID == nil })
+            {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        }
+        return false
+    }
+
     private func waitForFirstCategoryOrder(
         listID: UUID,
         categoryID: UUID,
@@ -1576,6 +1682,45 @@ final class PlaniniUITests: XCTestCase {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        }
+        return false
+    }
+
+    private func dragItemRow(
+        itemID: UUID,
+        named itemName: String,
+        toCategoryTarget targetElement: XCUIElement,
+        in app: XCUIApplication,
+        categoryName: String,
+        listName: String,
+        accessToken: String
+    ) -> Bool {
+        let sourceOffsets: [CGFloat] = [0.5, 0.35, 0.65]
+        let targetOffsets: [CGFloat] = [0.5, 0.35, 0.75]
+        let sourceRow = itemRow(itemID: itemID, in: app)
+
+        for sourceOffset in sourceOffsets {
+            for targetOffset in targetOffsets {
+                scrollToHittable(sourceRow, in: app, maxSwipes: 4)
+                scrollToHittable(targetElement, in: app, maxSwipes: 4)
+                guard sourceRow.waitForExistence(timeout: 3), targetElement.waitForExistence(timeout: 3) else {
+                    return false
+                }
+
+                let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: sourceOffset))
+                let target = targetElement.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: targetOffset))
+                source.press(forDuration: 1.1, thenDragTo: target)
+                if waitForItemCategory(
+                    named: itemName,
+                    categoryNamed: categoryName,
+                    inListNamed: listName,
+                    accessToken: accessToken,
+                    timeout: 8
+                ) {
+                    return true
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+            }
         }
         return false
     }
@@ -2723,6 +2868,7 @@ final class PlaniniUITests: XCTestCase {
         named name: String,
         note: String,
         inListNamed listName: String,
+        categoryID: UUID? = nil,
         accessToken: String
     ) throws -> UUID {
         let listID = try listID(named: listName, accessToken: accessToken)
@@ -2734,7 +2880,7 @@ final class PlaniniUITests: XCTestCase {
                 "name": name,
                 "quantity_text": NSNull(),
                 "note": note,
-                "category_id": NSNull(),
+                "category_id": categoryID?.uuidString ?? NSNull(),
                 "sort_order": -1_000,
             ]
         )
