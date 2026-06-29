@@ -25,6 +25,7 @@ import {
   bindListSwitcher,
   renderCategoryOrderSettings,
   renderHouseholds,
+  householdInvitePayload,
   renderPasskeys,
   renderItems,
   renderItemSuggestions,
@@ -982,6 +983,29 @@ test("renderHouseholds shows open item counts on list links", () => {
   assert.equal(document.querySelector('[href="/lists/list-1"] small').textContent, "1 open item");
   assert.equal(document.querySelector('[href="/lists/list-2"] small').textContent, "3 open items");
   assert.equal(document.body.textContent.includes("Open list"), false);
+});
+
+test("renderHouseholds exposes invite validity controls and payloads", () => {
+  const { document, root } = createDashboardRoot();
+
+  renderHouseholds(root, [{ id: "household-1", name: "Home" }], new Map());
+
+  assert.equal(document.querySelector('[data-invite-mode="household-1"]').value, "24h");
+  assert.equal(document.querySelector('[data-invite-max-uses="household-1"]').value, "5");
+  assert.deepEqual(householdInvitePayload(root, "household-1"), {});
+
+  document.querySelector('[data-invite-mode="household-1"]').value = "uses";
+  document.querySelector('[data-invite-max-uses="household-1"]').value = "7";
+  assert.deepEqual(householdInvitePayload(root, "household-1"), {
+    expires_in_hours: null,
+    max_uses: 7,
+  });
+
+  document.querySelector('[data-invite-max-uses="household-1"]').value = "500";
+  assert.deepEqual(householdInvitePayload(root, "household-1"), {
+    expires_in_hours: null,
+    max_uses: 100,
+  });
 });
 
 test("saveListName trims, patches, and persists the list title", async () => {

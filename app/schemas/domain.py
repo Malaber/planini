@@ -15,15 +15,23 @@ class HouseholdOut(ORMModel):
     name: str
 
 
+class HouseholdInviteCreate(BaseModel):
+    expires_in_hours: int | None = Field(default=24, ge=1, le=24 * 30)
+    max_uses: int | None = Field(default=None, ge=1, le=100)
+
+
 class HouseholdInviteOut(BaseModel):
     invite_url: str
-    expires_at: datetime
+    expires_at: datetime | None
+    max_uses: int | None = None
 
 
 class HouseholdInvitePreviewOut(BaseModel):
     household_id: UUID
     household_name: str
-    expires_at: datetime
+    expires_at: datetime | None
+    max_uses: int | None = None
+    remaining_uses: int | None = None
     already_member: bool
 
 

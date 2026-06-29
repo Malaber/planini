@@ -136,7 +136,11 @@
     "choose_household_before_list": "Create or choose a household before creating a list.",
     "list_name_required": "Please enter a list name.",
     "list_create_failed": "Could not create the list.",
-    "load_failed": "Could not load your households."
+    "load_failed": "Could not load your households.",
+    "invite_validity": "Invite validity",
+    "invite_24h": "24 hours",
+    "invite_x_uses": "Limited uses",
+    "invite_max_uses": "Uses"
   },
   "settings": {
     "kicker": "User settings",
@@ -200,7 +204,8 @@
     "expires_on": "This link expires on {date}.",
     "unavailable": "This invite link is no longer available.",
     "accepted": "You joined {household}. Redirecting now...",
-    "accept_failed": "Could not accept the invite."
+    "accept_failed": "Could not accept the invite.",
+    "remaining_uses": "This link has {count} uses remaining."
   },
   "support": {
     "kicker": "Planini support",
@@ -441,7 +446,11 @@
       "creating_invite": "Creating invite...",
       "create_invite_link": "Create invite link",
       "expires_at": "Expires {date}",
-      "save_failed": "Could not save."
+      "save_failed": "Could not save.",
+      "invite_validity": "Invite validity",
+      "invite_24h": "24 hours",
+      "invite_x_uses": "Limited uses",
+      "invite_max_uses": "{count} uses"
     },
     "list": {
       "fallback_title": "List",

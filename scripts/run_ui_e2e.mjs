@@ -1303,6 +1303,8 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
     "Expected dashboard list link to show open item count",
   );
 
+  await ownerHouseholdCard.getByLabel("Invite validity").selectOption("uses");
+  await ownerHouseholdCard.locator(`[data-invite-max-uses="${scenario.householdId}"]`).fill("2");
   await ownerHouseholdCard.getByRole("button", { name: "Create invite link" }).click();
   const inviteInput = ownerHouseholdCard.locator(
     `[data-invite-link-input="${scenario.householdId}"]`,
@@ -1312,6 +1314,12 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
   assert(inviteUrl.includes("/invite/"), "Expected invite URL");
   const inviteToken = extractInviteToken(inviteUrl);
   assert(inviteToken, "Expected invite token");
+  const invitePreview = await apiJson(
+    ownerPage.context().request,
+    `/api/v1/households/invites/${inviteToken}`,
+  );
+  assert.equal(invitePreview.max_uses, 2, "Expected limited-use invite");
+  assert.equal(invitePreview.remaining_uses, 2, "Expected unused invite to show both uses");
 
   const inviteeContext = await browser.newContext(contextOptions());
   const inviteePage = await inviteeContext.newPage();
@@ -1346,6 +1354,10 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
     await expectVisible(
       inviteePage.getByRole("heading", { name: scenario.householdName }),
       "Expected invite page household name",
+    );
+    await expectVisible(
+      inviteePage.getByText("This link has 2 uses remaining."),
+      "Expected limited-use invite copy",
     );
     await inviteePage.getByRole("button", { name: "Accept invite" }).click();
     await inviteePage.waitForURL(new URL("/", baseUrl).toString());

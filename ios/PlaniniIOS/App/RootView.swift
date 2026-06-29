@@ -725,6 +725,8 @@ private struct HouseholdDetailManagementScreen: View {
     @State private var showingNewList = false
     @State private var invite: HouseholdInviteLink?
     @State private var isCreatingInvite = false
+    @State private var inviteMode = "24h"
+    @State private var inviteMaxUses = 5
 
     private var household: HouseholdSummary? {
         viewModel.households.first { $0.id == householdID }
@@ -776,6 +778,21 @@ private struct HouseholdDetailManagementScreen: View {
             }
 
             Section(l10n.t("ios.households.invites_section")) {
+                Picker(l10n.t("ios.households.invite_validity"), selection: $inviteMode) {
+                    Text(l10n.t("ios.households.invite_24h")).tag("24h")
+                    Text(l10n.t("ios.households.invite_x_uses")).tag("uses")
+                }
+                .pickerStyle(.segmented)
+
+                if inviteMode == "uses" {
+                    Stepper(
+                        l10n.t("ios.households.invite_max_uses", ["count": "\(inviteMaxUses)"]),
+                        value: $inviteMaxUses,
+                        in: 1...100
+                    )
+                    .accessibilityIdentifier("household-invite-max-uses-stepper")
+                }
+
                 Button {
                     Task { await createInvite() }
                 } label: {
@@ -800,6 +817,11 @@ private struct HouseholdDetailManagementScreen: View {
 
                         if let expiresAtText = formattedExpiration(for: invite) {
                             Text(l10n.t("ios.households.expires_at", ["date": expiresAtText]))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("household-invite-expiration")
+                        } else if let maxUsesText = formattedMaxUses(for: invite) {
+                            Text(maxUsesText)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .accessibilityIdentifier("household-invite-expiration")
@@ -844,7 +866,13 @@ private struct HouseholdDetailManagementScreen: View {
         isCreatingInvite = true
         defer { isCreatingInvite = false }
 
-        if let createdInvite = await viewModel.createInvite(householdID: householdID) {
+        let maxUses = inviteMode == "uses" ? inviteMaxUses : nil
+        let expiresInHours = inviteMode == "uses" ? nil : 24
+        if let createdInvite = await viewModel.createInvite(
+            householdID: householdID,
+            expiresInHours: expiresInHours,
+            maxUses: maxUses
+        ) {
             invite = createdInvite
             AppHaptics.confirmation()
         }
@@ -853,6 +881,11 @@ private struct HouseholdDetailManagementScreen: View {
     private func formattedExpiration(for invite: HouseholdInviteLink) -> String? {
         guard let expiresAt = invite.expiresAt else { return nil }
         return inviteExpirationFormatter.string(from: expiresAt)
+    }
+
+    private func formattedMaxUses(for invite: HouseholdInviteLink) -> String? {
+        guard let maxUses = invite.maxUses else { return nil }
+        return l10n.t("ios.households.invite_max_uses", ["count": "\(maxUses)"])
     }
 
     private func copyInvite(_ inviteURL: String) {

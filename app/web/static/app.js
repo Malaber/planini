@@ -578,9 +578,22 @@ function renderHouseholds(root, households, listsByHousehold) {
           <h3>${household.name}</h3>
           <p class="household-meta">${translatePlural("dashboard.list_count", lists.length, {}, { one: "{count} list", other: "{count} lists" })}</p>
         </div>
-        <button type="button" class="secondary-button" data-create-invite="${household.id}">
-          ${translate("dashboard.create_invite_link", {}, "Create invite link")}
-        </button>
+        <div class="household-invite-controls">
+          <label>
+            ${translate("dashboard.invite_validity", {}, "Invite validity")}
+            <select data-invite-mode="${household.id}">
+              <option value="24h">${translate("dashboard.invite_24h", {}, "24 hours")}</option>
+              <option value="uses">${translate("dashboard.invite_x_uses", {}, "Limited uses")}</option>
+            </select>
+          </label>
+          <label>
+            ${translate("dashboard.invite_max_uses", {}, "Uses")}
+            <input type="number" min="1" max="100" value="5" data-invite-max-uses="${household.id}" />
+          </label>
+          <button type="button" class="secondary-button" data-create-invite="${household.id}">
+            ${translate("dashboard.create_invite_link", {}, "Create invite link")}
+          </button>
+        </div>
       </div>
       <div class="household-invite-output" data-invite-output="${household.id}" hidden>
         <p class="dashboard-helper">${translate("dashboard.share_invite_hint", {}, "Share this link within 24 hours:")}</p>
@@ -623,6 +636,16 @@ function renderHouseholds(root, households, listsByHousehold) {
 
     container.appendChild(card);
   });
+}
+
+function householdInvitePayload(root, householdId) {
+  const mode = root.querySelector(`[data-invite-mode="${householdId}"]`)?.value || "24h";
+  if (mode !== "uses") {
+    return {};
+  }
+  const rawMaxUses = Number(root.querySelector(`[data-invite-max-uses="${householdId}"]`)?.value || 1);
+  const maxUses = Math.min(Math.max(Number.isFinite(rawMaxUses) ? rawMaxUses : 1, 1), 100);
+  return { expires_in_hours: null, max_uses: maxUses };
 }
 
 function formatPasskeyDate(value) {
@@ -1066,7 +1089,8 @@ async function initDashboard() {
       const householdId = inviteButton.getAttribute("data-create-invite");
       toggleDashboardForms(root, true);
       try {
-        const invite = await postJson(`/api/v1/households/${householdId}/invites`, {});
+        const payload = householdInvitePayload(root, householdId);
+        const invite = await postJson(`/api/v1/households/${householdId}/invites`, payload);
         const output = root.querySelector(`[data-invite-output="${householdId}"]`);
         const input = root.querySelector(`[data-invite-link-input="${householdId}"]`);
         if (output && input) {
@@ -5485,7 +5509,9 @@ async function initHouseholdInvite() {
     loadingNode.hidden = true;
     readyNode.hidden = false;
     householdNameNode.textContent = invite.household_name;
-    expiryNode.textContent = translate("invite.expires_on", { date: formatInviteExpiry(invite.expires_at) }, "This link expires on {date}.");
+    expiryNode.textContent = invite.expires_at
+      ? translate("invite.expires_on", { date: formatInviteExpiry(invite.expires_at) }, "This link expires on {date}.")
+      : translate("invite.remaining_uses", { count: invite.remaining_uses }, "This link has {count} uses remaining.");
     membershipNoteNode.hidden = !invite.already_member;
   } catch (error) {
     loadingNode.hidden = true;
@@ -5566,6 +5592,7 @@ export {
   updateHouseholdOptions,
   updateDashboardListOptions,
   renderHouseholds,
+  householdInvitePayload,
   loadDashboardData,
   formatPasskeyDate,
   renderPasskeys,
