@@ -11,6 +11,12 @@ const seedPath = process.env.E2E_SEED_PATH ?? "app/fixtures/review_seed_e2e.json
 const deviceName = process.env.E2E_DEVICE ?? "desktop";
 const browserLocale = process.env.E2E_LOCALE ?? "en-US";
 const browserTimeZone = process.env.E2E_TIMEZONE ?? "Europe/Berlin";
+const privacyEmail = process.env.PRIVACY_EMAIL ?? "privacy@example.com";
+const supportEmail = process.env.SUPPORT_EMAIL ?? "support@example.com";
+const browserChannel = process.env.E2E_BROWSER_CHANNEL?.trim() || undefined;
+const recordVideo = !["0", "false", "no"].includes(
+  (process.env.E2E_RECORD_VIDEO ?? "true").trim().toLowerCase(),
+);
 const knownDevices = new Map([["iphone", "iPhone 13"]]);
 const staleBlueAccentTokens = [
   "20, 42, 87",
@@ -47,14 +53,12 @@ async function ensureDir(dir) {
 function contextOptions() {
   const preset = knownDevices.get(deviceName);
   if (!preset) {
+    const viewport = { width: 1440, height: 1200 };
     return {
-      viewport: { width: 1440, height: 1200 },
+      viewport,
       locale: browserLocale,
       timezoneId: browserTimeZone,
-      recordVideo: {
-        dir: videoDir,
-        size: { width: 1440, height: 1200 },
-      },
+      ...(recordVideo ? { recordVideo: { dir: videoDir, size: viewport } } : {}),
     };
   }
 
@@ -64,10 +68,7 @@ function contextOptions() {
     ...device,
     locale: browserLocale,
     timezoneId: browserTimeZone,
-    recordVideo: {
-      dir: videoDir,
-      size: device.viewport,
-    },
+    ...(recordVideo ? { recordVideo: { dir: videoDir, size: device.viewport } } : {}),
   };
 }
 
@@ -305,55 +306,65 @@ async function assertSeedSettingsCategoryColors(page) {
   );
 }
 
-async function assertHeaderActionsFitTranslatedLabels(page) {
-  logStep("Checking mobile header action sizing with German labels");
+async function assertResponsiveHeaderActions(page) {
+  logStep("Checking responsive header icons and compact menu");
   const originalViewport = page.viewportSize();
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 780, height: 844 });
   await page.waitForFunction(() => {
     const settingsLink = document.querySelector('.app-header-actions .admin-link[href="/settings"]');
-    const logoutButton = document.querySelector(".app-header-actions .logout-button");
-    return Boolean(settingsLink && logoutButton);
+    return settingsLink && getComputedStyle(settingsLink).display !== "none";
   });
 
-  const measurements = await page.evaluate(() => {
+  const iconLayout = await page.evaluate(() => {
+    const header = document.querySelector(".app-header");
     const settingsLink = document.querySelector('.app-header-actions .admin-link[href="/settings"]');
-    const logoutButton = document.querySelector(".app-header-actions .logout-button");
-    if (!(settingsLink instanceof HTMLElement) || !(logoutButton instanceof HTMLElement)) {
-      throw new Error("Expected settings and logout controls in the app header");
-    }
-
-    const controls = [
-      [settingsLink, "Einstellungen"],
-      [logoutButton, "Abmelden"],
-    ];
-    const originals = controls.map(([node]) => node.textContent);
-
-    try {
-      for (const [node, label] of controls) {
-        node.textContent = label;
-      }
-      document.body.offsetWidth;
-      return controls.map(([node]) => ({
-        text: node.textContent?.trim() ?? "",
-        clientWidth: node.clientWidth,
-        scrollWidth: node.scrollWidth,
-      }));
-    } finally {
-      controls.forEach(([node], index) => {
-        node.textContent = originals[index];
-      });
-    }
+    const settingsIcon = settingsLink?.querySelector(".app-header-action-icon");
+    const settingsLabel = settingsLink?.querySelector(".app-header-action-label");
+    const menu = document.querySelector(".app-header-menu");
+    return {
+      headerFits: header instanceof HTMLElement && header.scrollWidth <= header.clientWidth,
+      iconVisible: settingsIcon instanceof SVGElement && getComputedStyle(settingsIcon).display !== "none",
+      labelWidth: settingsLabel instanceof HTMLElement ? settingsLabel.getBoundingClientRect().width : -1,
+      menuHidden: menu instanceof HTMLElement && getComputedStyle(menu).display === "none",
+    };
   });
+  assert(iconLayout.headerFits, "Expected medium header to fit viewport");
+  assert(iconLayout.iconVisible, "Expected medium header actions to use icons");
+  assert(iconLayout.labelWidth <= 1, "Expected medium header action labels to be visually hidden");
+  assert(iconLayout.menuHidden, "Expected compact menu to remain hidden at medium width");
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  const menuToggle = page.locator(".app-header-menu summary");
+  await expectVisible(menuToggle, "Expected compact header menu at narrow width");
+  await menuToggle.click();
+  await expectVisible(
+    page.locator('.app-header-menu-list a[href="/settings"]'),
+    "Expected settings link in compact header menu",
+  );
+  await expectVisible(
+    page.locator(".app-header-menu-list .logout-button"),
+    "Expected logout button in compact header menu",
+  );
+  const compactLayout = await page.evaluate(() => {
+    const header = document.querySelector(".app-header");
+    const actions = document.querySelector(".app-header-actions");
+    const menu = document.querySelector(".app-header-menu-list");
+    const menuRect = menu?.getBoundingClientRect();
+    return {
+      headerFits: header instanceof HTMLElement && header.scrollWidth <= header.clientWidth,
+      actionsHidden: actions instanceof HTMLElement && getComputedStyle(actions).display === "none",
+      menuFits:
+        menuRect !== undefined &&
+        menuRect.left >= 0 &&
+        menuRect.right <= document.documentElement.clientWidth,
+    };
+  });
+  assert(compactLayout.headerFits, "Expected narrow header to fit viewport");
+  assert(compactLayout.actionsHidden, "Expected regular header actions hidden at narrow width");
+  assert(compactLayout.menuFits, "Expected compact header menu to fit viewport");
+  await menuToggle.click();
   if (originalViewport) {
     await page.setViewportSize(originalViewport);
-  }
-
-  for (const measurement of measurements) {
-    assert(
-      measurement.scrollWidth <= measurement.clientWidth,
-      `${measurement.text} should fit in the mobile header button without clipping`,
-    );
   }
 }
 
@@ -441,6 +452,58 @@ async function assertLinkPreviewMetadata(page, requestContext) {
   );
 }
 
+async function assertSupportPage(page) {
+  logStep("Checking public support page contact options");
+  await page.goto(new URL("/support", baseUrl).toString(), { waitUntil: "networkidle" });
+  await expectVisible(
+    page.getByRole("heading", { name: "Need help with Planini?" }),
+    "Expected public support page heading",
+  );
+  const headerSupportLink = page.locator('.app-header-actions a[href="/support"]');
+  if (await headerSupportLink.isVisible()) {
+    await expectVisible(headerSupportLink, "Expected support header link");
+  } else {
+    const menuToggle = page.locator(".app-header-menu summary");
+    await expectVisible(menuToggle, "Expected compact header menu");
+    await menuToggle.click();
+    await expectVisible(
+      page.locator('.app-header-menu-list a[href="/support"]'),
+      "Expected support link in compact header menu",
+    );
+    await menuToggle.click();
+  }
+
+  const emailLink = page.locator(`a[href="mailto:${supportEmail}"]`);
+  await expectVisible(emailLink, "Expected direct support email option");
+  assert.equal(await emailLink.getAttribute("href"), `mailto:${supportEmail}`);
+
+  const githubLink = page.locator('a[href="https://github.com/Malaber/planini/issues"]');
+  await expectVisible(githubLink, "Expected GitHub issue option");
+  assert.equal(await githubLink.getAttribute("target"), "_blank");
+  assert.equal(await githubLink.getAttribute("rel"), "noopener noreferrer");
+  await screenshot(page, "support-page");
+}
+
+async function assertPrivacyPage(page) {
+  logStep("Checking public privacy page and configured contact");
+  await page.goto(new URL("/privacy", baseUrl).toString(), { waitUntil: "networkidle" });
+  await expectVisible(
+    page.getByRole("heading", { name: "Privacy at Planini" }),
+    "Expected public privacy page heading",
+  );
+  await expectVisible(
+    page.getByRole("heading", { name: "No analytics or advertising" }),
+    "Expected no-analytics privacy summary",
+  );
+  const contactLink = page.locator(`a[href="mailto:${privacyEmail}"]`);
+  await expectVisible(contactLink, "Expected configured privacy contact");
+  await expectVisible(
+    page.locator('.app-footer a[href="/privacy"]'),
+    "Expected privacy footer link",
+  );
+  await screenshot(page, "privacy-page");
+}
+
 async function screenshot(page, name) {
   await page.screenshot({ path: path.join(artifactDir, `${name}.png`), fullPage: true });
 }
@@ -513,6 +576,40 @@ async function passkeysFromSession(requestContext) {
   return apiJson(requestContext, "/api/v1/auth/passkeys");
 }
 
+async function visibleAppHeaderLink(page, href, label) {
+  const regularLink = page.locator(`.app-header-actions a[href="${href}"]`);
+  if (await regularLink.isVisible()) {
+    return regularLink;
+  }
+
+  const menu = page.locator(".app-header-menu");
+  const menuToggle = menu.locator("summary");
+  await expectVisible(menuToggle, "Expected compact header menu");
+  if ((await menu.getAttribute("open")) === null) {
+    await menuToggle.click();
+  }
+  const compactLink = page.locator(`.app-header-menu-list a[href="${href}"]`);
+  await expectVisible(compactLink, `Expected ${label} link in compact header menu`);
+  return compactLink;
+}
+
+async function visibleAppHeaderLogout(page) {
+  const regularButton = page.locator(".app-header-actions .logout-button");
+  if (await regularButton.isVisible()) {
+    return regularButton;
+  }
+
+  const menu = page.locator(".app-header-menu");
+  const menuToggle = menu.locator("summary");
+  await expectVisible(menuToggle, "Expected compact header menu");
+  if ((await menu.getAttribute("open")) === null) {
+    await menuToggle.click();
+  }
+  const compactButton = page.locator(".app-header-menu-list .logout-button");
+  await expectVisible(compactButton, "Expected logout button in compact header menu");
+  return compactButton;
+}
+
 function normalizeText(value) {
   return value.replace(/\s+/gu, " ").trim();
 }
@@ -534,7 +631,7 @@ function localizedBrowserDate(value, locale) {
 }
 
 async function openSettingsPage(page) {
-  await page.getByRole("link", { name: "Settings" }).click();
+  await (await visibleAppHeaderLink(page, "/settings", "settings")).click();
   await page.waitForURL(/\/settings(\?|$)/);
 }
 
@@ -643,7 +740,7 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
   );
 
   logStep("Logging out and confirming the new passkey can log back in");
-  await page.getByRole("button", { name: "Logout" }).click();
+  await (await visibleAppHeaderLogout(page)).click();
   await page.waitForURL(/\/login(\?|$)/);
   await loginFromLoginPage(page, new URL("/", baseUrl).toString());
   await expectVisible(
@@ -815,13 +912,19 @@ async function runAdminPasskeyAddLinkFlow(page, seed, rpId) {
 
   const adminContext = await page.context().browser().newContext({
     viewport: { width: 1440, height: 1200 },
+    locale: browserLocale,
+    timezoneId: browserTimeZone,
   });
   const adminPage = await adminContext.newPage();
   const recipientContext = await page.context().browser().newContext({
     viewport: { width: 1440, height: 1200 },
+    locale: browserLocale,
+    timezoneId: browserTimeZone,
   });
   const replayContext = await page.context().browser().newContext({
     viewport: { width: 1440, height: 1200 },
+    locale: browserLocale,
+    timezoneId: browserTimeZone,
   });
 
   try {
@@ -1486,20 +1589,24 @@ async function main() {
     seededPrimaryList.items.map((item) => [item.name, Boolean(item.checked)]),
   );
 
-  const browser = await chromium.launch();
-  const context = await browser.newContext(contextOptions());
-  const page = await context.newPage();
+  let browser;
+  let page;
 
   try {
     logStep(`Launching browser flow against ${baseUrl}`);
+    browser = await chromium.launch(browserChannel ? { channel: browserChannel } : {});
+    const context = await browser.newContext(contextOptions());
+    page = await context.newPage();
     const authenticator = await createVirtualAuthenticator(page);
     await installSeededPasskey(authenticator, owner, rpId);
+    await assertSupportPage(page);
+    await assertPrivacyPage(page);
     logStep("Signing in with the seeded owner passkey");
     await loginFromRoot(page, owner, "Households and Lists");
     await screenshot(page, "promotion-list-of-lists");
     await assertFaviconAsset(page, context.request);
     await assertLinkPreviewMetadata(page, context.request);
-    await assertHeaderActionsFitTranslatedLabels(page);
+    await assertResponsiveHeaderActions(page);
     await runAdminPasskeyAddLinkFlow(page, seed, rpId);
     await runPasskeyManagementFlow(page, context, owner, rpId, authenticator);
     await runDashboardEmptyStateFlow(browser);
@@ -1512,7 +1619,7 @@ async function main() {
     const checkedStressListUrl = new URL(`/lists/${scenario.checkedStressListId}`, baseUrl).toString();
 
     if (owner.is_admin) {
-      await expectVisible(page.getByRole("link", { name: "Admin" }), "Expected admin link");
+      await visibleAppHeaderLink(page, "/admin", "admin");
 
       const adminPage = await context.newPage();
       await adminPage.goto(new URL("/admin", baseUrl).toString(), { waitUntil: "networkidle" });
@@ -1831,7 +1938,7 @@ async function main() {
     const moveThingName = `Move target ${Date.now()}`;
     await addForm.getByLabel("Item name").fill(moveThingName);
     await page.locator(".add-item-save-button").click();
-    const moveThingCard = itemCard(page, moveThingName);
+    const moveThingCard = page.locator("[data-item-card]", { hasText: moveThingName }).first();
     await expectVisible(moveThingCard, "Expected move target item before moving");
     await moveThingCard.click();
     await expectVisible(
@@ -1839,12 +1946,17 @@ async function main() {
       "Expected move target edit modal",
     );
     await editForm.getByLabel("Move to list").selectOption({ label: scenario.moveTargetListName });
+    const movedNotice = page.locator("[data-moved-item-notice]", { hasText: moveThingName }).first();
     await expectVisible(
-      page.locator("[data-list-success]", { hasText: "Item moved to another list." }),
-      "Expected item move success",
+      movedNotice,
+      "Expected moved-item undo notice where the item was",
     );
-    const goToListLink = page.locator("[data-list-success]").getByRole("link", { name: "Go to list" });
-    await expectVisible(goToListLink, "Expected moved-item banner to link to the target list");
+    await expectVisible(
+      movedNotice.getByText(scenario.moveTargetListName),
+      "Expected moved-item notice to include target list name",
+    );
+    const goToListLink = movedNotice.getByRole("link", { name: "Go to list" });
+    await expectVisible(goToListLink, "Expected moved-item notice to link to the target list");
     assert.equal(
       new URL(await goToListLink.getAttribute("href"), baseUrl).pathname,
       `/lists/${scenario.moveTargetListId}`,
@@ -1858,7 +1970,17 @@ async function main() {
     const moveTargetItems = await apiJson(context.request, `/api/v1/lists/${scenario.moveTargetListId}/items`);
     const movedTargetItem = moveTargetItems.find((item) => item.name === moveThingName);
     assert(movedTargetItem, "Expected moved item in target list");
-    await apiJson(context.request, `/api/v1/items/${movedTargetItem.id}`, { method: "DELETE" });
+    await movedNotice.getByRole("button", { name: "Undo" }).click();
+    await expectVisible(moveThingCard, "Undo should restore moved item in the source list");
+    const moveTargetItemsAfterUndo = await apiJson(context.request, `/api/v1/lists/${scenario.moveTargetListId}/items`);
+    assert(
+      !moveTargetItemsAfterUndo.some((item) => item.id === movedTargetItem.id),
+      "Undo should remove moved item from the target list",
+    );
+    const sourceItemsAfterUndo = await apiJson(context.request, `/api/v1/lists/${scenario.listId}/items`);
+    const restoredMoveItem = sourceItemsAfterUndo.find((item) => item.name === moveThingName);
+    assert(restoredMoveItem, "Undo should move item back to the source list");
+    await apiJson(context.request, `/api/v1/items/${restoredMoveItem.id}`, { method: "DELETE" });
 
     await page.getByRole("button", { name: "Open list settings" }).click();
     await expectVisible(page.getByRole("heading", { name: "Category order" }), "Expected settings modal");
@@ -1998,16 +2120,20 @@ async function main() {
     logStep("Browser UI e2e completed successfully");
   } catch (error) {
     logStep(`Browser UI e2e failed: ${error instanceof Error ? error.message : String(error)}`);
-    await screenshot(page, "ui-e2e-failure-main").catch(() => {});
+    if (page) {
+      await screenshot(page, "ui-e2e-failure-main").catch(() => {});
+    }
     throw error;
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 
   const summary = [
     "## UI E2E",
     "",
-    `Browser UI flow passed for ${deviceName} using seeded real database data and passkey auth for route rendering, login gating, multi-passkey enrollment and deletion, add/edit flows, fuzzy duplicate suggestions, undo toasts, category alias search, category disabling, admin navigation, websocket updates, and household invite acceptance.`,
+    `Browser UI flow passed for ${deviceName} using seeded real database data and passkey auth for public support and privacy contacts, route rendering, login gating, multi-passkey enrollment and deletion, add/edit flows, fuzzy duplicate suggestions, undo toasts, category alias search, category disabling, admin navigation, websocket updates, and household invite acceptance.`,
     "",
   ].join("\n");
   await fs.writeFile(path.join(artifactDir, "summary.md"), summary);

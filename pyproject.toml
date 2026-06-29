@@ -20,7 +20,7 @@ dependencies = [
   "python-jose[cryptography]>=3.3.0",
   "passlib[bcrypt]>=1.7.4",
   "jinja2>=3.1.4",
-  "sqladmin>=0.23.0",
+  "sqladmin==0.27.1",
   "python-multipart>=0.0.9",
   "email-validator>=2.2.0",
   "itsdangerous>=2.2.0",

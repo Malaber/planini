@@ -55,19 +55,66 @@
           <span>{{ t("common.app_tagline") }}</span>
         </span>
       </a>
-      {% if is_authenticated %}
       <div class="app-header-actions">
-        <a class="admin-link" href="/settings">{{ t("common.settings") }}</a>
+        <a class="admin-link app-header-action" href="/support" aria-label="{{ t("common.support") }}">
+          <svg class="app-header-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M4 13v-1a8 8 0 0 1 16 0v1" />
+            <path d="M4 13a2 2 0 0 1 2-2h1v6H6a2 2 0 0 1-2-2v-2Zm16 0a2 2 0 0 0-2-2h-1v6h1a2 2 0 0 0 2-2v-2ZM17 17c0 2-1.8 3-5 3" />
+          </svg>
+          <span class="app-header-action-label">{{ t("common.support") }}</span>
+        </a>
+        {% if is_authenticated %}
+        <a class="admin-link app-header-action" href="/settings" aria-label="{{ t("common.settings") }}">
+          <svg class="app-header-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.55v-.1A1.7 1.7 0 0 0 8.45 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.05 15a1.7 1.7 0 0 0-.6-1A1.7 1.7 0 0 0 2.35 13.6h-.1V9.55h.1A1.7 1.7 0 0 0 4.05 8.45a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.86-2.86.06.06A1.7 1.7 0 0 0 8.45 4.05a1.7 1.7 0 0 0 1-.6A1.7 1.7 0 0 0 9.85 2.35v-.1h4.05v.1A1.7 1.7 0 0 0 15 4.05a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 8.45a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.1v4.05h-.1A1.7 1.7 0 0 0 19.4 15Z" />
+          </svg>
+          <span class="app-header-action-label">{{ t("common.settings") }}</span>
+        </a>
         {% if is_admin %}
-        <a class="admin-link" href="/admin">{{ t("common.admin") }}</a>
+        <a class="admin-link app-header-action" href="/admin" aria-label="{{ t("common.admin") }}">
+          <svg class="app-header-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 3 5 6v5c0 4.6 2.9 8.1 7 10 4.1-1.9 7-5.4 7-10V6l-7-3Z" />
+            <path d="M9.5 12 11 13.5l3.5-3.5" />
+          </svg>
+          <span class="app-header-action-label">{{ t("common.admin") }}</span>
+        </a>
         {% endif %}
         <form method="post" action="/logout">
-          <button class="logout-button" type="submit">{{ t("common.logout") }}</button>
+          <button class="logout-button app-header-action" type="submit" aria-label="{{ t("common.logout") }}">
+            <svg class="app-header-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M10 5H5v14h5M14 16l4-4-4-4M18 12H9" />
+            </svg>
+            <span class="app-header-action-label">{{ t("common.logout") }}</span>
+          </button>
         </form>
+        {% endif %}
       </div>
-      {% endif %}
+      <details class="app-header-menu">
+        <summary aria-label="{{ t("common.menu") }}">
+          <svg class="app-header-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.55v-.1A1.7 1.7 0 0 0 8.45 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.05 15a1.7 1.7 0 0 0-.6-1A1.7 1.7 0 0 0 2.35 13.6h-.1V9.55h.1A1.7 1.7 0 0 0 4.05 8.45a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.86-2.86.06.06A1.7 1.7 0 0 0 8.45 4.05a1.7 1.7 0 0 0 1-.6A1.7 1.7 0 0 0 9.85 2.35v-.1h4.05v.1A1.7 1.7 0 0 0 15 4.05a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 8.45a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.1v4.05h-.1A1.7 1.7 0 0 0 19.4 15Z" />
+          </svg>
+        </summary>
+        <nav class="app-header-menu-list" aria-label="{{ t("common.menu") }}">
+          <a class="admin-link" href="/support">{{ t("common.support") }}</a>
+          {% if is_authenticated %}
+          <a class="admin-link" href="/settings">{{ t("common.settings") }}</a>
+          {% if is_admin %}
+          <a class="admin-link" href="/admin">{{ t("common.admin") }}</a>
+          {% endif %}
+          <form method="post" action="/logout">
+            <button class="logout-button" type="submit">{{ t("common.logout") }}</button>
+          </form>
+          {% endif %}
+        </nav>
+      </details>
     </header>
     <main>{% block content %}{% endblock %}</main>
+    <footer class="app-footer">
+      <a href="/privacy">{{ t("common.privacy") }}</a>
+    </footer>
     <script>
       window.__appI18n = {{ {"locale": locale, "catalogBase64": i18n_catalog_b64}|tojson }};
     </script>

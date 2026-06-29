@@ -90,3 +90,5 @@ def test_review_e2e_seed_fixture_contains_private_passkey_material() -> None:
     assert users["planini@schaedler.rocks"]["passkey"]["user_handle_b64"]
     assert users["preview-invitee@example.com"]["passkey"]["private_key_pkcs8_b64"]
     assert users["preview-invitee@example.com"]["passkey"]["user_handle_b64"]
+    assert users["ios-empty@example.com"]["is_admin"] is False
+    assert "passkey" not in users["ios-empty@example.com"]

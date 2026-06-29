@@ -52,6 +52,7 @@ struct ItemEditingTests {
     @Test func editPayloadCanApplyToExistingItemWithoutChangingStateFields() {
         let itemID = UUID()
         let listID = UUID()
+        let movedListID = UUID()
         let checkedAt = Date(timeIntervalSince1970: 100)
         let item = GroceryItemRecord(
             id: itemID,
@@ -84,6 +85,50 @@ struct ItemEditingTests {
         #expect(edited.checked == true)
         #expect(edited.checkedAt == checkedAt)
         #expect(edited.sortOrder == 7)
+
+        let moved = edited.moving(to: movedListID)
+        #expect(moved.id == itemID)
+        #expect(moved.listID == movedListID)
+        #expect(moved.name == "New")
+        #expect(moved.quantityText == "3")
+        #expect(moved.note == "fresh")
+        #expect(moved.categoryID == categoryID)
+        #expect(moved.checked == true)
+        #expect(moved.checkedAt == checkedAt)
+        #expect(moved.sortOrder == 7)
+    }
+
+    @Test func checkedStateCanApplyToExistingItemWithoutChangingDetails() {
+        let itemID = UUID()
+        let listID = UUID()
+        let categoryID = UUID()
+        let item = GroceryItemRecord(
+            id: itemID,
+            listID: listID,
+            name: "Old",
+            quantityText: "3",
+            note: "fresh",
+            categoryID: categoryID,
+            checked: false,
+            checkedAt: nil,
+            sortOrder: 7
+        )
+        let recordedAt = Date(timeIntervalSince1970: 200)
+
+        let checked = item.applyingCheckedState(true, recordedAt: recordedAt)
+        let unchecked = checked.applyingCheckedState(false, recordedAt: Date(timeIntervalSince1970: 300))
+
+        #expect(checked.id == itemID)
+        #expect(checked.listID == listID)
+        #expect(checked.name == "Old")
+        #expect(checked.quantityText == "3")
+        #expect(checked.note == "fresh")
+        #expect(checked.categoryID == categoryID)
+        #expect(checked.checked == true)
+        #expect(checked.checkedAt == recordedAt)
+        #expect(checked.sortOrder == 7)
+        #expect(unchecked.checked == false)
+        #expect(unchecked.checkedAt == nil)
     }
 
     @Test func editPayloadInitializesFromExistingItem() {
@@ -178,6 +223,87 @@ struct ItemEditingTests {
         #expect(undoHistory.redoStack == [third])
         #expect(redoHistory.redo(current: third) == second)
         #expect(redoHistory.undoStack == [third])
+    }
+
+    @Test func watchListActionHistoryLabelsAndMovesUndoRedoActions() throws {
+        let listID = UUID()
+        let unchecked = makeItem(id: UUID(), listID: listID, name: "Milk", checked: false)
+        let checked = makeItem(id: unchecked.id, listID: listID, name: "Milk", checked: true)
+        var history = WatchListActionHistory(limit: 2)
+
+        history.record(.toggled(before: unchecked, after: checked))
+
+        #expect(history.canUndo)
+        #expect(history.canRedo == false)
+        #expect(history.undoTitle == "Undo check: Milk")
+
+        let action = history.popUndo()
+        #expect(action != nil)
+        guard let action else { return }
+        history.completeUndo(action)
+
+        #expect(history.canUndo == false)
+        #expect(history.canRedo)
+        #expect(history.redoTitle == "Redo check: Milk")
+
+        let redoAction = history.popRedo()
+        #expect(redoAction != nil)
+        guard let redoAction else { return }
+        history.completeRedo(redoAction)
+
+        #expect(history.canUndo)
+        #expect(history.canRedo == false)
+    }
+
+    @Test func watchListActionHistoryCoversAddEditNoopsAndLimits() throws {
+        let listID = UUID()
+        let first = makeItem(id: UUID(), listID: listID, name: "Milk", checked: false)
+        let second = makeItem(id: first.id, listID: listID, name: "Oat milk", checked: false)
+        let third = makeItem(id: UUID(), listID: listID, name: "Bread", checked: false)
+        let fourth = makeItem(id: UUID(), listID: listID, name: "Beans", checked: false)
+        var history = WatchListActionHistory(limit: 2)
+
+        history.record(.edited(before: first, after: first))
+        #expect(history.canUndo == false)
+
+        history.record(.added(item: third))
+        #expect(history.undoTitle == "Undo add: Bread")
+
+        let addAction = history.popUndo()
+        #expect(addAction != nil)
+        guard let addAction else { return }
+        history.completeUndo(addAction)
+        #expect(history.redoTitle == "Redo add: Bread")
+
+        history.record(.edited(before: first, after: second))
+        #expect(history.redoStack.isEmpty)
+        #expect(history.undoTitle == "Undo edit: Oat milk")
+
+        history.record(.added(item: fourth))
+        history.record(.toggled(before: first, after: makeItem(id: first.id, listID: listID, name: "Milk", checked: true)))
+
+        #expect(history.undoStack.count == 2)
+        #expect(history.undoStack.first == .added(item: fourth))
+        #expect(history.undoTitle == "Undo check: Milk")
+    }
+
+    @Test func watchListActionHistoryRestoresFailedActionsAndLimitsRedoStack() {
+        let listID = UUID()
+        let first = makeItem(id: UUID(), listID: listID, name: "Milk", checked: false)
+        let second = makeItem(id: first.id, listID: listID, name: "Oat milk", checked: false)
+        let bread = makeItem(id: UUID(), listID: listID, name: "Bread", checked: false)
+        let beans = makeItem(id: UUID(), listID: listID, name: "Beans", checked: false)
+        var history = WatchListActionHistory(limit: 1)
+
+        history.restoreUndo(.added(item: bread))
+        #expect(history.undoStack == [.added(item: bread)])
+
+        history.completeUndo(.edited(before: first, after: second))
+        #expect(history.redoTitle == "Redo edit: Oat milk")
+
+        history.restoreRedo(.added(item: beans))
+        #expect(history.redoStack == [.added(item: beans)])
+        #expect(history.redoTitle == "Redo add: Beans")
     }
 
     @Test func categorySelectionUsesListOrderAndSearch() {
@@ -302,10 +428,16 @@ struct ItemEditingTests {
         #expect(Set(equalNames.map(\.id)) == Set([lowercaseDairy.id, dairy.id]))
     }
 
-    private func makeItem(name: String, categoryID: UUID?, checked: Bool = false) -> GroceryItemRecord {
+    private func makeItem(
+        id: UUID = UUID(),
+        listID: UUID = UUID(),
+        name: String,
+        categoryID: UUID? = nil,
+        checked: Bool = false
+    ) -> GroceryItemRecord {
         GroceryItemRecord(
-            id: UUID(),
-            listID: UUID(),
+            id: id,
+            listID: listID,
             name: name,
             quantityText: nil,
             note: nil,

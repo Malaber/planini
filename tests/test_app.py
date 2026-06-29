@@ -222,6 +222,39 @@ def test_capabilities_page_is_public_and_contains_interactive_demo(client) -> No
     )
 
 
+def test_support_page_is_public_and_offers_email_and_github_options(client) -> None:
+    response = client.get("/support")
+
+    assert response.status_code == 200
+    assert "Need help with Planini?" in response.text
+    assert 'href="mailto:support@example.com"' in response.text
+    assert 'href="https://github.com/Malaber/planini/issues"' in response.text
+    assert 'target="_blank"' in response.text
+    assert 'rel="noopener noreferrer"' in response.text
+    assert 'href="/support"' in response.text
+    assert 'href="/privacy"' in response.text
+
+    german_response = client.get("/support?lang=de")
+    assert german_response.status_code == 200
+    assert "Brauchst du Hilfe mit Planini?" in german_response.text
+
+
+def test_privacy_page_is_public_and_uses_configured_contact(client) -> None:
+    response = client.get("/privacy")
+
+    assert response.status_code == 200
+    assert "Privacy at Planini" in response.text
+    assert "No analytics or advertising" in response.text
+    assert "These logs do not contain user data." in response.text
+    assert 'href="mailto:privacy@example.com"' in response.text
+    assert 'href="/privacy"' in response.text
+
+    german_response = client.get("/privacy?lang=de")
+    assert german_response.status_code == 200
+    assert "Datenschutz bei Planini" in german_response.text
+    assert "Keine Analyse oder Werbung" in german_response.text
+
+
 def test_ui_test_bootstrap_requires_explicit_enable_flag(client, monkeypatch) -> None:
     monkeypatch.setattr("app.api.v1.routes.auth.settings.ui_test_bootstrap_enabled", False)
 
@@ -554,6 +587,8 @@ def test_indexing_and_llm_metadata_files_are_exposed(client) -> None:
     assert "- Do not attempt to access or infer private user content." in llms.text
     assert "- http://testserver/capabilities" in llms.text
     assert "- http://testserver/capabilities/live-demo" in llms.text
+    assert "- http://testserver/support" in llms.text
+    assert "- http://testserver/privacy" in llms.text
     assert "- http://testserver/login" in llms.text
     assert "- http://testserver/sitemap.xml" in llms.text
 
@@ -563,6 +598,8 @@ def test_indexing_and_llm_metadata_files_are_exposed(client) -> None:
     assert "<urlset" in sitemap.text
     assert "<loc>http://testserver/capabilities</loc>" in sitemap.text
     assert "<loc>http://testserver/capabilities/live-demo</loc>" in sitemap.text
+    assert "<loc>http://testserver/support</loc>" in sitemap.text
+    assert "<loc>http://testserver/privacy</loc>" in sitemap.text
     assert "<loc>http://testserver/login</loc>" in sitemap.text
     assert "<loc>http://testserver/llms.txt</loc>" in sitemap.text
 
@@ -2672,9 +2709,13 @@ def test_web_pages_render_for_logged_in_user(client, monkeypatch) -> None:
     dashboard = client.get("/")
     assert dashboard.status_code == 200
     assert 'action="/logout"' in dashboard.text
+    assert 'href="/support"' in dashboard.text
     assert 'href="/settings"' in dashboard.text
     assert 'href="/admin"' not in dashboard.text
     assert ">Logout<" in dashboard.text
+    assert 'class="app-header-menu"' in dashboard.text
+    assert 'aria-label="Menu"' in dashboard.text
+    assert 'class="app-header-action-icon"' in dashboard.text
     assert "data-dashboard-add-toggle" in dashboard.text
     assert "data-dashboard-add-option" in dashboard.text
     assert "data-dashboard-list-group" in dashboard.text

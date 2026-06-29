@@ -44,4 +44,17 @@ struct LocalizationTests {
         #expect(catalog.translate(locale: "de", key: "ios.item.nested.value") == "Nested")
         #expect(catalog.translate(locale: "de", key: "ios.item.missing") == "ios.item.missing")
     }
+
+    @Test func handlesEmptyAndMissingLocaleFallbacks() {
+        let catalog = PlaniniLocalizationCatalog(
+            defaultLocale: "fr",
+            catalogs: [
+                "en": ["common": ["settings": "Settings"]],
+            ]
+        )
+
+        #expect(catalog.normalizedAvailableLocale("  ") == nil)
+        #expect(catalog.effectiveLocale(preferredLocales: [], overrideLocale: nil) == "fr")
+        #expect(catalog.translate(locale: "de", key: "common.settings") == "common.settings")
+    }
 }

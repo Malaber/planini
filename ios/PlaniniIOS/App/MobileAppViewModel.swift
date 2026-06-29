@@ -8,6 +8,8 @@ private enum AppBuildConfiguration {
     private static let backendURLKey = "PlaniniBackendBaseURL"
     private static let backendURLOverrideKey = "PLANINI_BACKEND_BASE_URL_OVERRIDE"
     static let uiTestRestoreStoredSessionKey = "PLANINI_UI_TEST_RESTORE_STORED_SESSION"
+    static let uiTestStoredAccessTokenOverrideKey = "PLANINI_UI_TEST_STORED_ACCESS_TOKEN_OVERRIDE"
+    static let uiTestStoredDisplayNameOverrideKey = "PLANINI_UI_TEST_STORED_DISPLAY_NAME_OVERRIDE"
 
     static var backendURL: URL? {
         if let overriddenURL = validatedURL(from: ProcessInfo.processInfo.environment[backendURLOverrideKey]) {
@@ -71,9 +73,44 @@ private struct MobileListData: Codable {
 
 private struct PendingItemEdit: Codable, Equatable {
     let listID: UUID
-    let itemID: UUID
+    var itemID: UUID
     var payload: GroceryItemEditPayload
     var updatedAt: Date
+}
+
+private struct PendingItemToggle: Codable, Equatable {
+    let mutationID: String
+    let listID: UUID
+    var itemID: UUID
+    var checked: Bool
+    var recordedAt: Date
+}
+
+private struct PendingItemCreate: Codable, Equatable {
+    let mutationID: String
+    let clientItemID: String
+    let listID: UUID
+    let itemID: UUID
+    let name: String
+    let quantityText: String?
+    let note: String?
+    let categoryID: UUID?
+    let sortOrder: Int
+    let recordedAt: Date
+
+    var localItem: GroceryItemRecord {
+        GroceryItemRecord(
+            id: itemID,
+            listID: listID,
+            name: name,
+            quantityText: quantityText,
+            note: note,
+            categoryID: categoryID,
+            checked: false,
+            checkedAt: nil,
+            sortOrder: sortOrder
+        )
+    }
 }
 
 struct LinkedListNavigationRequest: Equatable {
@@ -83,15 +120,23 @@ struct LinkedListNavigationRequest: Equatable {
 
 @MainActor
 final class MobileAppViewModel: ObservableObject {
+    private static let itemHideDuration: TimeInterval = 4 * 60 * 60
     private static let favoriteListKey = "planini.favoriteListID"
     private static let authTokenKey = "planini.authToken"
     private static let displayNameKey = "planini.displayName"
     private static let quickAddItemKey = "planini.quickAddItemName"
+    private static let pendingItemCreatesKey = "planini.pendingItemCreates"
     private static let pendingItemEditsKey = "planini.pendingItemEdits"
+    private static let pendingItemTogglesKey = "planini.pendingItemToggles"
     private static let cachedListsKey = "planini.cachedLists"
     private static let cachedListDataPrefix = "planini.cachedListData."
     private static let passkeyTokenAllowedCharacters = CharacterSet.alphanumerics
         .union(CharacterSet(charactersIn: "-._~"))
+    private static let offlineMutationDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     @Published private(set) var backendURL: URL?
     @Published private(set) var isAuthenticating = false
@@ -108,6 +153,7 @@ final class MobileAppViewModel: ObservableObject {
     @Published private(set) var shoppingModeListID: UUID?
     @Published var quickAddItemName: String
     @Published var errorMessage: String?
+    @Published var offlineStatusMessage: String?
     @Published var reviewerOnboardingMessage: String?
     @Published private(set) var linkedListNavigationRequest: LinkedListNavigationRequest?
 
@@ -123,7 +169,9 @@ final class MobileAppViewModel: ObservableObject {
     private let isSimulatorBuild: Bool
     private var didAttemptLaunchBootstrap = false
     private var itemReloadGeneration = 0
+    private var pendingItemCreates: [PendingItemCreate]
     private var pendingItemEdits: [PendingItemEdit]
+    private var pendingItemToggles: [PendingItemToggle]
     private var itemEditSaveRevisions: [UUID: Int] = [:]
     private var pendingPlaniniLink: PlaniniLink?
 
@@ -160,7 +208,28 @@ final class MobileAppViewModel: ObservableObject {
         if shouldLoadStoredSession {
             favoriteListID = userDefaults.string(forKey: Self.favoriteListKey).flatMap(UUID.init(uuidString:))
             authToken = userDefaults.string(forKey: Self.authTokenKey)
-            displayName = userDefaults.string(forKey: Self.displayNameKey)
+            if
+                processInfo.environment["PLANINI_UI_TEST_MODE"] == "1",
+                processInfo.environment[AppBuildConfiguration.uiTestRestoreStoredSessionKey] == "1",
+                let tokenOverride = processInfo.environment[AppBuildConfiguration.uiTestStoredAccessTokenOverrideKey],
+                tokenOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            {
+                authToken = tokenOverride
+                userDefaults.set(tokenOverride, forKey: Self.authTokenKey)
+            }
+            if
+                processInfo.environment["PLANINI_UI_TEST_MODE"] == "1",
+                processInfo.environment[AppBuildConfiguration.uiTestRestoreStoredSessionKey] == "1",
+                let displayNameOverride = processInfo.environment[
+                    AppBuildConfiguration.uiTestStoredDisplayNameOverrideKey
+                ]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                displayNameOverride.isEmpty == false
+            {
+                displayName = displayNameOverride
+                userDefaults.set(displayNameOverride, forKey: Self.displayNameKey)
+            } else {
+                displayName = userDefaults.string(forKey: Self.displayNameKey)
+            }
             quickAddItemName = userDefaults.string(forKey: Self.quickAddItemKey) ?? SharedAppState.defaultQuickAddItemName
         } else {
             favoriteListID = nil
@@ -168,7 +237,9 @@ final class MobileAppViewModel: ObservableObject {
             displayName = nil
             quickAddItemName = SharedAppState.defaultQuickAddItemName
         }
+        pendingItemCreates = Self.loadPendingItemCreates(from: userDefaults)
         pendingItemEdits = Self.loadPendingItemEdits(from: userDefaults)
+        pendingItemToggles = Self.loadPendingItemToggles(from: userDefaults)
         #if canImport(ActivityKit)
         if #available(iOS 16.2, *),
             let controller = shoppingActivityController as? ShoppingActivityController
@@ -269,7 +340,9 @@ final class MobileAppViewModel: ObservableObject {
             let nsErr = error as NSError
             netLog.error("Passkey login failed. Type=\(String(describing: type(of: error)), privacy: .public) Domain=\(nsErr.domain, privacy: .public) Code=\(nsErr.code) Desc=\(nsErr.localizedDescription, privacy: .public)")
             reviewerOnboardingMessage = nil
-            errorMessage = nsErr.localizedDescription
+            if handleSessionExpired(error) == false {
+                errorMessage = nsErr.localizedDescription
+            }
         }
     }
 
@@ -330,7 +403,9 @@ final class MobileAppViewModel: ObservableObject {
             )
             #endif
             reviewerOnboardingMessage = nil
-            errorMessage = (error as NSError).localizedDescription
+            if handleSessionExpired(error) == false {
+                errorMessage = (error as NSError).localizedDescription
+            }
             return false
         }
     }
@@ -397,7 +472,9 @@ final class MobileAppViewModel: ObservableObject {
             )
             #endif
             reviewerOnboardingMessage = nil
-            errorMessage = (error as NSError).localizedDescription
+            if handleSessionExpired(error) == false {
+                errorMessage = (error as NSError).localizedDescription
+            }
             return false
         }
     }
@@ -494,9 +571,11 @@ final class MobileAppViewModel: ObservableObject {
                 await handleUITestOpenURLIfNeeded()
             }
         } catch {
-            authToken = nil
-            userDefaults.removeObject(forKey: Self.authTokenKey)
-            errorMessage = error.localizedDescription
+            if handleSessionExpired(error) == false {
+                authToken = nil
+                userDefaults.removeObject(forKey: Self.authTokenKey)
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -545,7 +624,9 @@ final class MobileAppViewModel: ObservableObject {
         authToken = accessToken
         userDefaults.set(accessToken, forKey: Self.authTokenKey)
 
-        if let backendURL {
+        if let displayNameOverride, displayNameOverride.isEmpty == false {
+            displayName = displayNameOverride
+        } else if let backendURL {
             let me = try await requestJSON(
                 backendURL: backendURL,
                 path: "/api/v1/auth/me",
@@ -554,8 +635,6 @@ final class MobileAppViewModel: ObservableObject {
                 token: accessToken
             )
             displayName = me["display_name"] as? String
-        } else if let displayNameOverride, displayNameOverride.isEmpty == false {
-            displayName = displayNameOverride
         }
 
         userDefaults.set(displayName, forKey: Self.displayNameKey)
@@ -589,6 +668,7 @@ final class MobileAppViewModel: ObservableObject {
         disabledCategoryIDs = []
         selectedListID = nil
         errorMessage = nil
+        offlineStatusMessage = nil
         reviewerOnboardingMessage = nil
         userDefaults.removeObject(forKey: Self.authTokenKey)
         userDefaults.removeObject(forKey: Self.displayNameKey)
@@ -635,6 +715,15 @@ final class MobileAppViewModel: ObservableObject {
 
     func hasPendingEdit(for itemID: UUID) -> Bool {
         pendingItemEdits.contains { $0.itemID == itemID }
+    }
+
+    func moveTargetLists(for item: GroceryItemRecord) -> [GroceryListSummary] {
+        guard let sourceList = lists.first(where: { $0.id == item.listID }) else {
+            return lists.filter { $0.archived == false }
+        }
+        return lists.filter {
+            $0.archived == false && $0.householdID == sourceList.householdID
+        }
     }
 
     func reloadAllData() async throws {
@@ -689,11 +778,15 @@ final class MobileAppViewModel: ObservableObject {
 
             lists = sortedLists(loadedLists)
             cacheLists(lists)
+            clearOfflineStatus()
         } catch {
+            if handleSessionExpired(error) {
+                throw error
+            }
             if let cachedLists = cachedLists(), cachedLists.isEmpty == false {
                 lists = cachedLists
                 households = sortedHouseholds(Self.households(from: cachedLists))
-                errorMessage = "Offline. Showing saved list."
+                showOfflineStatus("Offline. Showing saved list.")
             } else {
                 throw error
             }
@@ -714,6 +807,7 @@ final class MobileAppViewModel: ObservableObject {
 
         try await reloadItems()
         await flushPendingItemEdits()
+        await flushPendingItemToggles()
         updateLiveUpdatesConnection()
         watchSyncCoordinator.publishCurrentState()
     }
@@ -915,10 +1009,14 @@ final class MobileAppViewModel: ObservableObject {
                 listID: reloadedListID
             )
             cacheListData(listData, listID: reloadedListID)
+            clearOfflineStatus()
         } catch {
+            if handleSessionExpired(error) {
+                throw error
+            }
             if let cachedListData = cachedListData(listID: reloadedListID) {
                 listData = cachedListData
-                errorMessage = "Offline. Showing saved list."
+                showOfflineStatus("Offline. Showing saved list.")
             } else {
                 throw error
             }
@@ -934,7 +1032,9 @@ final class MobileAppViewModel: ObservableObject {
         }
 
         applyListData(listData)
+        await flushPendingItemCreates()
         await flushPendingItemEdits()
+        await flushPendingItemToggles()
         updateLiveUpdatesConnection()
         await updateShoppingActivityIfNeeded()
         watchSyncCoordinator.publishCurrentState()
@@ -943,13 +1043,36 @@ final class MobileAppViewModel: ObservableObject {
     @discardableResult
     func addItem(name: String, quantity: String, note: String, categoryID: UUID?) async -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let backendURL, let authToken, let selectedListID, trimmed.isEmpty == false else {
+        guard let selectedListID, trimmed.isEmpty == false else {
             return false
+        }
+        let quantityText = quantity.isEmpty ? nil : quantity
+        let noteText = note.isEmpty ? nil : note
+
+        func queueOfflineCreate() {
+            queuePendingItemCreate(
+                listID: selectedListID,
+                name: trimmed,
+                quantityText: quantityText,
+                note: noteText,
+                categoryID: categoryID
+            )
+            showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
+        }
+
+        guard
+            offlineStatusMessage == nil,
+            pendingItemCreates.contains(where: { $0.listID == selectedListID }) == false,
+            let backendURL,
+            let authToken
+        else {
+            queueOfflineCreate()
+            return true
         }
 
         var body: [String: Any] = ["name": trimmed]
-        body["quantity_text"] = quantity.isEmpty ? NSNull() : quantity
-        body["note"] = note.isEmpty ? NSNull() : note
+        body["quantity_text"] = quantityText ?? NSNull()
+        body["note"] = noteText ?? NSNull()
         body["category_id"] = categoryID?.uuidString ?? NSNull()
 
         do {
@@ -961,27 +1084,105 @@ final class MobileAppViewModel: ObservableObject {
                 token: authToken
             )
             try await reloadItems()
+            clearOfflineStatus()
             watchSyncCoordinator.publishCurrentState()
             return true
         } catch {
-            errorMessage = error.localizedDescription
-            return false
+            if handleSessionExpired(error) {
+                return false
+            }
+            queueOfflineCreate()
+            return true
         }
     }
 
     @discardableResult
     func toggle(_ item: GroceryItemRecord) async -> Bool {
-        guard let backendURL, let authToken else { return false }
-        let suffix = item.checked ? "uncheck" : "check"
+        await setChecked(itemID: item.id, checked: item.checked == false)
+    }
+
+    @discardableResult
+    func setChecked(itemID: UUID, checked: Bool) async -> Bool {
+        guard let item = items.first(where: { $0.id == itemID }) else { return false }
+        let recordedAt = Date()
+
+        func queueOfflineToggle() {
+            queuePendingItemToggle(listID: item.listID, itemID: itemID, checked: checked, recordedAt: recordedAt)
+            showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
+        }
+
+        guard pendingItemToggles.isEmpty else {
+            queueOfflineToggle()
+            return true
+        }
+
+        guard let backendURL, let authToken else {
+            queueOfflineToggle()
+            return true
+        }
+        let suffix = checked ? "check" : "uncheck"
         do {
-            _ = try await requestJSON(
+            let saved = try await requestJSON(
                 backendURL: backendURL,
-                path: "/api/v1/items/\(item.id.uuidString)/\(suffix)",
+                path: "/api/v1/items/\(itemID.uuidString)/\(suffix)",
                 method: "POST",
                 body: [:],
                 token: authToken
             )
-            try await reloadItems()
+            if let savedItem = GroceryItemRecord(json: saved) {
+                upsertLocalItem(savedItem)
+            } else {
+                try await reloadItems()
+            }
+            clearOfflineStatus()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        } catch {
+            if handleSessionExpired(error) {
+                return false
+            }
+            queueOfflineToggle()
+            return true
+        }
+    }
+
+    @discardableResult
+    func hideForLater(_ item: GroceryItemRecord, now: Date = Date()) async -> Bool {
+        guard item.checked == false else { return false }
+        return await setHiddenUntil(
+            itemID: item.id,
+            hiddenUntil: now.addingTimeInterval(Self.itemHideDuration)
+        )
+    }
+
+    @discardableResult
+    func restoreHiddenItem(_ item: GroceryItemRecord) async -> Bool {
+        await setHiddenUntil(itemID: item.id, hiddenUntil: nil)
+    }
+
+    @discardableResult
+    func setHiddenUntil(itemID: UUID, hiddenUntil: Date?) async -> Bool {
+        guard let backendURL, let authToken else { return false }
+        let hiddenUntilBodyValue: Any
+        if let hiddenUntil {
+            hiddenUntilBodyValue = apiTimestamp(from: hiddenUntil)
+        } else {
+            hiddenUntilBodyValue = NSNull()
+        }
+
+        do {
+            let saved = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/items/\(itemID.uuidString)",
+                method: "PATCH",
+                body: ["hidden_until": hiddenUntilBodyValue],
+                token: authToken
+            )
+            if let savedItem = GroceryItemRecord(json: saved) {
+                upsertLocalItem(savedItem)
+            } else {
+                try await reloadItems()
+            }
             watchSyncCoordinator.publishCurrentState()
             return true
         } catch {
@@ -1032,16 +1233,62 @@ final class MobileAppViewModel: ObservableObject {
             if itemEditSaveRevisions[item.id] == revision, let savedItem = GroceryItemRecord(json: saved) {
                 upsertLocalItem(savedItem)
             }
+            clearOfflineStatus()
             await updateShoppingActivityIfNeeded()
             watchSyncCoordinator.publishCurrentState()
             return true
         } catch {
+            if let appError = error as? AppError, case .sessionExpired = appError {
+                queuePendingItemEdit(listID: item.listID, itemID: item.id, payload: payload)
+                _ = handleSessionExpired(appError)
+                return false
+            }
             if itemEditSaveRevisions[item.id] == revision {
                 queuePendingItemEdit(listID: item.listID, itemID: item.id, payload: payload)
                 await updateShoppingActivityIfNeeded()
-                errorMessage = "Changes saved offline. They will sync when the backend is reachable."
+                showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
             }
             return true
+        }
+    }
+
+    @discardableResult
+    func move(
+        item: GroceryItemRecord,
+        to targetListID: UUID,
+        payload: GroceryItemEditPayload
+    ) async -> GroceryItemRecord? {
+        guard payload.isValid else { return nil }
+        guard targetListID != item.listID else { return item }
+        guard let backendURL, let authToken else {
+            errorMessage = "Move items while online so both lists stay in sync."
+            return nil
+        }
+
+        var body = payload.jsonBody
+        body["list_id"] = targetListID.uuidString
+
+        do {
+            let saved = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/items/\(item.id.uuidString)",
+                method: "PATCH",
+                body: body,
+                token: authToken
+            )
+            removePendingItemEdit(itemID: item.id)
+            let movedItem = GroceryItemRecord(json: saved)
+                ?? item.applyingEditPayload(payload).moving(to: targetListID)
+            if movedItem.listID == selectedListID {
+                upsertLocalItem(movedItem)
+            } else {
+                items.removeAll { $0.id == item.id }
+            }
+            watchSyncCoordinator.publishCurrentState()
+            return movedItem
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
         }
     }
 
@@ -1057,6 +1304,52 @@ final class MobileAppViewModel: ObservableObject {
                 body: nil,
                 token: authToken
             )
+            items.removeAll { $0.id == item.id }
+            clearOfflineStatus()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        } catch {
+            if handleSessionExpired(error) == false {
+                errorMessage = error.localizedDescription
+            }
+            return false
+        }
+    }
+
+    @discardableResult
+    func restoreDeleted(item: GroceryItemRecord) async -> Bool {
+        guard let backendURL, let authToken else { return false }
+
+        var body: [String: Any] = [
+            "name": item.name,
+            "sort_order": item.sortOrder,
+        ]
+        body["quantity_text"] = item.quantityText ?? NSNull()
+        body["note"] = item.note ?? NSNull()
+        body["category_id"] = item.categoryID?.uuidString ?? NSNull()
+
+        do {
+            let createdJSON = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/lists/\(item.listID.uuidString)/items",
+                method: "POST",
+                body: body,
+                token: authToken
+            )
+
+            if
+                item.checked,
+                let createdItem = GroceryItemRecord(json: createdJSON)
+            {
+                _ = try await requestJSON(
+                    backendURL: backendURL,
+                    path: "/api/v1/items/\(createdItem.id.uuidString)/check",
+                    method: "POST",
+                    body: [:],
+                    token: authToken
+                )
+            }
+
             try await reloadItems()
             watchSyncCoordinator.publishCurrentState()
             return true
@@ -1230,6 +1523,36 @@ final class MobileAppViewModel: ObservableObject {
         )
     }
 
+    private func showOfflineStatus(_ message: String) {
+        errorMessage = nil
+        offlineStatusMessage = message
+    }
+
+    private func clearOfflineStatus() {
+        offlineStatusMessage = nil
+    }
+
+    private func handleSessionExpired(_ error: Error) -> Bool {
+        guard let appError = error as? AppError, case .sessionExpired = appError else { return false }
+        expireSession()
+        return true
+    }
+
+    private func expireSession() {
+        liveUpdates.disconnect()
+        authToken = nil
+        lists = []
+        items = []
+        categories = []
+        categoryOrder = []
+        selectedListID = nil
+        reviewerOnboardingMessage = nil
+        offlineStatusMessage = nil
+        userDefaults.removeObject(forKey: Self.authTokenKey)
+        errorMessage = AppError.sessionExpired.errorDescription
+        watchSyncCoordinator.publishCurrentState()
+    }
+
     private func handleLiveListChanged(_ listID: UUID) async {
         guard selectedListID == listID else { return }
         netLog.debug(
@@ -1288,7 +1611,11 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     private func applyListData(_ listData: MobileListData) {
-        items = applyPendingItemEdits(to: listData.items)
+        items = applyPendingItemToggles(
+            to: applyPendingItemEdits(
+                to: applyPendingItemCreates(to: listData.items)
+            )
+        )
         categories = listData.categories
         categoryOrder = listData.categoryOrder
         disabledCategoryIDs = Set(listData.disabledCategoryIDs)
@@ -1390,14 +1717,61 @@ final class MobileAppViewModel: ObservableObject {
         return try? JSONDecoder().decode(MobileListData.self, from: data)
     }
 
+    private static func loadPendingItemCreates(from userDefaults: UserDefaults) -> [PendingItemCreate] {
+        guard let data = userDefaults.data(forKey: pendingItemCreatesKey) else { return [] }
+        return (try? JSONDecoder().decode([PendingItemCreate].self, from: data)) ?? []
+    }
+
     private static func loadPendingItemEdits(from userDefaults: UserDefaults) -> [PendingItemEdit] {
         guard let data = userDefaults.data(forKey: pendingItemEditsKey) else { return [] }
         return (try? JSONDecoder().decode([PendingItemEdit].self, from: data)) ?? []
     }
 
+    private static func loadPendingItemToggles(from userDefaults: UserDefaults) -> [PendingItemToggle] {
+        guard let data = userDefaults.data(forKey: pendingItemTogglesKey) else { return [] }
+        return (try? JSONDecoder().decode([PendingItemToggle].self, from: data)) ?? []
+    }
+
+    private func savePendingItemCreates() {
+        guard let data = try? JSONEncoder().encode(pendingItemCreates) else { return }
+        userDefaults.set(data, forKey: Self.pendingItemCreatesKey)
+    }
+
     private func savePendingItemEdits() {
         guard let data = try? JSONEncoder().encode(pendingItemEdits) else { return }
         userDefaults.set(data, forKey: Self.pendingItemEditsKey)
+    }
+
+    private func savePendingItemToggles() {
+        guard let data = try? JSONEncoder().encode(pendingItemToggles) else { return }
+        userDefaults.set(data, forKey: Self.pendingItemTogglesKey)
+    }
+
+    private func queuePendingItemCreate(
+        listID: UUID,
+        name: String,
+        quantityText: String?,
+        note: String?,
+        categoryID: UUID?
+    ) {
+        let itemID = UUID()
+        let create = PendingItemCreate(
+            mutationID: UUID().uuidString,
+            clientItemID: itemID.uuidString,
+            listID: listID,
+            itemID: itemID,
+            name: name,
+            quantityText: quantityText,
+            note: note,
+            categoryID: categoryID,
+            sortOrder: 0,
+            recordedAt: Date()
+        )
+        pendingItemCreates.append(create)
+        savePendingItemCreates()
+        upsertLocalItem(create.localItem)
+        cacheCurrentListData()
+        watchSyncCoordinator.publishCurrentState()
     }
 
     private func queuePendingItemEdit(listID: UUID, itemID: UUID, payload: GroceryItemEditPayload) {
@@ -1418,9 +1792,49 @@ final class MobileAppViewModel: ObservableObject {
         applyLocalEdit(itemID: itemID, payload: payload)
     }
 
+    private func queuePendingItemToggle(listID: UUID, itemID: UUID, checked: Bool, recordedAt: Date) {
+        let toggle = PendingItemToggle(
+            mutationID: UUID().uuidString,
+            listID: listID,
+            itemID: itemID,
+            checked: checked,
+            recordedAt: recordedAt
+        )
+        if let index = pendingItemToggles.firstIndex(where: { $0.itemID == itemID }) {
+            pendingItemToggles[index] = toggle
+        } else {
+            pendingItemToggles.append(toggle)
+        }
+        savePendingItemToggles()
+        applyLocalToggle(itemID: itemID, checked: checked, recordedAt: recordedAt)
+    }
+
+    private func removePendingItemCreates(mutationIDs: Set<String>) {
+        pendingItemCreates.removeAll { mutationIDs.contains($0.mutationID) }
+        savePendingItemCreates()
+    }
+
     private func removePendingItemEdit(itemID: UUID) {
         pendingItemEdits.removeAll { $0.itemID == itemID }
         savePendingItemEdits()
+    }
+
+    private func removePendingItemToggles(mutationIDs: Set<String>) {
+        pendingItemToggles.removeAll { mutationIDs.contains($0.mutationID) }
+        savePendingItemToggles()
+    }
+
+    private func applyPendingItemCreates(to loadedItems: [GroceryItemRecord]) -> [GroceryItemRecord] {
+        guard let selectedListID else { return loadedItems }
+        var mergedItems = loadedItems
+        for create in pendingItemCreates where create.listID == selectedListID {
+            if let index = mergedItems.firstIndex(where: { $0.id == create.itemID }) {
+                mergedItems[index] = create.localItem
+            } else {
+                mergedItems.append(create.localItem)
+            }
+        }
+        return mergedItems
     }
 
     private func applyPendingItemEdits(to loadedItems: [GroceryItemRecord]) -> [GroceryItemRecord] {
@@ -1436,9 +1850,28 @@ final class MobileAppViewModel: ObservableObject {
         }
     }
 
+    private func applyPendingItemToggles(to loadedItems: [GroceryItemRecord]) -> [GroceryItemRecord] {
+        guard let selectedListID else { return loadedItems }
+        let pendingByItemID = Dictionary(
+            uniqueKeysWithValues: pendingItemToggles
+                .filter { $0.listID == selectedListID }
+                .map { ($0.itemID, $0) }
+        )
+        return loadedItems.map { item in
+            guard let toggle = pendingByItemID[item.id] else { return item }
+            return item.applyingCheckedState(toggle.checked, recordedAt: toggle.recordedAt)
+        }
+    }
+
     private func applyLocalEdit(itemID: UUID, payload: GroceryItemEditPayload) {
         guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
         items[index] = items[index].applyingEditPayload(payload)
+        watchSyncCoordinator.publishCurrentState()
+    }
+
+    private func applyLocalToggle(itemID: UUID, checked: Bool, recordedAt: Date) {
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+        items[index] = items[index].applyingCheckedState(checked, recordedAt: recordedAt)
         watchSyncCoordinator.publishCurrentState()
     }
 
@@ -1449,6 +1882,96 @@ final class MobileAppViewModel: ObservableObject {
         } else {
             items.append(item)
         }
+    }
+
+    private func flushPendingItemCreates() async {
+        guard let backendURL, let authToken else { return }
+        let createsByListID = Dictionary(grouping: pendingItemCreates, by: \.listID)
+        for (listID, creates) in createsByListID {
+            let sortedCreates = creates.sorted { $0.recordedAt < $1.recordedAt }
+            let body: [String: Any] = [
+                "mutations": sortedCreates.map { create in
+                    [
+                        "mutation_id": create.mutationID,
+                        "type": "create",
+                        "client_item_id": create.clientItemID,
+                        "recorded_at": Self.iso8601String(from: create.recordedAt),
+                        "payload": [
+                            "name": create.name,
+                            "quantity_text": create.quantityText ?? NSNull(),
+                            "note": create.note ?? NSNull(),
+                            "category_id": create.categoryID?.uuidString ?? NSNull(),
+                            "sort_order": create.sortOrder,
+                        ] as [String: Any],
+                    ] as [String: Any]
+                },
+            ]
+
+            do {
+                let response = try await requestJSON(
+                    backendURL: backendURL,
+                    path: "/api/v1/lists/\(listID.uuidString)/items/sync",
+                    method: "POST",
+                    body: body,
+                    token: authToken
+                )
+                let appliedMutationIDs = Set(response["applied_mutation_ids"] as? [String] ?? [])
+                let clientItemIDs = response["client_item_ids"] as? [String: String] ?? [:]
+                remapPendingItemReferences(clientItemIDs: clientItemIDs, creates: sortedCreates)
+                removePendingItemCreates(mutationIDs: appliedMutationIDs)
+                if selectedListID == listID {
+                    let localItemIDs = Set(
+                        sortedCreates
+                            .filter { clientItemIDs[$0.clientItemID] != nil }
+                            .map(\.itemID)
+                    )
+                    items.removeAll { localItemIDs.contains($0.id) }
+                    if let itemPayloads = response["items"] as? [[String: Any]] {
+                        itemPayloads.compactMap(GroceryItemRecord.init).forEach(upsertLocalItem)
+                    }
+                }
+            } catch {
+                if handleSessionExpired(error) {
+                    return
+                }
+                netLog.error(
+                    "Pending iPhone item create sync failed: \(error.localizedDescription, privacy: .public)"
+                )
+                showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
+                return
+            }
+        }
+        watchSyncCoordinator.publishCurrentState()
+    }
+
+    private func remapPendingItemReferences(
+        clientItemIDs: [String: String],
+        creates: [PendingItemCreate]
+    ) {
+        let serverIDsByLocalID = Dictionary(
+            uniqueKeysWithValues: creates.compactMap { create -> (UUID, UUID)? in
+                guard
+                    let serverIDText = clientItemIDs[create.clientItemID],
+                    let serverID = UUID(uuidString: serverIDText)
+                else {
+                    return nil
+                }
+                return (create.itemID, serverID)
+            }
+        )
+        guard serverIDsByLocalID.isEmpty == false else { return }
+        for index in pendingItemEdits.indices {
+            if let serverID = serverIDsByLocalID[pendingItemEdits[index].itemID] {
+                pendingItemEdits[index].itemID = serverID
+            }
+        }
+        for index in pendingItemToggles.indices {
+            if let serverID = serverIDsByLocalID[pendingItemToggles[index].itemID] {
+                pendingItemToggles[index].itemID = serverID
+            }
+        }
+        savePendingItemEdits()
+        savePendingItemToggles()
     }
 
     private func flushPendingItemEdits() async {
@@ -1467,6 +1990,9 @@ final class MobileAppViewModel: ObservableObject {
                     upsertLocalItem(savedItem)
                 }
             } catch {
+                if handleSessionExpired(error) {
+                    return
+                }
                 netLog.error(
                     "Pending iPhone item edit sync failed: \(error.localizedDescription, privacy: .public)"
                 )
@@ -1474,6 +2000,51 @@ final class MobileAppViewModel: ObservableObject {
             }
         }
         watchSyncCoordinator.publishCurrentState()
+    }
+
+    private func flushPendingItemToggles() async {
+        guard let backendURL, let authToken else { return }
+        let togglesByListID = Dictionary(grouping: pendingItemToggles, by: \.listID)
+        for (listID, toggles) in togglesByListID {
+            let sortedToggles = toggles.sorted { $0.recordedAt < $1.recordedAt }
+            let body: [String: Any] = [
+                "mutations": sortedToggles.map { toggle in
+                    [
+                        "mutation_id": toggle.mutationID,
+                        "type": "set_checked",
+                        "item_id": toggle.itemID.uuidString,
+                        "recorded_at": Self.iso8601String(from: toggle.recordedAt),
+                        "checked": toggle.checked,
+                    ] as [String: Any]
+                },
+            ]
+
+            do {
+                let response = try await requestJSON(
+                    backendURL: backendURL,
+                    path: "/api/v1/lists/\(listID.uuidString)/items/sync",
+                    method: "POST",
+                    body: body,
+                    token: authToken
+                )
+                let appliedMutationIDs = Set(response["applied_mutation_ids"] as? [String] ?? [])
+                removePendingItemToggles(mutationIDs: appliedMutationIDs)
+                if selectedListID == listID, let itemPayloads = response["items"] as? [[String: Any]] {
+                    itemPayloads.compactMap(GroceryItemRecord.init).forEach(upsertLocalItem)
+                }
+            } catch {
+                netLog.error(
+                    "Pending iPhone item toggle sync failed: \(error.localizedDescription, privacy: .public)"
+                )
+                showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
+                return
+            }
+        }
+        watchSyncCoordinator.publishCurrentState()
+    }
+
+    private static func iso8601String(from date: Date) -> String {
+        offlineMutationDateFormatter.string(from: date)
     }
 
     private func rpID(from optionsPayload: [String: Any]) -> String? {
@@ -1622,6 +2193,9 @@ final class MobileAppViewModel: ObservableObject {
             throw AppError.invalidResponse
         }
         guard (200 ... 299).contains(http.statusCode) else {
+            if http.statusCode == 401, token != nil {
+                throw AppError.sessionExpired
+            }
             if let temporaryBackendError = backendAvailabilityError(response: http, data: data) {
                 throw temporaryBackendError
             }
@@ -1652,6 +2226,12 @@ final class MobileAppViewModel: ObservableObject {
             )
         }
         return nil
+    }
+
+    private func apiTimestamp(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 }
 
@@ -1800,6 +2380,7 @@ final class MobileListLiveUpdateClient {
 enum AppError: LocalizedError {
     case invalidResponse
     case backendUnavailable(String)
+    case sessionExpired
     case server(String)
 
     var errorDescription: String? {
@@ -1808,6 +2389,8 @@ enum AppError: LocalizedError {
             return "The server returned an invalid response."
         case let .backendUnavailable(message):
             return message
+        case .sessionExpired:
+            return "Session expired. Sign in again with your passkey."
         case let .server(message):
             return message
         }

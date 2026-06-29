@@ -216,6 +216,35 @@ public extension GroceryItemRecord {
             categoryID: payload.categoryID,
             checked: checked,
             checkedAt: checkedAt,
+            hiddenUntil: hiddenUntil,
+            sortOrder: sortOrder
+        )
+    }
+
+    func moving(to listID: UUID) -> GroceryItemRecord {
+        GroceryItemRecord(
+            id: id,
+            listID: listID,
+            name: name,
+            quantityText: quantityText,
+            note: note,
+            categoryID: categoryID,
+            checked: checked,
+            checkedAt: checkedAt,
+            sortOrder: sortOrder
+        )
+    }
+
+    func applyingCheckedState(_ checked: Bool, recordedAt: Date) -> GroceryItemRecord {
+        GroceryItemRecord(
+            id: id,
+            listID: listID,
+            name: name,
+            quantityText: quantityText,
+            note: note,
+            categoryID: categoryID,
+            checked: checked,
+            checkedAt: checked ? recordedAt : nil,
             sortOrder: sortOrder
         )
     }
