@@ -281,11 +281,13 @@ Set these GitHub Actions secrets before dispatching the TestFlight upload workfl
 - `BUILD_CERTIFICATE_BASE64`
 - `P12_PASSWORD`
 - `BUILD_PROVISION_PROFILE_BASE64`
+- `BUILD_WIDGET_PROVISION_PROFILE_BASE64`
 - `BUILD_WATCH_APP_PROVISION_PROFILE_BASE64`
 - `BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`
 - `BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64`
 - `IOS_REVIEW_BUNDLE_IDENTIFIER` (optional; defaults to `IOS_BUNDLE_IDENTIFIER`)
 - `BUILD_REVIEW_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_PROVISION_PROFILE_BASE64`)
+- `BUILD_REVIEW_WIDGET_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WIDGET_PROVISION_PROFILE_BASE64`)
 - `BUILD_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WATCH_APP_PROVISION_PROFILE_BASE64`)
 - `BUILD_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`)
 - `BUILD_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64`)
@@ -300,9 +302,10 @@ The workflow commits these non-secret signing constants directly:
 - Apple team ID: `VWKG94374J`
 - production bundle ID: `de.malaber.planini`
 
-Each watch target needs its own profile because Apple provisioning profiles are bound to one App ID. Create App Store distribution profiles for:
+Each app extension and watch target needs its own profile because Apple provisioning profiles are bound to one App ID. Create App Store distribution profiles for:
 
 - `de.malaber.planini`
+- `de.malaber.planini.widget`
 - `de.malaber.planini.watchkitapp`
 - `de.malaber.planini.watchkitapp.watchkitextension`
 - `de.malaber.planini.watchkitapp.widget`
@@ -320,10 +323,12 @@ Set these optional GitHub Actions variables to override default domains:
 App Store signed IPAs should be installed through TestFlight. To test a CI-built IPA directly on a registered iPhone without TestFlight, create an Ad Hoc provisioning profile that includes the device UDID and the same bundle identifier/capabilities, then set:
 
 - `AD_HOC_PROVISION_PROFILE_BASE64`
+- `AD_HOC_WIDGET_PROVISION_PROFILE_BASE64`
 - `AD_HOC_WATCH_APP_PROVISION_PROFILE_BASE64`
 - `AD_HOC_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`
 - `AD_HOC_WATCH_WIDGET_PROVISION_PROFILE_BASE64`
 - `AD_HOC_REVIEW_PROVISION_PROFILE_BASE64` (optional; defaults to `AD_HOC_PROVISION_PROFILE_BASE64`)
+- `AD_HOC_REVIEW_WIDGET_PROVISION_PROFILE_BASE64` (optional; defaults to `AD_HOC_WIDGET_PROVISION_PROFILE_BASE64`)
 - `AD_HOC_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64` (optional; defaults to `AD_HOC_WATCH_APP_PROVISION_PROFILE_BASE64`)
 - `AD_HOC_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64` (optional; defaults to `AD_HOC_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`)
 - `AD_HOC_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64` (optional; defaults to `AD_HOC_WATCH_WIDGET_PROVISION_PROFILE_BASE64`)
