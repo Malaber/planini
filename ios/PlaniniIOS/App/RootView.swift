@@ -301,7 +301,7 @@ struct RootView: View {
     private var appTabs: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                FavoriteListTab(selectedTab: $selectedTab)
+                FavoriteListTab(selectedTab: $selectedTab, onListSwitch: openListInListsTab)
             }
             .tabItem {
                 Label(
@@ -359,6 +359,11 @@ struct RootView: View {
         Task {
             await viewModel.handleIncomingPlaniniLink(url.absoluteString)
         }
+    }
+
+    private func openListInListsTab(_ listID: UUID) {
+        selectedTab = .lists
+        listNavigationPath = [listID]
     }
 }
 
@@ -565,11 +570,12 @@ private struct FavoriteListTab: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
     @Binding var selectedTab: AppTab
+    let onListSwitch: (UUID) -> Void
 
     var body: some View {
         Group {
             if let favoriteList = viewModel.favoriteList {
-                ListDetailScreen(listID: favoriteList.id, showsFavoriteButton: false)
+                ListDetailScreen(listID: favoriteList.id, showsFavoriteButton: false, onListSwitch: onListSwitch)
             } else {
                 VStack(spacing: 0) {
                     EmptyStateView(
@@ -1119,6 +1125,7 @@ private struct ListDetailScreen: View {
     @EnvironmentObject private var l10n: AppLocalization
     let listID: UUID
     let showsFavoriteButton: Bool
+    let onListSwitch: ((UUID) -> Void)?
 
     @State private var displayedListID: UUID
     @State private var editingItem: GroceryItemRecord?
@@ -1131,9 +1138,10 @@ private struct ListDetailScreen: View {
     @State private var isRunningUndo = false
     @State private var showingListSettings = false
 
-    init(listID: UUID, showsFavoriteButton: Bool) {
+    init(listID: UUID, showsFavoriteButton: Bool, onListSwitch: ((UUID) -> Void)? = nil) {
         self.listID = listID
         self.showsFavoriteButton = showsFavoriteButton
+        self.onListSwitch = onListSwitch
         _displayedListID = State(initialValue: listID)
     }
 
@@ -1548,6 +1556,10 @@ private struct ListDetailScreen: View {
 
     private func switchList(to listID: UUID) {
         guard displayedListID != listID else { return }
+        if let onListSwitch {
+            onListSwitch(listID)
+            return
+        }
         displayedListID = listID
         Task { await viewModel.selectList(id: listID) }
     }
