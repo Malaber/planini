@@ -80,6 +80,7 @@ final class PlaniniUITests: XCTestCase {
         app.launch()
 
         let listTitle = app.staticTexts["list-detail-title"]
+        let hostingListName = "Hosting errands"
         XCTAssertTrue(
             openInitialListDetail(in: app, listTitle: listTitle),
             "Expected bootstrapped initial list to open."
@@ -112,6 +113,26 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, initialListName)
         captureScreenshot(named: "ios-ui-favorite-list")
+
+        let favoriteSwitcherButton = app.buttons["list-switcher-button"]
+        XCTAssertTrue(favoriteSwitcherButton.waitForExistence(timeout: 5))
+        tapElement(favoriteSwitcherButton)
+        let hostingFavoriteSwitchTarget = firstExistingElement(
+            [
+                app.buttons["switch-list-\(hostingListName)"],
+                app.buttons[hostingListName],
+                app.menuItems[hostingListName],
+            ],
+            timeout: 3
+        )
+        XCTAssertTrue(hostingFavoriteSwitchTarget.waitForExistence(timeout: 3))
+        tapElement(hostingFavoriteSwitchTarget)
+        XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
+        XCTAssertEqual(listTitle.label, hostingListName)
+
+        XCTAssertTrue(tapTab(initialListName, in: app))
+        XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
+        XCTAssertEqual(listTitle.label, initialListName)
 
         let konservenCountBadge = firstExistingElement(
             [
@@ -551,8 +572,6 @@ final class PlaniniUITests: XCTestCase {
             "Expected tapping the item check button to mark the item checked."
         )
         captureScreenshot(named: "ios-ui-checked-item")
-
-        let hostingListName = "Hosting errands"
         let hostingListID = try normalizeListName(
             prefixedBy: hostingListName,
             to: hostingListName,
