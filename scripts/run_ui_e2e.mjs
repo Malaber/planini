@@ -1664,7 +1664,23 @@ async function main() {
 
     const spaghettiCard = itemCard(page, "Spaghetti");
     if (deviceName === "desktop") {
+      const cardCountBeforeMenu = await page.locator(".item-card").count();
+      const cardHeightBeforeMenu = (await spaghettiCard.boundingBox())?.height ?? 0;
       await spaghettiCard.getByRole("button", { name: "More actions for Spaghetti" }).click();
+      await expectVisible(
+        spaghettiCard.getByRole("button", { name: "Hide item for 4h" }),
+        "Expected more-actions context menu",
+      );
+      assert.equal(
+        await page.locator(".item-card").count(),
+        cardCountBeforeMenu,
+        "Opening item actions should not add a list row",
+      );
+      const cardHeightAfterMenu = (await spaghettiCard.boundingBox())?.height ?? 0;
+      assert(
+        Math.abs(cardHeightAfterMenu - cardHeightBeforeMenu) <= 2,
+        `Opening item actions should not resize the item row; before ${cardHeightBeforeMenu}, after ${cardHeightAfterMenu}`,
+      );
       await spaghettiCard.getByRole("button", { name: "Hide item for 4h" }).click();
     } else {
       await swipeItemRight(spaghettiCard);
