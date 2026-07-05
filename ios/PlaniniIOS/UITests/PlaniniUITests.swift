@@ -292,7 +292,8 @@ final class PlaniniUITests: XCTestCase {
                 in: app,
                 inListNamed: initialListName,
                 accessToken: session.accessToken
-            )
+            ),
+            "Expected swiping hidden item right to show it now."
         )
         let unhideUndoButton = app.buttons["list-undo-button"]
         let unhideUndoMessage = app.staticTexts["list-undo-message"]
@@ -1499,11 +1500,22 @@ final class PlaniniUITests: XCTestCase {
                 _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
                 scrollToHittable(row, in: app, maxSwipes: 10)
                 if row.exists && row.isHittable {
-                    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
-                    let end = row.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5))
-                    start.press(forDuration: 0.1, thenDragTo: end)
+                    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5))
+                    let end = row.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5))
+                    start.press(forDuration: 0.08, thenDragTo: end)
                     if unhideButton.waitForExistence(timeout: 2) {
                         tapElement(unhideButton)
+                    } else if waitForItemHiddenState(
+                        named: itemName,
+                        hidden: false,
+                        inListNamed: listName,
+                        accessToken: accessToken,
+                        timeout: 1
+                    ) == false {
+                        row.swipeRight()
+                        if unhideButton.waitForExistence(timeout: 2) {
+                            tapElement(unhideButton)
+                        }
                     }
                 }
             }
