@@ -10,6 +10,7 @@ private enum AppBuildConfiguration {
     static let uiTestRestoreStoredSessionKey = "PLANINI_UI_TEST_RESTORE_STORED_SESSION"
     static let uiTestStoredAccessTokenOverrideKey = "PLANINI_UI_TEST_STORED_ACCESS_TOKEN_OVERRIDE"
     static let uiTestStoredDisplayNameOverrideKey = "PLANINI_UI_TEST_STORED_DISPLAY_NAME_OVERRIDE"
+    static let uiTestOfflineStatusMessageKey = "PLANINI_UI_TEST_OFFLINE_STATUS_MESSAGE"
 
     static var backendURL: URL? {
         if let overriddenURL = validatedURL(from: ProcessInfo.processInfo.environment[backendURLOverrideKey]) {
@@ -631,6 +632,7 @@ final class MobileAppViewModel: ObservableObject {
         }
 
         errorMessage = nil
+        applyUITestOfflineStatusOverrideIfNeeded()
         await processPendingPlaniniLinkIfPossible()
         watchSyncCoordinator.publishCurrentState()
     }
@@ -1039,7 +1041,6 @@ final class MobileAppViewModel: ObservableObject {
         }
 
         guard
-            offlineStatusMessage == nil,
             pendingItemCreates.contains(where: { $0.listID == selectedListID }) == false,
             let backendURL,
             let authToken
@@ -1161,6 +1162,7 @@ final class MobileAppViewModel: ObservableObject {
             } else {
                 try await reloadItems()
             }
+            clearOfflineStatus()
             watchSyncCoordinator.publishCurrentState()
             return true
         } catch {
@@ -1260,6 +1262,7 @@ final class MobileAppViewModel: ObservableObject {
             } else {
                 items.removeAll { $0.id == item.id }
             }
+            clearOfflineStatus()
             watchSyncCoordinator.publishCurrentState()
             return movedItem
         } catch {
@@ -1360,6 +1363,7 @@ final class MobileAppViewModel: ObservableObject {
             )
             lists = sortedLists(lists)
             cacheLists(lists)
+            clearOfflineStatus()
             watchSyncCoordinator.publishCurrentState()
             return true
         } catch {
@@ -1407,6 +1411,7 @@ final class MobileAppViewModel: ObservableObject {
             )
             disabledCategoryIDs = Set(parseDisabledCategoryIDs(from: payload))
             try await reloadItems()
+            clearOfflineStatus()
             watchSyncCoordinator.publishCurrentState()
             return true
         } catch {
@@ -1455,6 +1460,19 @@ final class MobileAppViewModel: ObservableObject {
     private func showOfflineStatus(_ message: String) {
         errorMessage = nil
         offlineStatusMessage = message
+    }
+
+    private func applyUITestOfflineStatusOverrideIfNeeded() {
+        guard
+            processInfo.environment["PLANINI_UI_TEST_MODE"] == "1",
+            let offlineStatusOverride = processInfo.environment[
+                AppBuildConfiguration.uiTestOfflineStatusMessageKey
+            ]?.trimmingCharacters(in: .whitespacesAndNewlines),
+            offlineStatusOverride.isEmpty == false
+        else {
+            return
+        }
+        showOfflineStatus(offlineStatusOverride)
     }
 
     private func clearOfflineStatus() {
@@ -1816,6 +1834,7 @@ final class MobileAppViewModel: ObservableObject {
     private func flushPendingItemCreates() async {
         guard let backendURL, let authToken else { return }
         let createsByListID = Dictionary(grouping: pendingItemCreates, by: \.listID)
+        var didSyncPendingItems = false
         for (listID, creates) in createsByListID {
             let sortedCreates = creates.sorted { $0.recordedAt < $1.recordedAt }
             let body: [String: Any] = [
@@ -1859,6 +1878,7 @@ final class MobileAppViewModel: ObservableObject {
                         itemPayloads.compactMap(GroceryItemRecord.init).forEach(upsertLocalItem)
                     }
                 }
+                didSyncPendingItems = true
             } catch {
                 if handleSessionExpired(error) {
                     return
@@ -1871,6 +1891,9 @@ final class MobileAppViewModel: ObservableObject {
             }
         }
         watchSyncCoordinator.publishCurrentState()
+        if didSyncPendingItems {
+            clearOfflineStatusIfPendingItemsSynced()
+        }
     }
 
     private func remapPendingItemReferences(
@@ -1905,6 +1928,7 @@ final class MobileAppViewModel: ObservableObject {
 
     private func flushPendingItemEdits() async {
         guard let backendURL, let authToken else { return }
+        var didSyncPendingItems = false
         for edit in pendingItemEdits.sorted(by: { $0.updatedAt < $1.updatedAt }) {
             do {
                 let saved = try await requestJSON(
@@ -1918,6 +1942,7 @@ final class MobileAppViewModel: ObservableObject {
                 if let savedItem = GroceryItemRecord(json: saved) {
                     upsertLocalItem(savedItem)
                 }
+                didSyncPendingItems = true
             } catch {
                 if handleSessionExpired(error) {
                     return
@@ -1929,11 +1954,15 @@ final class MobileAppViewModel: ObservableObject {
             }
         }
         watchSyncCoordinator.publishCurrentState()
+        if didSyncPendingItems {
+            clearOfflineStatusIfPendingItemsSynced()
+        }
     }
 
     private func flushPendingItemToggles() async {
         guard let backendURL, let authToken else { return }
         let togglesByListID = Dictionary(grouping: pendingItemToggles, by: \.listID)
+        var didSyncPendingItems = false
         for (listID, toggles) in togglesByListID {
             let sortedToggles = toggles.sorted { $0.recordedAt < $1.recordedAt }
             let body: [String: Any] = [
@@ -1961,6 +1990,7 @@ final class MobileAppViewModel: ObservableObject {
                 if selectedListID == listID, let itemPayloads = response["items"] as? [[String: Any]] {
                     itemPayloads.compactMap(GroceryItemRecord.init).forEach(upsertLocalItem)
                 }
+                didSyncPendingItems = true
             } catch {
                 netLog.error(
                     "Pending iPhone item toggle sync failed: \(error.localizedDescription, privacy: .public)"
@@ -1970,10 +2000,19 @@ final class MobileAppViewModel: ObservableObject {
             }
         }
         watchSyncCoordinator.publishCurrentState()
+        if didSyncPendingItems {
+            clearOfflineStatusIfPendingItemsSynced()
+        }
     }
 
     private static func iso8601String(from date: Date) -> String {
         offlineMutationDateFormatter.string(from: date)
+    }
+
+    private func clearOfflineStatusIfPendingItemsSynced() {
+        if pendingItemCreates.isEmpty, pendingItemEdits.isEmpty, pendingItemToggles.isEmpty {
+            clearOfflineStatus()
+        }
     }
 
     private func rpID(from optionsPayload: [String: Any]) -> String? {
