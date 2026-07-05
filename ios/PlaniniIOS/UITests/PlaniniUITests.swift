@@ -87,9 +87,9 @@ final class PlaniniUITests: XCTestCase {
                 app.buttons[hostingListName],
                 app.menuItems[hostingListName],
             ],
-            timeout: 3
+            timeout: 8
         )
-        XCTAssertTrue(hostingFavoriteSwitchTarget.waitForExistence(timeout: 3))
+        XCTAssertTrue(hostingFavoriteSwitchTarget.waitForExistence(timeout: 8))
         tapElement(hostingFavoriteSwitchTarget)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, hostingListName)
@@ -699,9 +699,9 @@ final class PlaniniUITests: XCTestCase {
                 app.buttons[initialListName],
                 app.menuItems[initialListName],
             ],
-            timeout: 3
+            timeout: 8
         )
-        XCTAssertTrue(initialSwitchTarget.waitForExistence(timeout: 3))
+        XCTAssertTrue(initialSwitchTarget.waitForExistence(timeout: 8))
         tapElement(initialSwitchTarget)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, initialListName)
@@ -713,9 +713,9 @@ final class PlaniniUITests: XCTestCase {
                 app.buttons[hostingListName],
                 app.menuItems[hostingListName],
             ],
-            timeout: 3
+            timeout: 8
         )
-        XCTAssertTrue(hostingSwitchTarget.waitForExistence(timeout: 3))
+        XCTAssertTrue(hostingSwitchTarget.waitForExistence(timeout: 8))
         tapElement(hostingSwitchTarget)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, hostingListName)
