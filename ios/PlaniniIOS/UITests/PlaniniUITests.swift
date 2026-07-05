@@ -1058,6 +1058,11 @@ final class PlaniniUITests: XCTestCase {
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
+        let sourceCategoryID = try categoryID(
+            named: "Milch & Eier",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
         let targetItemName = "A UI Drag Target \(UUID().uuidString.prefix(8))"
         let targetItemID = try createItem(
             named: targetItemName,
@@ -1073,6 +1078,7 @@ final class PlaniniUITests: XCTestCase {
             named: itemName,
             note: "",
             inListNamed: initialListName,
+            categoryID: sourceCategoryID,
             accessToken: session.accessToken
         )
         XCTAssertTrue(waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 20))
@@ -1099,8 +1105,9 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(undoMessage.label.contains("Konserven"))
         tapElement(undoButton)
         XCTAssertTrue(
-            waitForItemCategoryNil(
+            waitForItemCategory(
                 named: itemName,
+                categoryNamed: "Milch & Eier",
                 inListNamed: initialListName,
                 accessToken: session.accessToken,
                 timeout: 20
@@ -1662,24 +1669,6 @@ final class PlaniniUITests: XCTestCase {
         while Date() < deadline {
             if let items = try? fetchItems(inListNamed: listName, accessToken: accessToken),
                 items.contains(where: { $0.name == itemName && $0.categoryID == categoryID })
-            {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
-        }
-        return false
-    }
-
-    private func waitForItemCategoryNil(
-        named itemName: String,
-        inListNamed listName: String,
-        accessToken: String,
-        timeout: TimeInterval = 8
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let items = try? fetchItems(inListNamed: listName, accessToken: accessToken),
-                items.contains(where: { $0.name == itemName && $0.categoryID == nil })
             {
                 return true
             }
