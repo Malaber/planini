@@ -40,9 +40,10 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(openAddItemSheet(in: app))
         let nameField = app.textFields["add-item-name-field"]
         XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        tapElement(nameField)
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 5))
         let itemName = configuredLanguage == "de" ? "Dunkle Schokolade" : "Dark chocolate"
-        nameField.typeText(itemName)
+        replaceText(in: nameField, with: itemName)
         XCTAssertTrue(waitForFieldValue(nameField, contains: itemName))
         captureScreenshot(named: "app-store-iphone-03-add-item")
     }
