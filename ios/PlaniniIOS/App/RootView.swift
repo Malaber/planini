@@ -894,7 +894,8 @@ private struct HouseholdDetailManagementScreen: View {
     @State private var showingNewList = false
     @State private var invite: HouseholdInviteLink?
     @State private var isCreatingInvite = false
-    @State private var inviteMode = "24h"
+    @State private var inviteMode = "time"
+    @State private var inviteHours = 24
     @State private var inviteMaxUses = 5
 
     private var household: HouseholdSummary? {
@@ -948,12 +949,29 @@ private struct HouseholdDetailManagementScreen: View {
 
             Section(l10n.t("ios.households.invites_section")) {
                 Picker(l10n.t("ios.households.invite_validity"), selection: $inviteMode) {
-                    Text(l10n.t("ios.households.invite_24h")).tag("24h")
-                    Text(l10n.t("ios.households.invite_x_uses")).tag("uses")
+                    Text(l10n.t("ios.households.invite_time_limited")).tag("time")
+                    Text(l10n.t("ios.households.invite_usage_limited")).tag("uses")
                 }
                 .pickerStyle(.segmented)
 
-                if inviteMode == "uses" {
+                if inviteMode == "time" {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Stepper(
+                            l10n.t("ios.households.invite_hours_valid", ["count": "\(inviteHours)"]),
+                            value: $inviteHours,
+                            in: 1...720
+                        )
+                        Text(formattedInviteHours(inviteHours))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Button(l10n.t("ios.households.invite_quick_1_day")) { inviteHours = 24 }
+                            Button(l10n.t("ios.households.invite_quick_3_days")) { inviteHours = 72 }
+                            Button(l10n.t("ios.households.invite_quick_1_week")) { inviteHours = 168 }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                } else {
                     Stepper(
                         l10n.t("ios.households.invite_max_uses", ["count": "\(inviteMaxUses)"]),
                         value: $inviteMaxUses,
@@ -1036,7 +1054,7 @@ private struct HouseholdDetailManagementScreen: View {
         defer { isCreatingInvite = false }
 
         let maxUses = inviteMode == "uses" ? inviteMaxUses : nil
-        let expiresInHours = inviteMode == "uses" ? nil : 24
+        let expiresInHours = inviteMode == "uses" ? nil : inviteHours
         if let createdInvite = await viewModel.createInvite(
             householdID: householdID,
             expiresInHours: expiresInHours,
@@ -1055,6 +1073,13 @@ private struct HouseholdDetailManagementScreen: View {
     private func formattedMaxUses(for invite: HouseholdInviteLink) -> String? {
         guard let maxUses = invite.maxUses else { return nil }
         return l10n.t("ios.households.invite_max_uses", ["count": "\(maxUses)"])
+    }
+
+    private func formattedInviteHours(_ hours: Int) -> String {
+        if hours % 24 == 0 {
+            return l10n.t("ios.households.invite_duration_days", ["count": "\(hours / 24)"])
+        }
+        return l10n.t("ios.households.invite_hours_valid", ["count": "\(hours)"])
     }
 
     private func copyInvite(_ inviteURL: String) {

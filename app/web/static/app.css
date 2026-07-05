@@ -640,6 +640,20 @@ main {
   width: 100%;
 }
 
+.invite-share-panel {
+  gap: 1rem;
+}
+
+.invite-share-form {
+  gap: 0.9rem;
+}
+
+.invite-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .list-grid {
   list-style: none;
   padding: 0;

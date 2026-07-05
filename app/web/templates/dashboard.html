@@ -157,5 +157,56 @@
     </section>
   </div>
 
+  <div class="item-modal" data-dashboard-invite-overlay hidden>
+    <button class="item-modal-backdrop" type="button" aria-label="{{ t("dashboard.close_invite_sheet") }}" data-dashboard-invite-close></button>
+    <section class="dashboard-card add-item-panel invite-share-panel" data-dashboard-invite-panel hidden>
+      <div class="add-item-panel-header">
+        <div>
+          <p class="dashboard-label">{{ t("dashboard.invite_sheet_label") }}</p>
+          <h2>{{ t("dashboard.invite_sheet_title") }}</h2>
+        </div>
+        <button class="add-item-close" type="button" aria-label="{{ t("dashboard.close_invite_sheet") }}" data-dashboard-invite-close>
+          &times;
+        </button>
+      </div>
+      <p class="dashboard-helper" data-dashboard-invite-household></p>
+      <form class="dashboard-form invite-share-form" data-dashboard-invite-form>
+        <label class="dashboard-field">
+          <span>{{ t("dashboard.invite_limit_type") }}</span>
+          <select name="mode" data-invite-mode>
+            <option value="time">{{ t("dashboard.invite_time_limited") }}</option>
+            <option value="uses">{{ t("dashboard.invite_usage_limited") }}</option>
+          </select>
+        </label>
+        <div class="dashboard-field" data-invite-time-fields>
+          <label>
+            <span>{{ t("dashboard.invite_hours_valid") }}</span>
+            <input type="number" name="expires_in_hours" min="1" max="720" step="1" value="24" inputmode="numeric" data-invite-hours-input />
+          </label>
+          <p class="dashboard-helper" data-invite-duration-label></p>
+          <div class="invite-preset-row">
+            <button type="button" class="secondary-button" data-invite-hours-preset="24">{{ t("dashboard.invite_quick_1_day") }}</button>
+            <button type="button" class="secondary-button" data-invite-hours-preset="72">{{ t("dashboard.invite_quick_3_days") }}</button>
+            <button type="button" class="secondary-button" data-invite-hours-preset="168">{{ t("dashboard.invite_quick_1_week") }}</button>
+          </div>
+        </div>
+        <label class="dashboard-field" data-invite-use-fields hidden>
+          <span>{{ t("dashboard.invite_max_uses") }}</span>
+          <input type="number" name="max_uses" min="1" max="100" step="1" value="5" inputmode="numeric" data-invite-max-uses />
+        </label>
+        <button type="submit" data-create-invite="sheet">{{ t("dashboard.create_invite_link") }}</button>
+      </form>
+      <div class="household-invite-output" data-invite-sheet-output hidden>
+        <p class="dashboard-helper" data-invite-sheet-hint>{{ t("dashboard.share_invite_hint") }}</p>
+        <div class="household-invite-row">
+          <input type="text" readonly data-invite-sheet-link-input />
+          <button type="button" class="secondary-button" data-copy-invite-sheet>
+            {{ t("common.copy") }}
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+
 </section>
 {% endblock %}

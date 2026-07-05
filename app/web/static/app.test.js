@@ -659,6 +659,12 @@ function createDashboardRoot() {
     <section data-dashboard>
       <div data-dashboard-empty></div>
       <div data-household-list></div>
+      <select data-invite-mode>
+        <option value="time">Limit by time</option>
+        <option value="uses">Limit by uses</option>
+      </select>
+      <input data-invite-hours-input value="24" />
+      <input data-invite-max-uses value="5" />
     </section>
   `);
   return {
@@ -990,27 +996,30 @@ test("renderHouseholds shows open item counts on list links", () => {
   assert.equal(document.body.textContent.includes("Open list"), false);
 });
 
-test("renderHouseholds exposes invite validity controls and payloads", () => {
+test("renderHouseholds exposes invite action and invite sheet payloads", () => {
   const { document, root } = createDashboardRoot();
 
   renderHouseholds(root, [{ id: "household-1", name: "Home" }], new Map());
 
-  assert.equal(document.querySelector('[data-invite-mode="household-1"]').value, "24h");
-  assert.equal(document.querySelector('[data-invite-max-uses="household-1"]').value, "5");
-  assert.deepEqual(householdInvitePayload(root, "household-1"), {});
+  assert.equal(document.querySelector('[data-open-invite-sheet="household-1"]').textContent.trim(), "Create invite link");
+  assert.deepEqual(householdInvitePayload(root), { expires_in_hours: 24 });
 
-  document.querySelector('[data-invite-mode="household-1"]').value = "uses";
-  document.querySelector('[data-invite-max-uses="household-1"]').value = "7";
-  assert.deepEqual(householdInvitePayload(root, "household-1"), {
+  document.querySelector("[data-invite-mode]").value = "uses";
+  document.querySelector("[data-invite-max-uses]").value = "7";
+  assert.deepEqual(householdInvitePayload(root), {
     expires_in_hours: null,
     max_uses: 7,
   });
 
-  document.querySelector('[data-invite-max-uses="household-1"]').value = "500";
-  assert.deepEqual(householdInvitePayload(root, "household-1"), {
+  document.querySelector("[data-invite-max-uses]").value = "500";
+  assert.deepEqual(householdInvitePayload(root), {
     expires_in_hours: null,
     max_uses: 100,
   });
+
+  document.querySelector("[data-invite-mode]").value = "time";
+  document.querySelector("[data-invite-hours-input]").value = "72.5";
+  assert.deepEqual(householdInvitePayload(root), { expires_in_hours: 72 });
 });
 
 test("saveListName trims, patches, and persists the list title", async () => {

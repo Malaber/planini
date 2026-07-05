@@ -1383,12 +1383,13 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
     "Expected dashboard list link to show open item count",
   );
 
-  await ownerHouseholdCard.getByLabel("Invite validity").selectOption("uses");
-  await ownerHouseholdCard.locator(`[data-invite-max-uses="${scenario.householdId}"]`).fill("2");
   await ownerHouseholdCard.getByRole("button", { name: "Create invite link" }).click();
-  const inviteInput = ownerHouseholdCard.locator(
-    `[data-invite-link-input="${scenario.householdId}"]`,
-  );
+  const invitePanel = ownerPage.locator("[data-dashboard-invite-panel]");
+  await expectVisible(invitePanel, "Expected invite share sheet");
+  await invitePanel.getByLabel("Limit").selectOption("uses");
+  await invitePanel.locator("[data-invite-max-uses]").fill("2");
+  await invitePanel.getByRole("button", { name: "Create invite link" }).click();
+  const inviteInput = invitePanel.locator("[data-invite-sheet-link-input]");
   await expectVisible(inviteInput, "Expected invite link field after creating invite");
   const inviteUrl = await inviteInput.inputValue();
   assert(inviteUrl.includes("/invite/"), "Expected invite URL");

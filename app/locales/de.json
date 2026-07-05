@@ -127,7 +127,7 @@
       "one": "{count} offener Artikel",
       "other": "{count} offene Artikel"
     },
-    "invite_link_created": "Einladungslink erstellt. Er bleibt 24 Stunden gültig.",
+    "invite_link_created": "Einladungslink erstellt.",
     "invite_link_create_failed": "Der Einladungslink konnte nicht erstellt werden.",
     "invite_link_copied": "Einladungslink kopiert.",
     "invite_link_copy_failed": "Der Einladungslink konnte nicht kopiert werden.",
@@ -142,7 +142,28 @@
     "invite_validity": "Einladungsdauer",
     "invite_24h": "24 Stunden",
     "invite_x_uses": "Begrenzte Nutzungen",
-    "invite_max_uses": "Nutzungen"
+    "invite_max_uses": "Nutzungen",
+    "close_invite_sheet": "Einladungslink-Dialog schließen",
+    "invite_sheet_label": "Einladungslink",
+    "invite_sheet_title": "Einladungslink erstellen",
+    "invite_sheet_helper": "Wähle, wie dieser Einladungslink für {household} gültig bleiben soll.",
+    "invite_limit_type": "Begrenzung",
+    "invite_time_limited": "Zeit begrenzen",
+    "invite_usage_limited": "Nutzungen begrenzen",
+    "invite_hours_valid": "Stunden gültig",
+    "invite_duration_hours": {
+      "one": "{count} Stunde",
+      "other": "{count} Stunden"
+    },
+    "invite_duration_days": {
+      "one": "{count} Tag",
+      "other": "{count} Tage"
+    },
+    "invite_quick_1_day": "1 Tag",
+    "invite_quick_3_days": "3 Tage",
+    "invite_quick_1_week": "1 Woche",
+    "share_invite_time_hint": "Teile diesen Link innerhalb von {duration}.",
+    "share_invite_use_hint": "Teile diesen Link. Er kann {count} Mal genutzt werden."
   },
   "settings": {
     "kicker": "Benutzereinstellungen",
@@ -486,7 +507,14 @@
       "invite_validity": "Einladungsdauer",
       "invite_24h": "24 Stunden",
       "invite_x_uses": "Begrenzte Nutzungen",
-      "invite_max_uses": "{count} Nutzungen"
+      "invite_max_uses": "{count} Nutzungen",
+      "invite_time_limited": "Zeit begrenzen",
+      "invite_usage_limited": "Nutzungen begrenzen",
+      "invite_hours_valid": "{count} Stunden",
+      "invite_duration_days": "{count} Tage",
+      "invite_quick_1_day": "1 Tag",
+      "invite_quick_3_days": "3 Tage",
+      "invite_quick_1_week": "1 Woche"
     },
     "list": {
       "fallback_title": "Liste",

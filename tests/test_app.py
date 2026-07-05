@@ -1497,6 +1497,21 @@ def test_household_invite_max_uses_limits_distinct_members(client) -> None:
     )
 
 
+def test_household_invite_rejects_unbounded_links(client) -> None:
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households", json={"name": "No forever"}, headers=owner_headers
+    ).json()
+
+    response = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        headers=owner_headers,
+        json={"expires_in_hours": None},
+    )
+
+    assert response.status_code == 422
+
+
 def test_household_invite_use_claim_helper_handles_existing_full_and_racing_slots(client) -> None:
     owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
     first_user_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
