@@ -518,7 +518,9 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
         "ios_native_ui_e2e:\n    name: Native ${{ matrix.platform }} UI e2e\n    runs-on: macos-26"
         in ci_workflow
     )
-    assert ci_workflow.count("check-ios-e2e") == 1
+    assert ci_workflow.count("check-ios-e2e") == 2
+    assert "--skip-filter=listWebsocketEmitsItemLifecycleEvents" in ci_workflow
+    assert "--test-filter=listWebsocketEmitsItemLifecycleEvents" in ci_workflow
     assert ci_workflow.count("check-ios-ui-e2e") == 1
     assert "check-ios-e2e" not in testflight_workflow
     assert "check-ios-ui-e2e" not in testflight_workflow
@@ -1021,11 +1023,15 @@ def test_run_ios_e2e_invokes_swift_test_with_expected_env(monkeypatch) -> None:
         webauthn_rp_id="localhost",
         user_email="ios@example.com",
         origin="https://passkeys.example.com",
+        test_filter="accountRegistrationCreatesUsableAccount|seededPasskeyLoginAndListCrud",
+        skip_filter="listWebsocketEmitsItemLifecycleEvents",
     )
 
     assert calls == [
         (
-            "swift test --package-path ios/PlaniniIOS --filter LiveBackendE2ETests",
+            "swift test --package-path ios/PlaniniIOS "
+            "--filter 'accountRegistrationCreatesUsableAccount|seededPasskeyLoginAndListCrud' "
+            "--skip listWebsocketEmitsItemLifecycleEvents",
             {
                 "env": {
                     "PLANINI_E2E_BASE_URL": "http://localhost:8017",
@@ -1191,6 +1197,8 @@ def test_check_ios_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
         webauthn_rp_id="localhost",
         user_email="ios@example.com",
         origin="https://passkeys.example.com",
+        test_filter="LiveBackendE2ETests",
+        skip_filter="listWebsocketEmitsItemLifecycleEvents",
         host="127.0.0.1",
         port=8017,
         log_path="ios-e2e-server.log",
@@ -1220,6 +1228,8 @@ def test_check_ios_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
                 "webauthn_rp_id": "localhost",
                 "user_email": "ios@example.com",
                 "origin": "https://passkeys.example.com",
+                "test_filter": "LiveBackendE2ETests",
+                "skip_filter": "listWebsocketEmitsItemLifecycleEvents",
             },
         ),
         ("stop", {"pid_path": "ios-e2e-server.pid"}),

@@ -140,8 +140,10 @@ jobs:
         run: python -m invoke bootstrap-ci
       - name: Run Swift package tests with coverage gate
         run: cd ios/PlaniniIOS && ./Scripts/check_coverage.sh
-      - name: Run native iOS backend e2e
-        run: python -m invoke check-ios-e2e
+      - name: Run portable native iOS backend e2e
+        run: >-
+          python -m invoke check-ios-e2e
+          --skip-filter=listWebsocketEmitsItemLifecycleEvents
 
   ios_native_ui_e2e:
     name: Native ${{ matrix.platform }} UI e2e
@@ -181,6 +183,11 @@ jobs:
         run: echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix cairo)/lib:/opt/homebrew/lib:/usr/local/lib" >> "$GITHUB_ENV"
       - name: Bootstrap backend dependencies
         run: python -m invoke bootstrap-ci
+      - name: Run native Foundation WebSocket backend e2e
+        if: matrix.platform == 'iPhone'
+        run: >-
+          python -m invoke check-ios-e2e
+          --test-filter=listWebsocketEmitsItemLifecycleEvents
       - name: Install XcodeGen
         run: python -m invoke install-xcodegen
       - name: Run native ${{ matrix.platform }} UI e2e
