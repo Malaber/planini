@@ -1607,7 +1607,7 @@ final class PlaniniUITests: XCTestCase {
         before targetRow: XCUIElement,
         in app: XCUIApplication
     ) -> Bool {
-        let targetOffsets: [CGFloat] = [0.25, 0.5, 0.75]
+        let targetOffsets: [CGFloat] = [0.5, 0.25, 0.75]
         for targetOffset in targetOffsets {
             scrollToHittable(movingRow, in: app, maxSwipes: 2)
             scrollToHittable(targetRow, in: app, maxSwipes: 2)
@@ -1621,7 +1621,7 @@ final class PlaniniUITests: XCTestCase {
 
             let grabber = dragHandle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             let target = targetRow.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: targetOffset))
-            grabber.press(forDuration: 0.1, thenDragTo: target)
+            grabber.press(forDuration: 1.2, thenDragTo: target)
             if waitForCategoryRow(movingRow, before: targetRow, timeout: 1) {
                 return true
             }

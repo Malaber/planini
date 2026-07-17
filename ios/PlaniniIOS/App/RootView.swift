@@ -1,5 +1,6 @@
 import PlaniniCore
 import SwiftUI
+import UniformTypeIdentifiers
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -1564,9 +1565,7 @@ private struct ListSettingsSheet: View {
     @State private var nameSaveTask: Task<Void, Never>?
     @State private var busyCategoryID: UUID?
     @State private var draggedCategoryID: UUID?
-    @State private var categoryDragInitialOrder: [UUID] = []
     @State private var categoryDragLastTargetID: UUID?
-    @State private var categoryRowFrames: [UUID: CGRect] = [:]
     @State private var orderedCategories: [GroceryCategorySummary] = []
     @State private var pendingDisable: CategoryDisableConfirmation?
     @FocusState private var focusedField: ListSettingsFocusedField?
@@ -1659,24 +1658,32 @@ private struct ListSettingsSheet: View {
                 Label("No categories available", systemImage: "tray")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(orderedCategories) { category in
-                    categoryRow(category: category)
-                        .background {
-                            GeometryReader { geometry in
-                                Color.clear.preference(
-                                    key: CategoryRowFramePreferenceKey.self,
-                                    value: [category.id: geometry.frame(in: .global)]
+                VStack(spacing: 0) {
+                    ForEach(Array(orderedCategories.enumerated()), id: \.element.id) { index, category in
+                        categoryRow(category: category)
+                            .padding(.horizontal, 16)
+                            .onDrop(
+                                of: [.text],
+                                delegate: CategoryReorderDropDelegate(
+                                    targetCategoryID: category.id,
+                                    draggedCategoryID: $draggedCategoryID,
+                                    lastTargetCategoryID: $categoryDragLastTargetID,
+                                    orderedCategories: $orderedCategories,
+                                    onOrderChanged: saveCategoryOrder
                                 )
-                            }
+                            )
+                        if index < orderedCategories.count - 1 {
+                            Divider().padding(.leading, 44)
                         }
+                    }
                 }
+                .listRowInsets(EdgeInsets())
             }
         } header: {
             Text("Categories")
         } footer: {
             Text("Disabled categories stay hidden from item pickers for this list.")
         }
-        .onPreferenceChange(CategoryRowFramePreferenceKey.self) { categoryRowFrames = $0 }
     }
 
     private func categoryRow(category: GroceryCategorySummary) -> some View {
@@ -1689,8 +1696,11 @@ private struct ListSettingsSheet: View {
                 set(category, disabled: disabled)
             },
             isDragging: draggedCategoryID == category.id,
-            onDragChanged: { updateCategoryDrag(categoryID: category.id, locationY: $0) },
-            onDragEnded: finishCategoryDrag
+            onDrag: {
+                draggedCategoryID = category.id
+                categoryDragLastTargetID = nil
+                return NSItemProvider(object: category.id.uuidString as NSString)
+            }
         )
     }
 
@@ -1757,56 +1767,6 @@ private struct ListSettingsSheet: View {
         viewModel.saveCategoryOrderInBackground(categoryIDs: categoryIDs)
     }
 
-    private func updateCategoryDrag(categoryID: UUID, locationY: CGFloat) {
-        if draggedCategoryID != categoryID {
-            draggedCategoryID = categoryID
-            categoryDragInitialOrder = orderedCategories.map(\.id)
-            categoryDragLastTargetID = nil
-        }
-
-        guard
-            let target = categoryRowFrames.min(by: {
-                abs($0.value.midY - locationY) < abs($1.value.midY - locationY)
-            })
-        else {
-            return
-        }
-        let targetCategoryID = target.key
-        guard targetCategoryID != categoryID else {
-            categoryDragLastTargetID = nil
-            return
-        }
-        guard
-            categoryDragLastTargetID != targetCategoryID,
-            let sourceIndex = orderedCategories.firstIndex(where: { $0.id == categoryID }),
-            let targetIndex = orderedCategories.firstIndex(where: { $0.id == targetCategoryID })
-        else {
-            return
-        }
-
-        categoryDragLastTargetID = targetCategoryID
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            orderedCategories.move(
-                fromOffsets: IndexSet(integer: sourceIndex),
-                toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
-            )
-        }
-    }
-
-    private func finishCategoryDrag() {
-        guard draggedCategoryID != nil else { return }
-        let categoryIDs = orderedCategories.map(\.id)
-        let orderChanged = categoryIDs != categoryDragInitialOrder
-        draggedCategoryID = nil
-        categoryDragInitialOrder = []
-        categoryDragLastTargetID = nil
-        if orderChanged {
-            saveCategoryOrder(categoryIDs)
-        }
-    }
-
     private func syncOrderedCategories() {
         let categories = viewModel.categoriesForSettings
         if orderedCategories.map(\.id) != categories.map(\.id) {
@@ -1860,8 +1820,7 @@ private struct CategorySettingsRow: View {
     let isBusy: Bool
     let onToggleDisabled: (Bool) -> Void
     let isDragging: Bool
-    let onDragChanged: (CGFloat) -> Void
-    let onDragEnded: () -> Void
+    let onDrag: () -> NSItemProvider
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1897,11 +1856,7 @@ private struct CategorySettingsRow: View {
                 .foregroundStyle(isDragging ? Color.accentColor : Color.secondary)
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
-                .highPriorityGesture(
-                    DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                        .onChanged { onDragChanged($0.location.y) }
-                        .onEnded { _ in onDragEnded() }
-                )
+                .onDrag(onDrag)
                 .accessibilityIdentifier("category-drag-handle-\(category.id.uuidString)")
                 .accessibilityLabel("Reorder \(category.name)")
         }
@@ -1916,11 +1871,50 @@ private struct CategorySettingsRow: View {
     }
 }
 
-private struct CategoryRowFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [UUID: CGRect] = [:]
+private struct CategoryReorderDropDelegate: DropDelegate {
+    let targetCategoryID: UUID
+    @Binding var draggedCategoryID: UUID?
+    @Binding var lastTargetCategoryID: UUID?
+    @Binding var orderedCategories: [GroceryCategorySummary]
+    let onOrderChanged: ([UUID]) -> Void
 
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, newValue in newValue })
+    func dropEntered(info: DropInfo) {
+        guard
+            let draggedCategoryID,
+            draggedCategoryID != targetCategoryID,
+            lastTargetCategoryID != targetCategoryID,
+            let sourceIndex = orderedCategories.firstIndex(where: { $0.id == draggedCategoryID }),
+            let targetIndex = orderedCategories.firstIndex(where: { $0.id == targetCategoryID })
+        else {
+            return
+        }
+
+        lastTargetCategoryID = targetCategoryID
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            orderedCategories.move(
+                fromOffsets: IndexSet(integer: sourceIndex),
+                toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
+            )
+        }
+        onOrderChanged(orderedCategories.map(\.id))
+    }
+
+    func dropExited(info: DropInfo) {
+        if lastTargetCategoryID == targetCategoryID {
+            lastTargetCategoryID = nil
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedCategoryID = nil
+        lastTargetCategoryID = nil
+        return true
     }
 }
 
