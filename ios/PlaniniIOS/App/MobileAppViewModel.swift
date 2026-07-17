@@ -171,6 +171,7 @@ final class MobileAppViewModel: ObservableObject {
     private var pendingItemToggles: [PendingItemToggle]
     private var itemEditSaveRevisions: [UUID: Int] = [:]
     private var pendingPlaniniLink: PlaniniLink?
+    private var preservesUITestOfflineStatusUntilMutation = false
 
     init(
         passkeyClient: ApplePasskeyClient = ApplePasskeyClient(),
@@ -759,7 +760,7 @@ final class MobileAppViewModel: ObservableObject {
 
             lists = sortedLists(loadedLists)
             cacheLists(lists)
-            clearOfflineStatus()
+            clearOfflineStatusAfterRead()
         } catch {
             if handleSessionExpired(error) {
                 throw error
@@ -990,7 +991,7 @@ final class MobileAppViewModel: ObservableObject {
                 listID: reloadedListID
             )
             cacheListData(listData, listID: reloadedListID)
-            clearOfflineStatus()
+            clearOfflineStatusAfterRead()
         } catch {
             if handleSessionExpired(error) {
                 throw error
@@ -1472,10 +1473,17 @@ final class MobileAppViewModel: ObservableObject {
         else {
             return
         }
+        preservesUITestOfflineStatusUntilMutation = true
         showOfflineStatus(offlineStatusOverride)
     }
 
+    private func clearOfflineStatusAfterRead() {
+        guard preservesUITestOfflineStatusUntilMutation == false else { return }
+        clearOfflineStatus()
+    }
+
     private func clearOfflineStatus() {
+        preservesUITestOfflineStatusUntilMutation = false
         offlineStatusMessage = nil
     }
 
