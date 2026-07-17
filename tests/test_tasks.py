@@ -414,6 +414,11 @@ def test_capture_watch_marketing_screenshot_launches_localized_watch_and_validat
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(
+        tasks,
+        "_ensure_ios_simulator_device",
+        lambda name: calls.append(("ensure", name)),
+    )
+    monkeypatch.setattr(
         tasks.run_ios_simulators_fresh,
         "body",
         lambda c, **kwargs: calls.append(("fresh", kwargs)),
@@ -454,7 +459,7 @@ def test_capture_watch_marketing_screenshot_launches_localized_watch_and_validat
         locale="de-DE",
         artifact_dir="e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
         phone_device="iPhone 17 Pro",
-        watch_device="Apple Watch Ultra 2 (49mm)",
+        watch_device="Apple Watch Ultra 3 (49mm)",
     )
 
     screenshot_path = (
@@ -466,18 +471,19 @@ def test_capture_watch_marketing_screenshot_launches_localized_watch_and_validat
         / "app-store-watch-01-lists.png"
     )
     assert calls == [
+        ("ensure", "Apple Watch Ultra 3 (49mm)"),
         (
             "fresh",
             {
                 "phone_device": "iPhone 17 Pro",
-                "watch_device": "Apple Watch Ultra 2 (49mm)",
+                "watch_device": "Apple Watch Ultra 3 (49mm)",
                 "derived_data_path": "ios/PlaniniIOS/.derived-marketing-watch-de",
                 "backend_url_override": "http://localhost:8019",
                 "bootstrap_email": "planini-de@schaedler.rocks",
                 "initial_list_name": "Wocheneinkauf",
             },
         ),
-        ("find", (env, "Apple Watch Ultra 2 (49mm)")),
+        ("find", (env, "Apple Watch Ultra 3 (49mm)")),
         ("sleep", 4),
         ("terminate", (env, "watch-123", "de.malaber.planini.watchkitapp")),
         (
@@ -509,7 +515,7 @@ def test_capture_watch_marketing_screenshot_launches_localized_watch_and_validat
             "validate",
             (
                 "e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
-                (410, 502),
+                (422, 514),
             ),
         ),
     ]
@@ -1644,7 +1650,7 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
             "locale": "en-US",
             "artifact_dir": "e2e-artifacts/ios-marketing-screenshots/watchos/en-US",
             "phone_device": "iPhone 17 Pro",
-            "watch_device": "Apple Watch Ultra 2 (49mm)",
+            "watch_device": "Apple Watch Ultra 3 (49mm)",
         },
         {
             "base_url": "http://localhost:8019",
@@ -1654,7 +1660,7 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
             "locale": "de-DE",
             "artifact_dir": "e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
             "phone_device": "iPhone 17 Pro",
-            "watch_device": "Apple Watch Ultra 2 (49mm)",
+            "watch_device": "Apple Watch Ultra 3 (49mm)",
         },
     ]
     assert calls[-1] == ("stop", {"pid_path": "ios-marketing-screenshots-server.pid"})

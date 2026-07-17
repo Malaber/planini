@@ -114,7 +114,7 @@ compatibility mode.
    ```
    This uses a fresh polished fixture to capture matching English and German sets
    under `iphone/`, `ipad/`, and `watchos/`. It verifies the App Store-ready sizes:
-   iPhone 14 Plus `1284x2778`, 13-inch iPad `2064x2752`, and 49mm Watch `410x502`.
+   iPhone 14 Plus `1284x2778`, 13-inch iPad `2064x2752`, and 49mm Watch `422x514`.
 7. Launch from Xcode and verify:
    - the configured backend matches the build settings you generated the app with
    - passkey login succeeds for the selected backend

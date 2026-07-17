@@ -75,21 +75,21 @@ DEFAULT_IOS_MARKETING_SCREENSHOT_SEED_PATH = "app/fixtures/ios_marketing_seed.js
 DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE = "iPhone 14 Plus"
 DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_DEVICE = "iPad Pro 13-inch (M5)"
 DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_PHONE_DEVICE = "iPhone 17 Pro"
-DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_DEVICE = "Apple Watch Ultra 2 (49mm)"
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_DEVICE = "Apple Watch Ultra 3 (49mm)"
 DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST = "Weekly groceries"
 DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_USER_EMAIL = "planini-de@schaedler.rocks"
 DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_INITIAL_LIST = "Wocheneinkauf"
 DEFAULT_IOS_MARKETING_SCREENSHOT_TEST = "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
 DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE = (1284, 2778)
 DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_SIZE = (2064, 2752)
-DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_SIZE = (410, 502)
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_SIZE = (422, 514)
 DEFAULT_IOS_SIMULATOR_DESTINATION = "generic/platform=iOS Simulator"
 DEFAULT_IOS_APP_BACKEND_URL = "https://planini.malaber.de"
 DEFAULT_IOS_APP_BUNDLE_IDENTIFIER = "de.malaber.planini"
 DEFAULT_IOS_WATCH_APP_BUNDLE_IDENTIFIER = "de.malaber.planini.watchkitapp"
 DEFAULT_IOS_APP_DEVELOPMENT_TEAM = "VWKG94374J"
 DEFAULT_IOS_SIMULATOR_PHONE_DEVICE = "iPhone 17 Pro"
-DEFAULT_IOS_SIMULATOR_WATCH_DEVICE = "Apple Watch Ultra 2 (49mm)"
+DEFAULT_IOS_SIMULATOR_WATCH_DEVICE = "Apple Watch Ultra 3 (49mm)"
 IOS_PROJECT_YML_PATH = ROOT / "ios" / "PlaniniIOS" / "project.yml"
 IOS_ENTITLEMENTS_PATH = ROOT / "ios" / "PlaniniIOS" / "App" / "Planini.entitlements"
 IOS_GENERATED_CONFIG_PATH = (
@@ -762,6 +762,7 @@ def _capture_watch_marketing_screenshot(
     phone_device: str,
     watch_device: str,
 ) -> None:
+    _ensure_ios_simulator_device(watch_device)
     run_ios_simulators_fresh.body(
         c,
         phone_device=phone_device,
