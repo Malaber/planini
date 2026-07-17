@@ -1,5 +1,4 @@
-#if canImport(CryptoKit)
-import CryptoKit
+import Crypto
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -1050,4 +1049,3 @@ private extension Data {
             .replacingOccurrences(of: "=", with: "")
     }
 }
-#endif

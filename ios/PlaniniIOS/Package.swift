@@ -11,6 +11,9 @@ let package = Package(
     products: [
         .library(name: "PlaniniCore", targets: ["PlaniniCore"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "4.5.1")
+    ],
     targets: [
         .target(
             name: "PlaniniCore",
@@ -18,7 +21,10 @@ let package = Package(
         ),
         .testTarget(
             name: "PlaniniCoreTests",
-            dependencies: ["PlaniniCore"],
+            dependencies: [
+                "PlaniniCore",
+                .product(name: "Crypto", package: "swift-crypto"),
+            ],
             path: "Tests/PlaniniCoreTests"
         )
     ]

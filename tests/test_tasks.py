@@ -503,6 +503,39 @@ def test_ios_testflight_workflow_adds_pr_build_component_and_variant_icon_colors
     )
 
 
+def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
+    workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+    ci_workflow = (workflows / "ci.yml").read_text(encoding="utf-8")
+    testflight_workflow = (workflows / "ios-build-and-testflight.yml").read_text(encoding="utf-8")
+
+    assert (
+        "swift_test:\n    runs-on: ubuntu-latest\n    container:\n      image: swift:6.2"
+        in ci_workflow
+    )
+    assert "path: ios/PlaniniIOS/.build" in ci_workflow
+    assert "hashFiles('ios/PlaniniIOS/Package.resolved')" in ci_workflow
+    assert (
+        "ios_native_ui_e2e:\n    name: Native ${{ matrix.platform }} UI e2e\n    runs-on: macos-26"
+        in ci_workflow
+    )
+    assert ci_workflow.count("check-ios-e2e") == 1
+    assert ci_workflow.count("check-ios-ui-e2e") == 1
+    assert "check-ios-e2e" not in testflight_workflow
+    assert "check-ios-ui-e2e" not in testflight_workflow
+    assert "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}" in testflight_workflow
+
+
+def test_ci_skips_duplicate_main_docker_publish() -> None:
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    main_skip = "if: github.ref != 'refs/heads/main'"
+    assert workflow.count(main_skip) == 2
+    assert f"version:\n    {main_skip}" in workflow
+    assert f"docker_build_platform:\n    {main_skip}" in workflow
+
+
 def test_run_quiet_hides_successful_output() -> None:
     calls: list[tuple[str, dict]] = []
 
@@ -992,7 +1025,7 @@ def test_run_ios_e2e_invokes_swift_test_with_expected_env(monkeypatch) -> None:
 
     assert calls == [
         (
-            "xcrun swift test --package-path ios/PlaniniIOS --filter LiveBackendE2ETests",
+            "swift test --package-path ios/PlaniniIOS --filter LiveBackendE2ETests",
             {
                 "env": {
                     "PLANINI_E2E_BASE_URL": "http://localhost:8017",

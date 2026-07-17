@@ -124,31 +124,28 @@ jobs:
     container:
       image: swift:6.2
     steps:
-      - uses: actions/checkout@v4
-      - name: Run Swift package tests with coverage gate
-        run: cd ios/PlaniniIOS && ./Scripts/check_coverage.sh
-
-  ios_native_backend_e2e:
-    runs-on: macos-latest
-    steps:
       - uses: actions/checkout@v6
+      - name: Restore Swift build cache
+        uses: actions/cache@v6
+        with:
+          path: ios/PlaniniIOS/.build
+          key: swift-${{ runner.os }}-${{ runner.arch }}-6.2-${{ hashFiles('ios/PlaniniIOS/Package.resolved') }}
+          restore-keys: swift-${{ runner.os }}-${{ runner.arch }}-6.2-
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install Invoke
         run: python -m pip install invoke
-      - name: Install native image dependencies
-        run: brew install cairo
-      - name: Expose native image library path
-        run: echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix cairo)/lib:/opt/homebrew/lib:/usr/local/lib" >> "$GITHUB_ENV"
       - name: Bootstrap backend dependencies
         run: python -m invoke bootstrap-ci
+      - name: Run Swift package tests with coverage gate
+        run: cd ios/PlaniniIOS && ./Scripts/check_coverage.sh
       - name: Run native iOS backend e2e
         run: python -m invoke check-ios-e2e
 
   ios_native_ui_e2e:
     name: Native ${{ matrix.platform }} UI e2e
-    runs-on: macos-latest
+    runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
@@ -214,6 +211,7 @@ jobs:
           fi
 
   version:
+    if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       base_version: ${{ steps.version.outputs.base_version }}
@@ -236,6 +234,7 @@ jobs:
         run: python -m invoke compute-version
 
   docker_build_platform:
+    if: github.ref != 'refs/heads/main'
     runs-on: ${{ matrix.runs_on }}
     needs:
       - version

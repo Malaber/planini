@@ -1864,7 +1864,7 @@ def run_ios_e2e(
         origin=origin,
     )
     c.run(
-        "xcrun swift test --package-path ios/PlaniniIOS --filter LiveBackendE2ETests",
+        "swift test --package-path ios/PlaniniIOS --filter LiveBackendE2ETests",
         env=env,
         pty=False,
         shell="/bin/bash",
