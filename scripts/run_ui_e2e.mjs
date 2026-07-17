@@ -134,6 +134,43 @@ async function apiJson(requestContext, url, options = {}) {
   throw lastError;
 }
 
+function waitForPasskeyOptions(page, pathPattern) {
+  return page.waitForResponse((response) => {
+    const request = response.request();
+    return request.method() === "POST" && pathPattern.test(new URL(response.url()).pathname);
+  });
+}
+
+async function assertRegistrationOptions(response) {
+  assert(response.ok(), `Expected passkey registration options, got ${response.status()}`);
+  const options = await response.json();
+  assert.equal(
+    options.authenticatorSelection?.residentKey,
+    "required",
+    "Expected reusable passkey library to require a resident key",
+  );
+  assert.equal(
+    options.authenticatorSelection?.userVerification,
+    "required",
+    "Expected reusable passkey library to require user verification during registration",
+  );
+}
+
+async function assertAuthenticationOptions(response, expectedCredentialCount) {
+  assert(response.ok(), `Expected passkey authentication options, got ${response.status()}`);
+  const options = await response.json();
+  assert.equal(
+    options.userVerification,
+    "required",
+    "Expected reusable passkey library to require user verification during authentication",
+  );
+  assert.equal(
+    options.allowCredentials?.length,
+    expectedCredentialCount,
+    "Expected reusable passkey library to constrain credential management verification",
+  );
+}
+
 function isTransientApiError(error) {
   const message = String(error?.message ?? error);
   return /socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|Target page, context or browser has been closed/u.test(
@@ -682,7 +719,12 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
   const secondPasskeyName = "Laptop passkey";
   await page.getByRole("button", { name: "Add another passkey" }).click();
   await page.getByLabel("Name this passkey").fill(secondPasskeyName);
+  const registrationOptions = waitForPasskeyOptions(
+    page,
+    /\/api\/v1\/auth\/passkeys\/register\/options$/,
+  );
   await page.getByRole("button", { name: "Continue" }).click();
+  await assertRegistrationOptions(await registrationOptions);
   await expectVisible(
     page.locator("[data-passkey-success]", { hasText: "Another passkey is ready to use." }),
     "Expected passkey add success message",
@@ -704,7 +746,12 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
   const renamedPasskeyName = "Travel passkey";
   await page.locator(".passkey-row").nth(1).getByRole("button", { name: "Rename" }).click();
   await page.getByLabel("Rename this passkey").fill(renamedPasskeyName);
+  const renameOptions = waitForPasskeyOptions(
+    page,
+    /\/api\/v1\/auth\/passkeys\/[^/]+\/rename\/options$/,
+  );
   await page.getByRole("button", { name: "Save and verify" }).click();
+  await assertAuthenticationOptions(await renameOptions, 1);
   await expectVisible(
     page.locator("[data-passkey-success]", {
       hasText: "Passkey renamed after confirming it still works.",
@@ -763,7 +810,12 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
     deletePanel.locator("strong", { hasText: "another" }),
     "Expected the delete confirmation to emphasize another passkey",
   );
+  const deleteOptions = waitForPasskeyOptions(
+    page,
+    /\/api\/v1\/auth\/passkeys\/[^/]+\/delete\/options$/,
+  );
   await page.getByRole("button", { name: "Continue to verification" }).click();
+  await assertAuthenticationOptions(await deleteOptions, 1);
   await expectVisible(
     page.locator("[data-passkey-success]", {
       hasText: "Passkey deleted after confirming another one worked.",

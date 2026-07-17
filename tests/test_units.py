@@ -19,6 +19,8 @@ from app.admin import (
 from app.api.v1.routes.auth import (
     _auth_flow_session_is_valid,
     _apply_bootstrap_admin_email,
+    _begin_authentication,
+    _begin_registration,
     _new_auth_flow_session,
     _origin_for_request,
     _password_auth_disabled,
@@ -606,6 +608,16 @@ def test_passkey_request_helpers() -> None:
         assert getattr(exc, "status_code", None) == 400
     else:  # pragma: no cover
         raise AssertionError("Expected hostless passkey request to fail")
+
+    with pytest.raises(HTTPException, match="Request host is required"):
+        _begin_registration(
+            hostless_request,
+            user_id=uuid4(),
+            email="owner@example.com",
+            display_name="Owner",
+        )
+    with pytest.raises(HTTPException, match="Request host is required"):
+        _begin_authentication(hostless_request)
 
 
 def test_passkey_request_helper_prefers_configured_rp_id(monkeypatch) -> None:

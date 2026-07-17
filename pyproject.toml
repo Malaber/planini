@@ -24,6 +24,7 @@ dependencies = [
   "python-multipart>=0.0.9",
   "email-validator>=2.2.0",
   "itsdangerous>=2.2.0",
+  "fastpasskey @ https://github.com/Malaber/python-libs/archive/refs/tags/fastpasskey-v0.1.0.tar.gz",
   "webauthn>=2.7.1",
 ]
 

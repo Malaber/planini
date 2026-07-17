@@ -1,27 +1,28 @@
-import json
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
+from fastpasskey import (
+    CeremonyStart,
+    FastPasskey,
+    PasskeyConfigurationError,
+    PasskeyNameError,
+    PasskeyPayloadError,
+    PasskeyUser,
+    ceremony_state_is_valid,
+    credential_id_from_payload,
+    default_passkey_name,
+    expected_origins,
+    new_ceremony_state,
+    validate_passkey_name,
+)
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from webauthn import (
-    generate_authentication_options,
-    generate_registration_options,
-    options_to_json,
-    verify_authentication_response,
-    verify_registration_response,
-)
-from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
-from webauthn.helpers.structs import (
-    AuthenticatorSelectionCriteria,
-    PublicKeyCredentialDescriptor,
-    ResidentKeyRequirement,
-    UserVerificationRequirement,
-)
+from webauthn import verify_authentication_response, verify_registration_response
+from webauthn.helpers import bytes_to_base64url
 
 from app.api.deps import get_current_user
 from app.core.config import settings
@@ -62,6 +63,8 @@ _REGISTRATION_FAILURE_DETAIL = (
     "passkey or use a different email."
 )
 
+_expected_origins = expected_origins
+
 
 def _new_passkey(
     *,
@@ -85,104 +88,79 @@ def _new_passkey(
     return passkey
 
 
-def _configured_origin() -> str | None:
-    return settings.app_base_url
-
-
 def _is_loopback_host(hostname: str | None) -> bool:
     return hostname in {"localhost", "127.0.0.1", "::1"}
 
 
-def _configured_public_host() -> str | None:
-    configured_origin = _configured_origin()
-    if configured_origin is None:
-        return None
-    return urlparse(configured_origin).hostname
+def _passkey_service() -> FastPasskey:
+    return FastPasskey(
+        rp_name=settings.app_name,
+        rp_id=settings.webauthn_rp_id,
+        origin=settings.app_base_url,
+        flow_ttl=timedelta(seconds=settings.auth_flow_expire_seconds),
+        registration_verifier=verify_registration_response,
+        authentication_verifier=verify_authentication_response,
+    )
+
+
+def _passkey_context(request: Request) -> tuple[str, str]:
+    try:
+        return _passkey_service().resolve_context(
+            request_host=request.url.hostname,
+            request_base_url=str(request.base_url),
+        )
+    except PasskeyConfigurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _rp_id_for_request(request: Request) -> str:
-    if settings.webauthn_rp_id:
-        return settings.webauthn_rp_id
-    configured_host = _configured_public_host()
-    if configured_host:
-        return configured_host
-    host = request.url.hostname
-    if host is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Request host is required for passkeys",
-        )
-    return host
+    return _passkey_context(request)[0]
 
 
 def _origin_for_request(request: Request) -> str:
-    configured_origin = _configured_origin()
-    if configured_origin is not None:
-        return configured_origin
-    return str(request.base_url).rstrip("/")
+    return _passkey_context(request)[1]
 
 
-def _expected_origins(pending: dict[str, object]) -> list[str]:
-    origin = pending.get("origin")
-    rp_id = pending.get("rp_id")
-    origins: list[str] = []
-    if isinstance(origin, str) and origin:
-        origins.append(origin)
-    if isinstance(rp_id, str) and rp_id:
-        rp_origin = f"https://{rp_id}"
-        if rp_origin not in origins:
-            origins.append(rp_origin)
-    return origins
-
-
-def _verify_registration_with_expected_origins(
+def _begin_registration(
+    request: Request,
     *,
-    credential: dict[str, object],
-    expected_challenge: bytes,
-    expected_rp_id: str,
-    pending: dict[str, object],
-) -> object:
-    last_error: Exception | None = None
-    for expected_origin in _expected_origins(pending):
-        try:
-            return verify_registration_response(
-                credential=credential,
-                expected_challenge=expected_challenge,
-                expected_rp_id=expected_rp_id,
-                expected_origin=expected_origin,
-                require_user_verification=True,
-            )
-        except Exception as exc:  # pragma: no cover - covered via tests with monkeypatch
-            last_error = exc
-    assert last_error is not None
-    raise last_error
+    user_id: UUID,
+    email: str,
+    display_name: str,
+    exclude_credential_ids: Iterable[str] = (),
+    state_payload: Mapping[str, object] | None = None,
+) -> CeremonyStart:
+    try:
+        return _passkey_service().begin_registration(
+            user=PasskeyUser(
+                id=user_id.bytes,
+                name=email,
+                display_name=display_name,
+            ),
+            request_host=request.url.hostname,
+            request_base_url=str(request.base_url),
+            exclude_credential_ids=exclude_credential_ids,
+            state_payload=state_payload,
+        )
+    except PasskeyConfigurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _verify_authentication_with_expected_origins(
+def _begin_authentication(
+    request: Request,
     *,
-    credential: dict[str, object],
-    expected_challenge: bytes,
-    expected_rp_id: str,
-    pending: dict[str, object],
-    credential_public_key: bytes,
-    credential_current_sign_count: int,
-) -> object:
-    last_error: Exception | None = None
-    for expected_origin in _expected_origins(pending):
-        try:
-            return verify_authentication_response(
-                credential=credential,
-                expected_challenge=expected_challenge,
-                expected_rp_id=expected_rp_id,
-                expected_origin=expected_origin,
-                credential_public_key=credential_public_key,
-                credential_current_sign_count=credential_current_sign_count,
-                require_user_verification=True,
-            )
-        except Exception as exc:  # pragma: no cover - covered via tests with monkeypatch
-            last_error = exc
-    assert last_error is not None
-    raise last_error
+    allow_credential_ids: Iterable[str] | None = None,
+    state_payload: Mapping[str, object] | None = None,
+) -> CeremonyStart:
+    try:
+        return _passkey_service().begin_authentication(
+            request_host=request.url.hostname,
+            request_base_url=str(request.base_url),
+            allow_credential_ids=allow_credential_ids,
+            state_payload=state_payload,
+        )
+    except PasskeyConfigurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _password_auth_disabled() -> HTTPException:
@@ -193,36 +171,21 @@ def _password_auth_disabled() -> HTTPException:
 
 
 def _credential_id_from_payload(payload: PasskeyFinishRequest) -> str:
-    credential_id = payload.credential.get("id")
-    if not isinstance(credential_id, str) or not credential_id:
-        raise HTTPException(status_code=400, detail="Credential id is required")
-    return credential_id
+    try:
+        return credential_id_from_payload(payload.credential)
+    except PasskeyPayloadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _new_auth_flow_session(**payload: object) -> dict[str, object]:
-    return {
-        **payload,
-        "issued_at": datetime.now(UTC).isoformat(),
-    }
+    return new_ceremony_state(**payload)
 
 
 def _auth_flow_session_is_valid(pending: dict[str, object] | None) -> bool:
-    if pending is None or not isinstance(pending, dict):
-        return False
-
-    issued_at_raw = pending.get("issued_at")
-    if not isinstance(issued_at_raw, str):
-        return False
-
-    try:
-        issued_at = datetime.fromisoformat(issued_at_raw)
-    except ValueError:
-        return False
-
-    if issued_at.tzinfo is None:
-        return False
-
-    return datetime.now(UTC) - issued_at < timedelta(seconds=settings.auth_flow_expire_seconds)
+    return ceremony_state_is_valid(
+        pending,
+        ttl=timedelta(seconds=settings.auth_flow_expire_seconds),
+    )
 
 
 async def _load_user_with_passkeys(db: AsyncSession, user_id: UUID) -> User | None:
@@ -250,21 +213,15 @@ async def _load_passkey_with_user_by_credential_id(
     return result.scalar_one_or_none()
 
 
-def _passkey_descriptor(passkey: Passkey) -> PublicKeyCredentialDescriptor:
-    return PublicKeyCredentialDescriptor(id=base64url_to_bytes(passkey.credential_id))
-
-
 def _validated_passkey_name(raw_name: str) -> str:
-    name = raw_name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Passkey name is required")
-    if len(name) > 120:
-        raise HTTPException(status_code=400, detail="Passkey name must be 120 characters or fewer")
-    return name
+    try:
+        return validate_passkey_name(raw_name)
+    except PasskeyNameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _default_passkey_name_for_count(existing_count: int) -> str:
-    return f"Passkey {existing_count + 1}"
+    return default_passkey_name(existing_count)
 
 
 async def _apply_bootstrap_admin_email(db: AsyncSession, user: User) -> User:
@@ -288,28 +245,19 @@ async def begin_passkey_registration(
     payload: PasskeyRegisterStartRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> dict:
     user_id = uuid4()
-    options = generate_registration_options(
-        rp_id=_rp_id_for_request(request),
-        rp_name=settings.app_name,
-        user_name=payload.email,
-        user_id=user_id.bytes,
-        user_display_name=payload.display_name,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.REQUIRED,
-            user_verification=UserVerificationRequirement.REQUIRED,
-        ),
+    start = _begin_registration(
+        request,
+        user_id=user_id,
+        email=payload.email,
+        display_name=payload.display_name,
+        state_payload={
+            "email": payload.email,
+            "display_name": payload.display_name,
+            "user_id": str(user_id),
+        },
     )
-    request.session[_REGISTER_SESSION_KEY] = {
-        **_new_auth_flow_session(
-            challenge=bytes_to_base64url(options.challenge),
-            email=payload.email,
-            display_name=payload.display_name,
-            origin=_origin_for_request(request),
-            rp_id=_rp_id_for_request(request),
-            user_id=str(user_id),
-        )
-    }
-    return json.loads(options_to_json(options))
+    request.session[_REGISTER_SESSION_KEY] = start.state
+    return start.options
 
 
 @router.post("/register/verify", response_model=UserOut)
@@ -326,11 +274,9 @@ async def finish_passkey_registration(
         raise HTTPException(status_code=400, detail=_REGISTRATION_FAILURE_DETAIL)
 
     try:
-        verified = _verify_registration_with_expected_origins(
+        verified = _passkey_service().verify_registration(
             credential=payload.credential,
-            expected_challenge=base64url_to_bytes(pending["challenge"]),
-            expected_rp_id=pending["rp_id"],
-            pending=pending,
+            state=pending,
         )
     except Exception as exc:  # pragma: no cover - exercised via API tests with monkeypatch
         raise HTTPException(status_code=400, detail="Passkey registration failed") from exc
@@ -370,18 +316,9 @@ async def finish_passkey_registration(
 
 @router.post("/login/options")
 async def begin_passkey_login(_: PasskeyLoginStartRequest, request: Request) -> dict:
-    options = generate_authentication_options(
-        rp_id=_rp_id_for_request(request),
-        user_verification=UserVerificationRequirement.REQUIRED,
-    )
-    request.session[_LOGIN_SESSION_KEY] = {
-        **_new_auth_flow_session(
-            challenge=bytes_to_base64url(options.challenge),
-            origin=_origin_for_request(request),
-            rp_id=_rp_id_for_request(request),
-        )
-    }
-    return json.loads(options_to_json(options))
+    start = _begin_authentication(request)
+    request.session[_LOGIN_SESSION_KEY] = start.state
+    return start.options
 
 
 @router.post("/login/verify", response_model=TokenOut)
@@ -402,11 +339,9 @@ async def finish_passkey_login(
         raise HTTPException(status_code=404, detail="No user found for that passkey")
 
     try:
-        verified = _verify_authentication_with_expected_origins(
+        verified = _passkey_service().verify_authentication(
             credential=payload.credential,
-            expected_challenge=base64url_to_bytes(pending["challenge"]),
-            expected_rp_id=pending["rp_id"],
-            pending=pending,
+            state=pending,
             credential_public_key=passkey.public_key,
             credential_current_sign_count=passkey.sign_count,
         )
@@ -438,25 +373,16 @@ async def begin_passkey_replace(
     if refreshed is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    options = generate_registration_options(
-        rp_id=_rp_id_for_request(request),
-        rp_name=settings.app_name,
-        user_name=refreshed.email,
-        user_id=refreshed.id.bytes,
-        user_display_name=refreshed.display_name,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.REQUIRED,
-            user_verification=UserVerificationRequirement.REQUIRED,
-        ),
-        exclude_credentials=[_passkey_descriptor(passkey) for passkey in refreshed.passkeys],
+    start = _begin_registration(
+        request,
+        user_id=refreshed.id,
+        email=refreshed.email,
+        display_name=refreshed.display_name,
+        exclude_credential_ids=(passkey.credential_id for passkey in refreshed.passkeys),
+        state_payload={"user_id": str(refreshed.id)},
     )
-    request.session[_SETTINGS_SESSION_KEY] = {
-        "challenge": bytes_to_base64url(options.challenge),
-        "origin": _origin_for_request(request),
-        "rp_id": _rp_id_for_request(request),
-        "user_id": str(refreshed.id),
-    }
-    return json.loads(options_to_json(options))
+    request.session[_SETTINGS_SESSION_KEY] = start.state
+    return start.options
 
 
 @router.post("/settings/passkey/verify", response_model=UserOut)
@@ -467,7 +393,8 @@ async def finish_passkey_replace(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     pending = request.session.get(_SETTINGS_SESSION_KEY)
-    if pending is None or pending["user_id"] != str(user.id):
+    if not _auth_flow_session_is_valid(pending) or pending.get("user_id") != str(user.id):
+        request.session.pop(_SETTINGS_SESSION_KEY, None)
         raise HTTPException(status_code=400, detail="Passkey settings session expired")
 
     refreshed = await _load_user_with_passkeys(db, user.id)
@@ -475,11 +402,9 @@ async def finish_passkey_replace(
         raise HTTPException(status_code=404, detail="User not found")
 
     try:
-        verified = _verify_registration_with_expected_origins(
+        verified = _passkey_service().verify_registration(
             credential=payload.credential,
-            expected_challenge=base64url_to_bytes(pending["challenge"]),
-            expected_rp_id=pending["rp_id"],
-            pending=pending,
+            state=pending,
         )
     except Exception as exc:  # pragma: no cover - exercised via API tests with monkeypatch
         raise HTTPException(status_code=400, detail="Passkey update failed") from exc
@@ -545,28 +470,19 @@ async def begin_add_passkey(
         raise HTTPException(status_code=404, detail="User not found")
     passkey_name = _validated_passkey_name(payload.name)
 
-    options = generate_registration_options(
-        rp_id=_rp_id_for_request(request),
-        rp_name=settings.app_name,
-        user_name=refreshed.email,
-        user_id=refreshed.id.bytes,
-        user_display_name=refreshed.display_name,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.REQUIRED,
-            user_verification=UserVerificationRequirement.REQUIRED,
-        ),
-        exclude_credentials=[_passkey_descriptor(passkey) for passkey in refreshed.passkeys],
+    start = _begin_registration(
+        request,
+        user_id=refreshed.id,
+        email=refreshed.email,
+        display_name=refreshed.display_name,
+        exclude_credential_ids=(passkey.credential_id for passkey in refreshed.passkeys),
+        state_payload={
+            "user_id": str(refreshed.id),
+            "name": passkey_name,
+        },
     )
-    request.session[_PASSKEY_ADD_SESSION_KEY] = {
-        **_new_auth_flow_session(
-            challenge=bytes_to_base64url(options.challenge),
-            origin=_origin_for_request(request),
-            rp_id=_rp_id_for_request(request),
-            user_id=str(refreshed.id),
-            name=passkey_name,
-        )
-    }
-    return json.loads(options_to_json(options))
+    request.session[_PASSKEY_ADD_SESSION_KEY] = start.state
+    return start.options
 
 
 @router.post("/passkeys/register/verify", response_model=PasskeyOut)
@@ -585,11 +501,9 @@ async def finish_add_passkey(
         raise HTTPException(status_code=400, detail="Passkey registration session expired")
 
     try:
-        verified = _verify_registration_with_expected_origins(
+        verified = _passkey_service().verify_registration(
             credential=payload.credential,
-            expected_challenge=base64url_to_bytes(pending["challenge"]),
-            expected_rp_id=pending["rp_id"],
-            pending=pending,
+            state=pending,
         )
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=400, detail="Passkey registration failed") from exc
@@ -622,27 +536,18 @@ async def begin_passkey_add_from_link(
     if user is None:
         raise HTTPException(status_code=404, detail="Passkey add link not found")
 
-    options = generate_registration_options(
-        rp_id=_rp_id_for_request(request),
-        rp_name=settings.app_name,
-        user_name=user.email,
-        user_id=user.id.bytes,
-        user_display_name=user.display_name,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.REQUIRED,
-            user_verification=UserVerificationRequirement.REQUIRED,
-        ),
+    start = _begin_registration(
+        request,
+        user_id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        state_payload={
+            "user_id": str(user.id),
+            "token": token,
+        },
     )
-    request.session[_PASSKEY_RESET_SESSION_KEY] = {
-        **_new_auth_flow_session(
-            challenge=bytes_to_base64url(options.challenge),
-            origin=_origin_for_request(request),
-            rp_id=_rp_id_for_request(request),
-            user_id=str(user.id),
-            token=token,
-        )
-    }
-    return json.loads(options_to_json(options))
+    request.session[_PASSKEY_RESET_SESSION_KEY] = start.state
+    return start.options
 
 
 @router.post("/passkey-add/{token}/verify", response_model=UserOut)
@@ -661,11 +566,9 @@ async def finish_passkey_add_from_link(
     user = link.user
 
     try:
-        verified = _verify_registration_with_expected_origins(
+        verified = _passkey_service().verify_registration(
             credential=payload.credential,
-            expected_challenge=base64url_to_bytes(pending["challenge"]),
-            expected_rp_id=pending["rp_id"],
-            pending=pending,
+            state=pending,
         )
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=400, detail="Passkey add failed") from exc
@@ -710,22 +613,17 @@ async def begin_rename_passkey(
     if target is None:
         raise HTTPException(status_code=404, detail="Passkey not found")
 
-    options = generate_authentication_options(
-        rp_id=_rp_id_for_request(request),
-        user_verification=UserVerificationRequirement.REQUIRED,
-        allow_credentials=[_passkey_descriptor(target)],
+    start = _begin_authentication(
+        request,
+        allow_credential_ids=[target.credential_id],
+        state_payload={
+            "user_id": str(user.id),
+            "passkey_id": str(passkey_id),
+            "name": _validated_passkey_name(payload.name),
+        },
     )
-    request.session[_PASSKEY_RENAME_SESSION_KEY] = {
-        **_new_auth_flow_session(
-            challenge=bytes_to_base64url(options.challenge),
-            origin=_origin_for_request(request),
-            rp_id=_rp_id_for_request(request),
-            user_id=str(user.id),
-            passkey_id=str(passkey_id),
-            name=_validated_passkey_name(payload.name),
-        )
-    }
-    return json.loads(options_to_json(options))
+    request.session[_PASSKEY_RENAME_SESSION_KEY] = start.state
+    return start.options
 
 
 @router.post("/passkeys/{passkey_id}/rename/verify", response_model=PasskeyOut)
@@ -761,11 +659,9 @@ async def finish_rename_passkey(
         )
 
     try:
-        verified = _verify_authentication_with_expected_origins(
+        verified = _passkey_service().verify_authentication(
             credential=payload.credential,
-            expected_challenge=base64url_to_bytes(pending["challenge"]),
-            expected_rp_id=pending["rp_id"],
-            pending=pending,
+            state=pending,
             credential_public_key=target.public_key,
             credential_current_sign_count=target.sign_count,
         )
@@ -802,21 +698,16 @@ async def begin_delete_passkey(
         raise HTTPException(status_code=400, detail="You cannot delete your last passkey")
 
     other_passkeys = [entry for entry in refreshed.passkeys if entry.id != passkey_id]
-    options = generate_authentication_options(
-        rp_id=_rp_id_for_request(request),
-        allow_credentials=[_passkey_descriptor(passkey) for passkey in other_passkeys],
-        user_verification=UserVerificationRequirement.REQUIRED,
+    start = _begin_authentication(
+        request,
+        allow_credential_ids=[passkey.credential_id for passkey in other_passkeys],
+        state_payload={
+            "user_id": str(user.id),
+            "passkey_id": str(passkey_id),
+        },
     )
-    request.session[_PASSKEY_DELETE_SESSION_KEY] = {
-        **_new_auth_flow_session(
-            challenge=bytes_to_base64url(options.challenge),
-            origin=_origin_for_request(request),
-            rp_id=_rp_id_for_request(request),
-            user_id=str(user.id),
-            passkey_id=str(passkey_id),
-        )
-    }
-    return json.loads(options_to_json(options))
+    request.session[_PASSKEY_DELETE_SESSION_KEY] = start.state
+    return start.options
 
 
 @router.post("/passkeys/{passkey_id}/delete/verify")
@@ -861,11 +752,9 @@ async def finish_delete_passkey(
         )
 
     try:
-        verified = _verify_authentication_with_expected_origins(
+        verified = _passkey_service().verify_authentication(
             credential=payload.credential,
-            expected_challenge=base64url_to_bytes(pending["challenge"]),
-            expected_rp_id=pending["rp_id"],
-            pending=pending,
+            state=pending,
             credential_public_key=confirming_passkey.public_key,
             credential_current_sign_count=confirming_passkey.sign_count,
         )
