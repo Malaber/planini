@@ -1053,22 +1053,15 @@ final class PlaniniUITests: XCTestCase {
             "Expected live updates before creating drag item."
         )
 
-        let targetCategoryID = try categoryID(
-            named: "Konserven",
-            inListNamed: initialListName,
-            accessToken: session.accessToken
-        )
         let sourceCategoryID = try categoryID(
             named: "Milch & Eier",
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
-        let targetItemName = "A UI Drag Target \(UUID().uuidString.prefix(8))"
-        let targetItemID = try createItem(
+        let targetItemName = "Tomaten"
+        let targetItemID = try itemID(
             named: targetItemName,
-            note: "",
             inListNamed: initialListName,
-            categoryID: targetCategoryID,
             accessToken: session.accessToken
         )
         XCTAssertTrue(waitForItemRow(itemID: targetItemID, named: targetItemName, in: app, timeout: 20))
@@ -1712,13 +1705,23 @@ final class PlaniniUITests: XCTestCase {
             for targetOffset in targetOffsets {
                 scrollToHittable(sourceRow, in: app, maxSwipes: 4)
                 scrollToHittable(targetElement, in: app, maxSwipes: 4)
-                guard sourceRow.waitForExistence(timeout: 3), targetElement.waitForExistence(timeout: 3) else {
-                    return false
+                guard
+                    sourceRow.waitForExistence(timeout: 3),
+                    targetElement.waitForExistence(timeout: 3),
+                    sourceRow.isHittable,
+                    targetElement.isHittable
+                else {
+                    continue
                 }
 
                 let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: sourceOffset))
                 let target = targetElement.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: targetOffset))
-                source.press(forDuration: 1.1, thenDragTo: target)
+                source.press(
+                    forDuration: 1.2,
+                    thenDragTo: target,
+                    withVelocity: .slow,
+                    thenHoldForDuration: 0.8
+                )
                 if waitForItemCategory(
                     named: itemName,
                     categoryNamed: categoryName,
