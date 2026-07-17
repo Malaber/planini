@@ -599,6 +599,31 @@ def test_ensure_ios_simulator_device_reports_missing_type(monkeypatch) -> None:
         raise AssertionError("expected missing device type to fail")
 
 
+def test_shutdown_ios_simulators_ignores_cleanup_failure(monkeypatch) -> None:
+    env = {"DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"}
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: env)
+    monkeypatch.setattr(
+        tasks.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append((command, kwargs)),
+    )
+
+    tasks._shutdown_ios_simulators()
+
+    assert calls == [
+        (
+            ["xcrun", "simctl", "shutdown", "all"],
+            {
+                "env": env,
+                "capture_output": True,
+                "text": True,
+                "check": False,
+            },
+        )
+    ]
+
+
 def test_stop_app_waits_for_exit_before_removing_pid_file(tmp_path: Path, monkeypatch) -> None:
     pid_path = tmp_path / "ui-e2e-server.pid"
     pid_path.write_text("4321\n", encoding="utf-8")
@@ -1580,6 +1605,11 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
         "_capture_watch_marketing_screenshot",
         lambda c, **kwargs: calls.append(("watch", kwargs)),
     )
+    monkeypatch.setattr(
+        tasks,
+        "_shutdown_ios_simulators",
+        lambda: calls.append(("shutdown", {})),
+    )
     monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: calls.append(("stop", kwargs)))
 
     tasks.check_ios_marketing_screenshots.body(None)
@@ -1663,6 +1693,7 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
             "watch_device": "Apple Watch Ultra 3 (49mm)",
         },
     ]
+    assert len([call for call in calls if call[0] == "shutdown"]) == 6
     assert calls[-1] == ("stop", {"pid_path": "ios-marketing-screenshots-server.pid"})
 
 

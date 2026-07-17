@@ -1118,6 +1118,16 @@ def _boot_simulator(env: dict[str, str], udid: str) -> None:
     _run_command(["xcrun", "simctl", "bootstatus", udid, "-b"], env=env)
 
 
+def _shutdown_ios_simulators() -> None:
+    subprocess.run(
+        ["xcrun", "simctl", "shutdown", "all"],
+        env=_ios_toolchain_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def _terminate_if_running(env: dict[str, str], udid: str, bundle_id: str) -> None:
     subprocess.run(
         ["xcrun", "simctl", "terminate", udid, bundle_id],
@@ -2368,32 +2378,38 @@ def check_ios_marketing_screenshots(
                 ("iphone", device_name, DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE),
                 ("ipad", ipad_device_name, DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_SIZE),
             ]:
-                run_ios_ui_e2e(
+                try:
+                    run_ios_ui_e2e(
+                        c,
+                        base_url=f"http://localhost:{port}",
+                        bootstrap_base_url=f"http://localhost:{port}",
+                        user_email=locale_user_email,
+                        artifact_dir=f"{artifact_dir}/{platform_dir}/{locale_dir}",
+                        device_name=platform_device_name,
+                        initial_list_name=locale_initial_list_name,
+                        language=language,
+                        access_token=session["access_token"],
+                        display_name=session["display_name"],
+                        only_testing=DEFAULT_IOS_MARKETING_SCREENSHOT_TEST,
+                        expected_width=expected_size[0],
+                        expected_height=expected_size[1],
+                    )
+                finally:
+                    _shutdown_ios_simulators()
+            try:
+                _capture_watch_marketing_screenshot(
                     c,
                     base_url=f"http://localhost:{port}",
-                    bootstrap_base_url=f"http://localhost:{port}",
-                    user_email=locale_user_email,
-                    artifact_dir=f"{artifact_dir}/{platform_dir}/{locale_dir}",
-                    device_name=platform_device_name,
+                    bootstrap_email=locale_user_email,
                     initial_list_name=locale_initial_list_name,
                     language=language,
-                    access_token=session["access_token"],
-                    display_name=session["display_name"],
-                    only_testing=DEFAULT_IOS_MARKETING_SCREENSHOT_TEST,
-                    expected_width=expected_size[0],
-                    expected_height=expected_size[1],
+                    locale=locale_dir,
+                    artifact_dir=f"{artifact_dir}/watchos/{locale_dir}",
+                    phone_device=watch_phone_device_name,
+                    watch_device=watch_device_name,
                 )
-            _capture_watch_marketing_screenshot(
-                c,
-                base_url=f"http://localhost:{port}",
-                bootstrap_email=locale_user_email,
-                initial_list_name=locale_initial_list_name,
-                language=language,
-                locale=locale_dir,
-                artifact_dir=f"{artifact_dir}/watchos/{locale_dir}",
-                phone_device=watch_phone_device_name,
-                watch_device=watch_device_name,
-            )
+            finally:
+                _shutdown_ios_simulators()
     finally:
         stop_app(c, pid_path=pid_path)
 
