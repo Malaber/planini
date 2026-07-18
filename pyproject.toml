@@ -24,8 +24,7 @@ dependencies = [
   "python-multipart>=0.0.9",
   "email-validator>=2.2.0",
   "itsdangerous>=2.2.0",
-  "fastpasskey @ https://github.com/Malaber/python-libs/releases/download/fastpasskey-v0.1.0/fastpasskey-0.1.0-py3-none-any.whl#sha256=0b73bcfa35cc16923e92cc8023110b838409bc522fcf629019973b994127dace",
-  "webauthn>=2.7.1",
+  "fastpasskey @ https://github.com/Malaber/python-libs/releases/download/fastpasskey-v0.2.2/fastpasskey-0.2.2-py3-none-any.whl#sha256=69c4bdcc7514cfa3244853fef9dbe121536a28c7bcd7b76e11aa52f0a2ad6aed",
 ]
 
 [project.optional-dependencies]
