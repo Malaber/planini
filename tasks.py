@@ -2129,41 +2129,52 @@ def check_ios_ui_e2e(
     attempts=2,
     only_testing="PlaniniUITests",
 ) -> None:
-    _reset_sqlite_database_file(database_url)
-    start_app(
-        c,
-        seed_path=seed_path,
-        database_url=database_url,
-        webauthn_rp_id=webauthn_rp_id,
-        host=host,
-        port=port,
-        log_path=log_path,
-        pid_path=pid_path,
-        ui_test_bootstrap_enabled=True,
-    )
-    try:
-        wait_for_app(c, url=f"http://{host}:{port}/health")
-        session = _bootstrap_ios_ui_test_session(
-            base_url=f"http://localhost:{port}",
-            user_email=user_email,
-        )
-        generate_ios_app_icons.body(c)
-        generate_ios_project.body(c)
-        run_ios_ui_e2e(
+    max_attempts = max(1, int(attempts))
+    for attempt in range(max_attempts):
+        _reset_sqlite_database_file(database_url)
+        start_app(
             c,
-            base_url=f"http://localhost:{port}",
-            bootstrap_base_url=f"http://localhost:{port}",
-            user_email=user_email,
-            artifact_dir=artifact_dir,
-            device_name=device_name,
-            initial_list_name=initial_list_name,
-            access_token=session["access_token"],
-            display_name=session["display_name"],
-            attempts=attempts,
-            only_testing=only_testing,
+            seed_path=seed_path,
+            database_url=database_url,
+            webauthn_rp_id=webauthn_rp_id,
+            host=host,
+            port=port,
+            log_path=log_path,
+            pid_path=pid_path,
+            ui_test_bootstrap_enabled=True,
         )
-    finally:
-        stop_app(c, pid_path=pid_path)
+        try:
+            wait_for_app(c, url=f"http://{host}:{port}/health")
+            session = _bootstrap_ios_ui_test_session(
+                base_url=f"http://localhost:{port}",
+                user_email=user_email,
+            )
+            if attempt == 0:
+                generate_ios_app_icons.body(c)
+                generate_ios_project.body(c)
+            run_ios_ui_e2e(
+                c,
+                base_url=f"http://localhost:{port}",
+                bootstrap_base_url=f"http://localhost:{port}",
+                user_email=user_email,
+                artifact_dir=artifact_dir,
+                device_name=device_name,
+                initial_list_name=initial_list_name,
+                access_token=session["access_token"],
+                display_name=session["display_name"],
+                attempts=1,
+                only_testing=only_testing,
+            )
+            return
+        except Exit:
+            if attempt >= max_attempts - 1:
+                raise
+            print(
+                "Retrying iOS UI e2e with a fresh backend "
+                f"(attempt {attempt + 1}/{max_attempts})..."
+            )
+        finally:
+            stop_app(c, pid_path=pid_path)
 
 
 @task(
