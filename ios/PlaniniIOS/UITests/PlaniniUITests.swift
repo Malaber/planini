@@ -2102,13 +2102,27 @@ final class PlaniniUITests: XCTestCase {
     private func tapTab(_ label: String, in app: XCUIApplication, timeout: TimeInterval = 5) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            for tabButton in tabCandidates(for: label, in: app) where tabButton.exists {
+            let existingCandidates = tabCandidates(for: label, in: app).filter(\.exists)
+            let orderedCandidates = existingCandidates.filter(\.isHittable)
+                + existingCandidates.filter { $0.isHittable == false }
+
+            for tabButton in orderedCandidates {
                 tapElement(tabButton)
-                return true
+                let selectionDeadline = min(deadline, Date().addingTimeInterval(1))
+                while Date() < selectionDeadline {
+                    if tabCandidates(for: label, in: app).contains(where: {
+                        $0.exists && $0.isSelected
+                    }) {
+                        return true
+                    }
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                }
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
-        return false
+        return tabCandidates(for: label, in: app).contains(where: {
+            $0.exists && $0.isSelected
+        })
     }
 
     private func openSettings(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
@@ -3077,9 +3091,15 @@ final class PlaniniUITests: XCTestCase {
             return
         }
 
-        let backButton = app.navigationBars.buttons.firstMatch
+        let backButton = firstExistingElement(
+            [
+                app.navigationBars.buttons["Lists"],
+                app.navigationBars.buttons["Listen"],
+            ],
+            timeout: 1
+        )
         if backButton.exists {
-            backButton.tap()
+            tapElement(backButton)
         }
     }
 
