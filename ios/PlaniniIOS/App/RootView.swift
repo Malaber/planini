@@ -1648,32 +1648,52 @@ private struct ListSettingsSheet: View {
     }
 
     private var settingsForm: some View {
-        Form {
-            listNameSection
-            categoriesSection
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                listNameSection
+                categoriesSection
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
         }
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     private var listNameSection: some View {
-        Section("List name") {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("List name")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
             TextField("List name", text: $name)
                 .focused($focusedField, equals: .name)
                 .submitLabel(.done)
                 .onSubmit(saveNameNow)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 50)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .accessibilityIdentifier("list-name-field")
         }
     }
 
     private var categoriesSection: some View {
-        Section {
-            if orderedCategories.isEmpty {
-                Label("No categories available", systemImage: "tray")
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Categories")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 0) {
+                if orderedCategories.isEmpty {
+                    Label("No categories available", systemImage: "tray")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                } else {
                     ForEach(Array(orderedCategories.enumerated()), id: \.element.id) { index, category in
                         categoryRow(category: category)
                             .padding(.horizontal, 16)
+                            .contentShape(Rectangle())
                             .onDrop(
                                 of: [.text],
                                 delegate: CategoryReorderDropDelegate(
@@ -1685,16 +1705,17 @@ private struct ListSettingsSheet: View {
                                 )
                             )
                         if index < orderedCategories.count - 1 {
-                            Divider().padding(.leading, 44)
+                            Divider().padding(.leading, 60)
                         }
                     }
                 }
-                .listRowInsets(EdgeInsets())
             }
-        } header: {
-            Text("Categories")
-        } footer: {
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
             Text("Disabled categories stay hidden from item pickers for this list.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -1708,6 +1729,7 @@ private struct ListSettingsSheet: View {
                 set(category, disabled: disabled)
             },
             isDragging: draggedCategoryID == category.id,
+            isReordering: draggedCategoryID != nil,
             onDrag: {
                 draggedCategoryID = category.id
                 categoryDragLastTargetID = nil
@@ -1832,6 +1854,7 @@ private struct CategorySettingsRow: View {
     let isBusy: Bool
     let onToggleDisabled: (Bool) -> Void
     let isDragging: Bool
+    let isReordering: Bool
     let onDrag: () -> NSItemProvider
 
     var body: some View {
@@ -1869,6 +1892,7 @@ private struct CategorySettingsRow: View {
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
                 .onDrag(onDrag)
+                .allowsHitTesting(isReordering == false || isDragging)
                 .accessibilityIdentifier("category-drag-handle-\(category.id.uuidString)")
                 .accessibilityLabel("Reorder \(category.name)")
         }
