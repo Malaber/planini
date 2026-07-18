@@ -1728,8 +1728,6 @@ private struct ListSettingsSheet: View {
             onToggleDisabled: { disabled in
                 set(category, disabled: disabled)
             },
-            isDragging: draggedCategoryID == category.id,
-            isReordering: draggedCategoryID != nil,
             onDrag: {
                 draggedCategoryID = category.id
                 categoryDragLastTargetID = nil
@@ -1853,8 +1851,6 @@ private struct CategorySettingsRow: View {
     let itemCount: Int
     let isBusy: Bool
     let onToggleDisabled: (Bool) -> Void
-    let isDragging: Bool
-    let isReordering: Bool
     let onDrag: () -> NSItemProvider
 
     var body: some View {
@@ -1888,11 +1884,10 @@ private struct CategorySettingsRow: View {
 
             Image(systemName: "line.3.horizontal")
                 .font(.body.weight(.semibold))
-                .foregroundStyle(isDragging ? Color.accentColor : Color.secondary)
+                .foregroundStyle(Color.secondary)
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
                 .onDrag(onDrag)
-                .allowsHitTesting(isReordering == false || isDragging)
                 .accessibilityIdentifier("category-drag-handle-\(category.id.uuidString)")
                 .accessibilityLabel("Reorder \(category.name)")
         }
