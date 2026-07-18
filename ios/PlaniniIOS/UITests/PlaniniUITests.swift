@@ -42,10 +42,15 @@ final class PlaniniUITests: XCTestCase {
         app.launchEnvironment["PLANINI_UI_TEST_RESET_APPEARANCE_MODE"] = "1"
         app.launchEnvironment["PLANINI_UI_TEST_CATEGORY_ORDER_SAVE_DELAY_MS"] = "5000"
 
+        let hostingListName = "Hosting errands"
+        let hostingListID = try normalizeListName(
+            prefixedBy: hostingListName,
+            to: hostingListName,
+            accessToken: session.accessToken
+        )
         app.launch()
 
         let listTitle = app.staticTexts["list-detail-title"]
-        let hostingListName = "Hosting errands"
         XCTAssertTrue(
             openInitialListDetail(in: app, listTitle: listTitle),
             "Expected bootstrapped initial list to open."
@@ -539,11 +544,6 @@ final class PlaniniUITests: XCTestCase {
             "Expected tapping the item check button to mark the item checked."
         )
         captureScreenshot(named: "ios-ui-checked-item")
-        let hostingListID = try normalizeListName(
-            prefixedBy: hostingListName,
-            to: hostingListName,
-            accessToken: session.accessToken
-        )
         let haushaltCategoryID = try categoryID(
             named: "Haushalt",
             inListNamed: hostingListName,
