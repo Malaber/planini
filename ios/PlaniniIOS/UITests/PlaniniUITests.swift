@@ -1786,6 +1786,30 @@ final class PlaniniUITests: XCTestCase {
             waitForList(named: listName, inHouseholdNamed: householdName, accessToken: accessToken)
         )
 
+        let inviteSheet = app.descendants(matching: .any)["household-invite-sheet"]
+        XCTAssertFalse(inviteSheet.exists)
+        XCTAssertFalse(app.segmentedControls["household-invite-mode-picker"].exists)
+
+        tapElement(app.buttons["open-household-invite-sheet-button"])
+        XCTAssertTrue(inviteSheet.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.steppers["household-invite-hours-stepper"].waitForExistence(timeout: 5))
+
+        let durationLabel = app.staticTexts["household-invite-duration-label"]
+        XCTAssertTrue(waitForElementLabel(durationLabel, containing: "1 day", timeout: 3))
+        tapElement(app.buttons["household-invite-quick-3-days-button"])
+        XCTAssertTrue(waitForElementLabel(durationLabel, containing: "3 days", timeout: 3))
+
+        let usageMode = firstExistingElement(
+            [
+                app.buttons["household-invite-mode-uses"],
+                app.buttons["Limit by uses"],
+            ],
+            timeout: 5
+        )
+        XCTAssertTrue(usageMode.exists)
+        tapElement(usageMode)
+        XCTAssertTrue(app.steppers["household-invite-max-uses-stepper"].waitForExistence(timeout: 3))
+
         tapElement(app.buttons["create-household-invite-button"])
         let inviteValue = app.staticTexts["household-invite-url-value"]
         XCTAssertTrue(inviteValue.waitForExistence(timeout: 10))
@@ -1795,11 +1819,15 @@ final class PlaniniUITests: XCTestCase {
             waitForInvitePreview(
                 inviteURL: inviteURL,
                 householdName: householdName,
-                accessToken: accessToken
+                accessToken: accessToken,
+                expectedMaxUses: 5,
+                expectedRemainingUses: 5
             )
         )
         captureScreenshot(named: "ios-ui-household-management")
 
+        tapElement(app.buttons["close-household-invite-sheet-button"])
+        XCTAssertTrue(waitForElementToDisappear(inviteSheet, timeout: 3))
         navigateBack(in: app)
         XCTAssertTrue(managementScreen.waitForExistence(timeout: 3))
         navigateBack(in: app)
@@ -2605,13 +2633,17 @@ final class PlaniniUITests: XCTestCase {
         inviteURL: String,
         householdName: String,
         accessToken: String,
+        expectedMaxUses: Int? = nil,
+        expectedRemainingUses: Int? = nil,
         timeout: TimeInterval = 8
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let preview = try? invitePreview(inviteURL: inviteURL, accessToken: accessToken),
                 preview.householdName == householdName,
-                preview.alreadyMember
+                preview.alreadyMember,
+                preview.maxUses == expectedMaxUses,
+                preview.remainingUses == expectedRemainingUses
             {
                 return true
             }
@@ -3098,10 +3130,14 @@ private struct UITestIdentifiedItem: Decodable {
 private struct UITestInvitePreview: Decodable {
     let householdName: String
     let alreadyMember: Bool
+    let maxUses: Int?
+    let remainingUses: Int?
 
     private enum CodingKeys: String, CodingKey {
         case householdName = "household_name"
         case alreadyMember = "already_member"
+        case maxUses = "max_uses"
+        case remainingUses = "remaining_uses"
     }
 }
 
