@@ -589,6 +589,12 @@ def test_ios_testflight_workflow_adds_pr_build_component_and_variant_icon_colors
         'generate-ios-app-icons --background-color="${{ matrix.icon_background_color }}"'
         in workflow
     )
+    assert "APP_STORE_CONNECT_APP_ID: '6762043307'" in workflow
+    assert (
+        'app_store_connect_app_id="${IOS_REVIEW_APP_STORE_CONNECT_APP_ID:-'
+        '$APP_STORE_CONNECT_APP_ID}"'
+    ) in workflow
+    assert '--apple-id "${{ steps.variant.outputs.app_store_connect_app_id }}"' in workflow
 
 
 def test_run_quiet_hides_successful_output() -> None:

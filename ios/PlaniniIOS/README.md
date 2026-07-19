@@ -285,6 +285,7 @@ Set these GitHub Actions secrets before dispatching the TestFlight upload workfl
 - `BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`
 - `BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64`
 - `IOS_REVIEW_BUNDLE_IDENTIFIER` (optional; defaults to `IOS_BUNDLE_IDENTIFIER`)
+- `IOS_REVIEW_APP_STORE_CONNECT_APP_ID` (optional; defaults to the production App Store Connect app ID)
 - `BUILD_REVIEW_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_PROVISION_PROFILE_BASE64`)
 - `BUILD_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WATCH_APP_PROVISION_PROFILE_BASE64`)
 - `BUILD_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`)
@@ -299,6 +300,10 @@ The workflow commits these non-secret signing constants directly:
 
 - Apple team ID: `VWKG94374J`
 - production bundle ID: `de.malaber.planini`
+- production App Store Connect app ID: `6762043307`
+
+The upload command passes the numeric App Store Connect app ID explicitly because Xcode 26
+can fail to resolve it from the bundle ID when multiple matching app IDs exist.
 
 Each watch target needs its own profile because Apple provisioning profiles are bound to one App ID. Create App Store distribution profiles for:
 
