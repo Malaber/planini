@@ -480,22 +480,6 @@ final class PlaniniUITests: XCTestCase {
 
         let restoredItemRow = itemRow(itemID: restoredItemID, in: app)
         XCTAssertTrue(openEditItemSheet(itemID: restoredItemID, using: restoredItemRow, in: app))
-        let undoButton = firstExistingElement(
-            [
-                app.buttons["edit-item-undo-button"],
-                app.buttons["Undo"],
-                app.buttons["Ruckgangig"],
-            ],
-            timeout: 3
-        )
-        let redoButton = firstExistingElement(
-            [
-                app.buttons["edit-item-redo-button"],
-                app.buttons["Redo"],
-                app.buttons["Wiederholen"],
-            ],
-            timeout: 3
-        )
         let closeButton = app.buttons["edit-item-close-button"]
         XCTAssertTrue(closeButton.waitForExistence(timeout: 3))
         captureScreenshot(named: "promotion-edit-item-dialogue")
@@ -506,15 +490,20 @@ final class PlaniniUITests: XCTestCase {
         editNameField.typeText(" Updated")
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
         XCTAssertTrue(waitForEditStatus("saved", app: app))
+        dismissKeyboard(in: app)
 
+        let undoButton = app.buttons["edit-item-undo-button"]
         XCTAssertTrue(undoButton.waitForExistence(timeout: 3))
-        undoButton.tap()
+        XCTAssertTrue(undoButton.isEnabled)
+        tapElement(undoButton)
         XCTAssertTrue(waitForFieldValue(editNameField, contains: itemName))
         XCTAssertFalse(editNameField.valueText.contains("Updated"))
         XCTAssertTrue(waitForEditStatus("saved", app: app))
 
+        let redoButton = app.buttons["edit-item-redo-button"]
         XCTAssertTrue(redoButton.waitForExistence(timeout: 3))
-        redoButton.tap()
+        XCTAssertTrue(redoButton.isEnabled)
+        tapElement(redoButton)
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
         XCTAssertTrue(waitForEditStatus("saved", app: app))
 
