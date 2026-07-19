@@ -14,6 +14,7 @@ from fastapi.responses import (
     Response as FastAPIResponse,
 )
 from fastapi.templating import Jinja2Templates
+from fastpasskey import install_fastpasskey_templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_list_for_user
@@ -23,10 +24,11 @@ from app.i18n import encode_catalog, translator_for
 from app.models import User
 from app.services.auth_sessions import create_auth_session, get_session_user, revoke_auth_session
 from app.services.passkey_reset import get_user_for_passkey_reset_token
-from app.api.v1.routes.auth import _load_user_with_passkeys_by_email
+from app.services.passkey_repository import load_user_with_passkeys_by_email
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/web/templates")
+install_fastpasskey_templates(templates.env)
 static_root = Path("app/web/static")
 MUTABLE_STATIC_ASSETS = ("app.css", "app.js")
 LINK_PREVIEW_IMAGE_PATH = "/static/img/link-preview.png"
@@ -419,7 +421,7 @@ async def local_login_submit(
             status_code=303,
         )
 
-    user = await _load_user_with_passkeys_by_email(db, normalized_email)
+    user = await load_user_with_passkeys_by_email(db, normalized_email)
     if user is None:
         return templates.TemplateResponse(
             request,

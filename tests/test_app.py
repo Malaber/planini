@@ -12,11 +12,10 @@ from sqlalchemy.exc import IntegrityError
 from webauthn.helpers import bytes_to_base64url
 
 from app.api.v1.routes.households import _as_utc
-from app.api.v1.routes.auth import _expected_origins
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token
 from app.models import AuthSession, HouseholdInvite, HouseholdMember, Passkey, PasskeyAddLink, User
-from app.schemas.auth import PasskeyOut
+from fastpasskey import PasskeyOut
 from app.services.backups import (
     BackupConfirmationError,
     BackupConfigurationError,
@@ -1656,7 +1655,10 @@ def test_passkey_settings_replace_error_paths(client, monkeypatch) -> None:
     async def _missing_user(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr("app.api.v1.routes.auth._load_user_with_passkeys", _missing_user)
+    monkeypatch.setattr(
+        "app.services.passkey_repository.PlaniniPasskeyRepository.user_by_id",
+        _missing_user,
+    )
     missing_user_options = client.post("/api/v1/auth/settings/passkey/options", json={})
     assert missing_user_options.status_code == 404
     missing_user_verify = client.post(
@@ -1796,20 +1798,6 @@ def test_passkey_flow_uses_configured_app_base_url(client, monkeypatch) -> None:
         "https://planini.malaber.de",
         "https://planini.malaber.de",
     ]
-
-
-def test_expected_origins_handles_missing_values() -> None:
-    assert _expected_origins({}) == []
-    assert _expected_origins({"origin": "", "rp_id": ""}) == []
-
-
-def test_expected_origins_deduplicates_matching_rp_origin() -> None:
-    assert _expected_origins(
-        {
-            "origin": "https://pr.planini.malaber.de",
-            "rp_id": "pr.planini.malaber.de",
-        }
-    ) == ["https://pr.planini.malaber.de"]
 
 
 def test_login_verification_accepts_shared_rp_origin_for_native_apps(client, monkeypatch) -> None:
@@ -2076,7 +2064,7 @@ def test_passkey_auth_error_paths(client, monkeypatch) -> None:
 def test_passkey_registration_surfaces_generic_error_when_commit_conflicts(
     client, monkeypatch
 ) -> None:
-    from app.api.v1.routes import auth as auth_routes
+    from app.services import passkey_repository
 
     monkeypatch.setattr(
         "app.api.v1.routes.auth.verify_registration_response",
@@ -2089,7 +2077,11 @@ def test_passkey_registration_surfaces_generic_error_when_commit_conflicts(
     async def _raise_integrity_error(*args, **kwargs):
         raise IntegrityError("insert", {}, ValueError("duplicate"))
 
-    monkeypatch.setattr(auth_routes.AsyncSession, "commit", _raise_integrity_error)
+    monkeypatch.setattr(
+        passkey_repository.AsyncSession,
+        "commit",
+        _raise_integrity_error,
+    )
 
     verify = client.post(
         "/api/v1/auth/register/verify",
@@ -2104,7 +2096,7 @@ def test_passkey_registration_surfaces_generic_error_when_commit_conflicts(
 
 
 def test_passkey_login_reports_missing_user_for_registered_credential(client) -> None:
-    from app.api.v1.routes import auth as auth_routes
+    from app.services.passkey_repository import PlaniniPasskeyRepository
 
     client.post("/api/v1/auth/login/options", json={})
 
@@ -2116,16 +2108,16 @@ def test_passkey_login_reports_missing_user_for_registered_credential(client) ->
             user=None,
         )
 
-    auth_loader = auth_routes._load_passkey_with_user_by_credential_id
+    auth_loader = PlaniniPasskeyRepository.passkey_by_credential_id
 
     try:
-        auth_routes._load_passkey_with_user_by_credential_id = _missing_user_passkey
+        PlaniniPasskeyRepository.passkey_by_credential_id = _missing_user_passkey
         verify = client.post(
             "/api/v1/auth/login/verify",
             json=_passkey_finish_payload(),
         )
     finally:
-        auth_routes._load_passkey_with_user_by_credential_id = auth_loader
+        PlaniniPasskeyRepository.passkey_by_credential_id = auth_loader
 
     assert verify.status_code == 404
     assert verify.json()["detail"] == "No user found for that passkey"
@@ -2247,7 +2239,7 @@ def test_passkey_schema_serializes_aware_timestamps_as_utc() -> None:
 
 
 def test_passkey_management_error_paths(client, monkeypatch) -> None:
-    from app.api.v1.routes import auth as auth_routes
+    from app.services.passkey_repository import PlaniniPasskeyRepository
 
     first_credential_id = bytes_to_base64url(b"first-passkey")
     second_credential_id = bytes_to_base64url(b"second-passkey")
@@ -2277,7 +2269,7 @@ def test_passkey_management_error_paths(client, monkeypatch) -> None:
     )
     assert wrong_credential.status_code == 404
 
-    original_loader = auth_routes._load_user_with_passkeys
+    original_loader = PlaniniPasskeyRepository.user_by_id
 
     async def _missing_user(*args, **kwargs):
         return None
@@ -2289,7 +2281,7 @@ def test_passkey_management_error_paths(client, monkeypatch) -> None:
             await session.delete(passkey)
             await session.commit()
 
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", _missing_user)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", _missing_user)
     assert client.get("/api/v1/auth/passkeys", headers=headers).status_code == 404
     assert (
         client.post(
@@ -2307,7 +2299,7 @@ def test_passkey_management_error_paths(client, monkeypatch) -> None:
         ).status_code
         == 404
     )
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", original_loader)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", original_loader)
 
     blank_name = client.post(
         "/api/v1/auth/passkeys/register/options",
@@ -2424,22 +2416,22 @@ def test_passkey_management_error_paths(client, monkeypatch) -> None:
     )
     assert wrong_rename_credential.status_code == 400
 
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", _missing_user)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", _missing_user)
     missing_user_delete = client.post(
         f"/api/v1/auth/passkeys/{first_passkey_id}/delete/options",
         headers=headers,
     )
     assert missing_user_delete.status_code == 404
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", original_loader)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", original_loader)
 
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", _missing_user)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", _missing_user)
     missing_user_rename = client.post(
         f"/api/v1/auth/passkeys/{first_passkey_id}/rename/verify",
         headers=headers,
         json=_passkey_finish_payload(first_credential_id),
     )
     assert missing_user_rename.status_code == 404
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", original_loader)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", original_loader)
 
     replacement_user_id = asyncio.run(
         _create_user(
@@ -2503,14 +2495,14 @@ def test_passkey_management_error_paths(client, monkeypatch) -> None:
         ).status_code
         == 200
     )
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", _missing_user)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", _missing_user)
     missing_user_during_delete = client.post(
         f"/api/v1/auth/passkeys/{first_passkey_id}/delete/verify",
         headers=headers,
         json=_passkey_finish_payload(second_credential_id),
     )
     assert missing_user_during_delete.status_code == 404
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", original_loader)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", original_loader)
 
 
 def test_passkey_delete_verification_guards_and_duplicate_registration(client, monkeypatch) -> None:
@@ -2666,7 +2658,7 @@ def test_web_pages_require_login(client) -> None:
     assert client.get("/settings", follow_redirects=False).status_code == 303
     assert client.get("/lists/abc", follow_redirects=False).status_code == 303
 
-    script = client.get("/static/app.js")
+    script = client.get("/api/v1/auth/assets/fastpasskey.js")
     assert "navigator.credentials.create" in script.text
     assert "navigator.credentials.get" in script.text
     assert "data-auth-tab-trigger" in script.text
