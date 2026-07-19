@@ -2002,7 +2002,9 @@ private struct CategorySettingsRow: View {
                 .foregroundStyle(Color.secondary)
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
-                .onDrag(onDrag)
+                .onDrag(onDrag) {
+                    dragPreview
+                }
                 .accessibilityIdentifier("category-drag-handle-\(category.id.uuidString)")
                 .accessibilityLabel("Reorder \(category.name)")
         }
@@ -2014,6 +2016,27 @@ private struct CategorySettingsRow: View {
     private var metaText: String {
         let itemText = itemCount == 1 ? "1 item" : "\(itemCount) items"
         return disabled ? "Disabled for this list · \(itemText)" : "Enabled · \(itemText)"
+    }
+
+    private var dragPreview: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(Color(hex: category.colorHex) ?? Color.secondary.opacity(0.4))
+                .frame(width: 12, height: 12)
+            Text(category.name)
+                .font(.body.weight(.medium))
+                .lineLimit(1)
+            Spacer(minLength: 12)
+            Image(systemName: "line.3.horizontal")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color.secondary)
+        }
+        .padding(.horizontal, 14)
+        .frame(minWidth: 180, minHeight: 48)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 8, y: 4)
+        .accessibilityIdentifier("category-drag-preview-\(category.id.uuidString)")
     }
 }
 
