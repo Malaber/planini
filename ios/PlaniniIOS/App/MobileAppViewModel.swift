@@ -10,6 +10,8 @@ private enum AppBuildConfiguration {
     static let uiTestRestoreStoredSessionKey = "PLANINI_UI_TEST_RESTORE_STORED_SESSION"
     static let uiTestStoredAccessTokenOverrideKey = "PLANINI_UI_TEST_STORED_ACCESS_TOKEN_OVERRIDE"
     static let uiTestStoredDisplayNameOverrideKey = "PLANINI_UI_TEST_STORED_DISPLAY_NAME_OVERRIDE"
+    static let uiTestSiriAddItemNameKey = "PLANINI_UI_TEST_SIRI_ADD_ITEM_NAME"
+    static let uiTestSiriAddItemListNameKey = "PLANINI_UI_TEST_SIRI_ADD_ITEM_LIST_NAME"
 
     static var backendURL: URL? {
         if let overriddenURL = validatedURL(from: ProcessInfo.processInfo.environment[backendURLOverrideKey]) {
@@ -546,6 +548,7 @@ final class MobileAppViewModel: ObservableObject {
                     preferredListName: environment["PLANINI_UI_TEST_INITIAL_LIST_NAME"]
                 )
                 await handleUITestOpenURLIfNeeded()
+                await runUITestSiriAddItemIfNeeded()
                 return
             }
 
@@ -553,6 +556,7 @@ final class MobileAppViewModel: ObservableObject {
                 try await reloadAllData()
                 errorMessage = nil
                 watchSyncCoordinator.publishCurrentState()
+                await runUITestSiriAddItemIfNeeded()
                 return
             }
 
@@ -566,6 +570,7 @@ final class MobileAppViewModel: ObservableObject {
                     preferredListName: environment["PLANINI_SIMULATOR_INITIAL_LIST_NAME"]
                 )
                 await handleUITestOpenURLIfNeeded()
+                await runUITestSiriAddItemIfNeeded()
             }
         } catch {
             if handleSessionExpired(error) == false {
@@ -587,6 +592,47 @@ final class MobileAppViewModel: ObservableObject {
             return
         }
         await handleIncomingPlaniniLink(urlString)
+    }
+
+    private func runUITestSiriAddItemIfNeeded() async {
+        guard
+            processInfo.environment["PLANINI_UI_TEST_MODE"] == "1",
+            let rawName = processInfo.environment[AppBuildConfiguration.uiTestSiriAddItemNameKey]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            rawName.isEmpty == false
+        else {
+            return
+        }
+
+        let requestedListID: UUID?
+        if
+            let listName = processInfo.environment[AppBuildConfiguration.uiTestSiriAddItemListNameKey]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            listName.isEmpty == false
+        {
+            guard let matchingList = lists.first(where: { $0.name == listName }) else {
+                errorMessage = "UI test Siri list not found: \(listName)"
+                return
+            }
+            requestedListID = matchingList.id
+        } else {
+            requestedListID = nil
+        }
+
+        do {
+            sharedStateStore.save(makeSharedAppState())
+            let result = try await PlaniniIntentAddItemExecutor().addItem(
+                named: rawName,
+                requestedListID: requestedListID
+            )
+            if result.list.id == selectedListID {
+                try await reloadItems()
+            }
+            watchSyncCoordinator.publishCurrentState()
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func bootstrapSimulatorSession(email: String, preferredListName: String?) async throws {
@@ -879,15 +925,25 @@ final class MobileAppViewModel: ObservableObject {
         }
     }
 
-    func createInvite(householdID: UUID) async -> HouseholdInviteLink? {
+    func createInvite(householdID: UUID, expiresInHours: Int? = 24, maxUses: Int? = nil) async -> HouseholdInviteLink? {
         guard let backendURL, let authToken else { return nil }
+
+        var inviteBody: [String: Any] = [:]
+        if let expiresInHours {
+            inviteBody["expires_in_hours"] = expiresInHours
+        } else {
+            inviteBody["expires_in_hours"] = NSNull()
+        }
+        if let maxUses {
+            inviteBody["max_uses"] = maxUses
+        }
 
         do {
             let payload = try await requestJSON(
                 backendURL: backendURL,
                 path: "/api/v1/households/\(householdID.uuidString)/invites",
                 method: "POST",
-                body: [:],
+                body: inviteBody,
                 token: authToken
             )
             guard let invite = HouseholdInviteLink(json: payload) else {

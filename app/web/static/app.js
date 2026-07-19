@@ -352,6 +352,7 @@ function syncDashboardModalState(root) {
     root.querySelector("[data-dashboard-add-overlay]"),
     root.querySelector("[data-dashboard-household-overlay]"),
     root.querySelector("[data-dashboard-list-overlay]"),
+    root.querySelector("[data-dashboard-invite-overlay]"),
   ];
   const hasModalOpen = overlays.some((overlay) => overlay instanceof HTMLElement && !overlay.hidden);
   document.body.classList.toggle("has-list-modal-open", hasModalOpen);
@@ -372,6 +373,11 @@ function setDashboardPanelOpen(root, panelName, isOpen) {
       overlay: root.querySelector("[data-dashboard-list-overlay]"),
       panel: root.querySelector("[data-dashboard-list-panel]"),
       focus: root.querySelector("[data-list-name-input]"),
+    },
+    invite: {
+      overlay: root.querySelector("[data-dashboard-invite-overlay]"),
+      panel: root.querySelector("[data-dashboard-invite-panel]"),
+      focus: root.querySelector("[data-invite-mode]"),
     },
   };
   const toggle = root.querySelector("[data-dashboard-add-toggle]");
@@ -489,18 +495,9 @@ function renderHouseholds(root, households, listsByHousehold) {
           <h3>${household.name}</h3>
           <p class="household-meta">${translatePlural("dashboard.list_count", lists.length, {}, { one: "{count} list", other: "{count} lists" })}</p>
         </div>
-        <button type="button" class="secondary-button" data-create-invite="${household.id}">
+        <button type="button" class="secondary-button" data-open-invite-sheet="${household.id}">
           ${translate("dashboard.create_invite_link", {}, "Create invite link")}
         </button>
-      </div>
-      <div class="household-invite-output" data-invite-output="${household.id}" hidden>
-        <p class="dashboard-helper">${translate("dashboard.share_invite_hint", {}, "Share this link within 24 hours:")}</p>
-        <div class="household-invite-row">
-          <input type="text" readonly data-invite-link-input="${household.id}" />
-          <button type="button" class="secondary-button" data-copy-invite="${household.id}">
-            ${translate("common.copy", {}, "Copy")}
-          </button>
-        </div>
       </div>
     `;
 
@@ -534,6 +531,57 @@ function renderHouseholds(root, households, listsByHousehold) {
 
     container.appendChild(card);
   });
+}
+
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(String(value), 10);
+  const normalized = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.min(Math.max(normalized, min), max);
+}
+
+function inviteDurationLabel(hours) {
+  if (hours % 24 === 0) {
+    const days = hours / 24;
+    return translatePlural("dashboard.invite_duration_days", days, {}, { one: "{count} day", other: "{count} days" });
+  }
+  return translatePlural("dashboard.invite_duration_hours", hours, {}, { one: "{count} hour", other: "{count} hours" });
+}
+
+function syncInviteSheet(root) {
+  const mode = root.querySelector("[data-invite-mode]")?.value || "time";
+  const timeFields = root.querySelector("[data-invite-time-fields]");
+  const useFields = root.querySelector("[data-invite-use-fields]");
+  if (timeFields instanceof HTMLElement) {
+    timeFields.hidden = mode !== "time";
+  }
+  if (useFields instanceof HTMLElement) {
+    useFields.hidden = mode !== "uses";
+  }
+  const hoursInput = root.querySelector("[data-invite-hours-input]");
+  const label = root.querySelector("[data-invite-duration-label]");
+  if (hoursInput instanceof HTMLInputElement && label instanceof HTMLElement) {
+    const hours = boundedInteger(hoursInput.value, 24, 1, 720);
+    hoursInput.value = String(hours);
+    label.textContent = inviteDurationLabel(hours);
+  }
+}
+
+function householdInvitePayload(root) {
+  const mode = root.querySelector("[data-invite-mode]")?.value || "time";
+  if (mode === "uses") {
+    const maxUsesInput = root.querySelector("[data-invite-max-uses]");
+    const maxUses = boundedInteger(maxUsesInput?.value, 5, 1, 100);
+    if (maxUsesInput instanceof HTMLInputElement) {
+      maxUsesInput.value = String(maxUses);
+    }
+    return { expires_in_hours: null, max_uses: maxUses };
+  }
+  const hoursInput = root.querySelector("[data-invite-hours-input]");
+  const expiresInHours = boundedInteger(hoursInput?.value, 24, 1, 720);
+  if (hoursInput instanceof HTMLInputElement) {
+    hoursInput.value = String(expiresInHours);
+  }
+  return { expires_in_hours: expiresInHours };
 }
 
 async function copyText(value) {
@@ -585,35 +633,45 @@ async function initDashboard() {
   };
 
   root.addEventListener("click", async (event) => {
-    const inviteButton = event.target.closest("[data-create-invite]");
-    if (inviteButton) {
-      const householdId = inviteButton.getAttribute("data-create-invite");
-      toggleDashboardForms(root, true);
-      try {
-        const invite = await postJson(`/api/v1/households/${householdId}/invites`, {});
-        const output = root.querySelector(`[data-invite-output="${householdId}"]`);
-        const input = root.querySelector(`[data-invite-link-input="${householdId}"]`);
-        if (output && input) {
-          input.value = invite.invite_url;
-          output.hidden = false;
-        }
-        setDashboardMessage(root, "success", translate("dashboard.invite_link_created", {}, "Invite link created. It stays valid for 24 hours."));
-      } catch (error) {
-        setDashboardMessage(
-          root,
-          "error",
-          error instanceof Error ? error.message : translate("dashboard.invite_link_create_failed", {}, "Could not create the invite link.")
+    const openInviteButton = event.target.closest("[data-open-invite-sheet]");
+    if (openInviteButton) {
+      const householdId = openInviteButton.getAttribute("data-open-invite-sheet");
+      root.dataset.inviteHouseholdId = householdId || "";
+      const householdName = openInviteButton.closest(".household-card")?.querySelector("h3")?.textContent || "";
+      const householdNode = root.querySelector("[data-dashboard-invite-household]");
+      if (householdNode instanceof HTMLElement) {
+        householdNode.textContent = translate(
+          "dashboard.invite_sheet_helper",
+          { household: householdName },
+          "Choose how this invite link should stay valid for {household}."
         );
-      } finally {
-        toggleDashboardForms(root, false);
       }
+      const output = root.querySelector("[data-invite-sheet-output]");
+      const input = root.querySelector("[data-invite-sheet-link-input]");
+      if (output instanceof HTMLElement) {
+        output.hidden = true;
+      }
+      if (input instanceof HTMLInputElement) {
+        input.value = "";
+      }
+      syncInviteSheet(root);
+      setDashboardPanelOpen(root, "invite", true);
       return;
     }
 
-    const copyButton = event.target.closest("[data-copy-invite]");
-    if (copyButton) {
-      const householdId = copyButton.getAttribute("data-copy-invite");
-      const input = root.querySelector(`[data-invite-link-input="${householdId}"]`);
+    const presetButton = event.target.closest("[data-invite-hours-preset]");
+    if (presetButton) {
+      const hoursInput = root.querySelector("[data-invite-hours-input]");
+      if (hoursInput instanceof HTMLInputElement) {
+        hoursInput.value = presetButton.getAttribute("data-invite-hours-preset") || "24";
+      }
+      syncInviteSheet(root);
+      return;
+    }
+
+    const copyInviteButton = event.target.closest("[data-copy-invite-sheet]");
+    if (copyInviteButton) {
+      const input = root.querySelector("[data-invite-sheet-link-input]");
       if (!(input instanceof HTMLInputElement) || !input.value) {
         return;
       }
@@ -626,6 +684,42 @@ async function initDashboard() {
           "error",
           error instanceof Error ? error.message : translate("dashboard.invite_link_copy_failed", {}, "Could not copy the invite link.")
         );
+      }
+      return;
+    }
+
+    const inviteButton = event.target.closest("[data-create-invite]");
+    if (inviteButton) {
+      event.preventDefault();
+      const householdId = root.dataset.inviteHouseholdId;
+      if (!householdId) {
+        return;
+      }
+      toggleDashboardForms(root, true);
+      try {
+        const payload = householdInvitePayload(root);
+        const invite = await postJson(`/api/v1/households/${householdId}/invites`, payload);
+        const output = root.querySelector("[data-invite-sheet-output]");
+        const input = root.querySelector("[data-invite-sheet-link-input]");
+        const hint = root.querySelector("[data-invite-sheet-hint]");
+        if (output && input) {
+          input.value = invite.invite_url;
+          output.hidden = false;
+        }
+        if (hint instanceof HTMLElement) {
+          hint.textContent = payload.max_uses
+            ? translate("dashboard.share_invite_use_hint", { count: payload.max_uses }, "Share this link. It can be used {count} times.")
+            : translate("dashboard.share_invite_time_hint", { duration: inviteDurationLabel(payload.expires_in_hours || 24) }, "Share this link within {duration}.");
+        }
+        setDashboardMessage(root, "success", translate("dashboard.invite_link_created", {}, "Invite link created."));
+      } catch (error) {
+        setDashboardMessage(
+          root,
+          "error",
+          error instanceof Error ? error.message : translate("dashboard.invite_link_create_failed", {}, "Could not create the invite link.")
+        );
+      } finally {
+        toggleDashboardForms(root, false);
       }
       return;
     }
@@ -673,6 +767,25 @@ async function initDashboard() {
     node.addEventListener("click", () => {
       setDashboardPanelOpen(root, "list", false);
     });
+  });
+
+  root.querySelectorAll("[data-dashboard-invite-close]").forEach((node) => {
+    node.addEventListener("click", () => {
+      setDashboardPanelOpen(root, "invite", false);
+    });
+  });
+
+  root.querySelector("[data-invite-mode]")?.addEventListener("change", () => {
+    syncInviteSheet(root);
+  });
+
+  root.querySelector("[data-invite-hours-input]")?.addEventListener("input", () => {
+    syncInviteSheet(root);
+  });
+
+  root.querySelector("[data-dashboard-invite-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    root.querySelector("[data-create-invite='sheet']")?.click();
   });
 
   root.querySelectorAll("[data-dashboard-panel-back]").forEach((node) => {
@@ -5023,7 +5136,9 @@ async function initHouseholdInvite() {
     loadingNode.hidden = true;
     readyNode.hidden = false;
     householdNameNode.textContent = invite.household_name;
-    expiryNode.textContent = translate("invite.expires_on", { date: formatInviteExpiry(invite.expires_at) }, "This link expires on {date}.");
+    expiryNode.textContent = invite.expires_at
+      ? translate("invite.expires_on", { date: formatInviteExpiry(invite.expires_at) }, "This link expires on {date}.")
+      : translate("invite.remaining_uses", { count: invite.remaining_uses }, "This link has {count} uses remaining.");
     membershipNoteNode.hidden = !invite.already_member;
   } catch (error) {
     loadingNode.hidden = true;
@@ -5098,6 +5213,7 @@ export {
   updateHouseholdOptions,
   updateDashboardListOptions,
   renderHouseholds,
+  householdInvitePayload,
   loadDashboardData,
   initDashboard,
   setListMessage,

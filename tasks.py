@@ -75,6 +75,16 @@ IOS_ENTITLEMENTS_PATH = ROOT / "ios" / "PlaniniIOS" / "App" / "Planini.entitleme
 IOS_GENERATED_CONFIG_PATH = (
     ROOT / "ios" / "PlaniniIOS" / "App" / "BuildConfiguration.generated.swift"
 )
+IOS_APP_SHORTCUTS_LOCALIZATION_PATH = ROOT / "ios" / "PlaniniIOS" / "AppShortcutsLocalization"
+LOCALES_PATH = ROOT / "app" / "locales"
+IOS_APP_SHORTCUT_PHRASE_KEYS = (
+    ("Add Item in ${applicationName}", ("ios", "siri", "add_item_phrase")),
+    (
+        "Add Item to ${list} in ${applicationName}",
+        ("ios", "siri", "add_item_to_list_phrase"),
+    ),
+)
+IOS_APP_SHORTCUT_PLACEHOLDER_PATTERN = re.compile(r"\$\{[A-Za-z][A-Za-z0-9]*\}")
 STABLE_TAG_PATTERN = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 IOS_APP_ICON_BACKGROUND_PATTERN = re.compile(
     r"(\.cls-1\s*\{\s*fill:\s*)#[0-9a-fA-F]{6}(\s*;)",
@@ -1149,6 +1159,65 @@ def _ios_app_icon_svg_with_background_color(background_color: str) -> str:
     return svg
 
 
+def _ios_app_shortcuts_catalog_value(
+    catalog: dict,
+    locale: str,
+    key_path: tuple[str, ...],
+) -> str:
+    value: object = catalog
+    for key in key_path:
+        if not isinstance(value, dict) or key not in value:
+            raise Exit(f"Missing {'.'.join(key_path)} in app/locales/{locale}.json")
+        value = value[key]
+    if not isinstance(value, str) or not value.strip():
+        raise Exit(f"Expected {'.'.join(key_path)} to be a string in app/locales/{locale}.json")
+    return value
+
+
+def _escape_apple_strings_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _ios_app_shortcuts_strings_content(catalog: dict, locale: str) -> str:
+    lines = []
+    for source_phrase, key_path in IOS_APP_SHORTCUT_PHRASE_KEYS:
+        localized_phrase = _ios_app_shortcuts_catalog_value(catalog, locale, key_path)
+        expected_placeholders = set(IOS_APP_SHORTCUT_PLACEHOLDER_PATTERN.findall(source_phrase))
+        actual_placeholders = set(IOS_APP_SHORTCUT_PLACEHOLDER_PATTERN.findall(localized_phrase))
+        if actual_placeholders != expected_placeholders:
+            raise Exit(
+                f"App Shortcut placeholders for {'.'.join(key_path)} in "
+                f"app/locales/{locale}.json must be {sorted(expected_placeholders)}"
+            )
+        lines.append(
+            f'"{_escape_apple_strings_value(source_phrase)}" = '
+            f'"{_escape_apple_strings_value(localized_phrase)}";'
+        )
+    return "\n".join(lines) + "\n"
+
+
+@task
+def generate_ios_app_shortcuts_localizations(c) -> None:
+    """Generate Apple App Shortcut phrase resources from shared locale catalogs."""
+
+    locale_paths = sorted(LOCALES_PATH.glob("*.json"))
+    if not locale_paths:
+        raise Exit("No locale catalogs found in app/locales")
+
+    for locale_path in locale_paths:
+        locale = locale_path.stem
+        catalog = json.loads(locale_path.read_text(encoding="utf-8"))
+        output_path = (
+            IOS_APP_SHORTCUTS_LOCALIZATION_PATH / f"{locale}.lproj" / "AppShortcuts.strings"
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            _ios_app_shortcuts_strings_content(catalog, locale),
+            encoding="utf-8",
+        )
+        print(f"Generated {output_path.relative_to(ROOT)}")
+
+
 @task(
     help={
         "background_color": (
@@ -1571,7 +1640,7 @@ def configure_ios_app(
     help={
         "project_dir": "Directory that contains the iOS XcodeGen project spec.",
     },
-    pre=[generate_ios_app_icons],
+    pre=[generate_ios_app_icons, generate_ios_app_shortcuts_localizations],
 )
 def generate_ios_project(c, project_dir="ios/PlaniniIOS") -> None:
     c.run(
@@ -2129,41 +2198,52 @@ def check_ios_ui_e2e(
     attempts=2,
     only_testing="PlaniniUITests",
 ) -> None:
-    _reset_sqlite_database_file(database_url)
-    start_app(
-        c,
-        seed_path=seed_path,
-        database_url=database_url,
-        webauthn_rp_id=webauthn_rp_id,
-        host=host,
-        port=port,
-        log_path=log_path,
-        pid_path=pid_path,
-        ui_test_bootstrap_enabled=True,
-    )
-    try:
-        wait_for_app(c, url=f"http://{host}:{port}/health")
-        session = _bootstrap_ios_ui_test_session(
-            base_url=f"http://localhost:{port}",
-            user_email=user_email,
-        )
-        generate_ios_app_icons.body(c)
-        generate_ios_project.body(c)
-        run_ios_ui_e2e(
+    max_attempts = max(1, int(attempts))
+    for attempt in range(max_attempts):
+        _reset_sqlite_database_file(database_url)
+        start_app(
             c,
-            base_url=f"http://localhost:{port}",
-            bootstrap_base_url=f"http://localhost:{port}",
-            user_email=user_email,
-            artifact_dir=artifact_dir,
-            device_name=device_name,
-            initial_list_name=initial_list_name,
-            access_token=session["access_token"],
-            display_name=session["display_name"],
-            attempts=attempts,
-            only_testing=only_testing,
+            seed_path=seed_path,
+            database_url=database_url,
+            webauthn_rp_id=webauthn_rp_id,
+            host=host,
+            port=port,
+            log_path=log_path,
+            pid_path=pid_path,
+            ui_test_bootstrap_enabled=True,
         )
-    finally:
-        stop_app(c, pid_path=pid_path)
+        try:
+            wait_for_app(c, url=f"http://{host}:{port}/health")
+            session = _bootstrap_ios_ui_test_session(
+                base_url=f"http://localhost:{port}",
+                user_email=user_email,
+            )
+            if attempt == 0:
+                generate_ios_app_icons.body(c)
+                generate_ios_project.body(c)
+            run_ios_ui_e2e(
+                c,
+                base_url=f"http://localhost:{port}",
+                bootstrap_base_url=f"http://localhost:{port}",
+                user_email=user_email,
+                artifact_dir=artifact_dir,
+                device_name=device_name,
+                initial_list_name=initial_list_name,
+                access_token=session["access_token"],
+                display_name=session["display_name"],
+                attempts=1,
+                only_testing=only_testing,
+            )
+            return
+        except Exit:
+            if attempt >= max_attempts - 1:
+                raise
+            print(
+                "Retrying iOS UI e2e with a fresh backend "
+                f"(attempt {attempt + 1}/{max_attempts})..."
+            )
+        finally:
+            stop_app(c, pid_path=pid_path)
 
 
 @task(
