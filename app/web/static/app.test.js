@@ -8,7 +8,6 @@ import {
   createDemoItem,
   formatInviteExpiry,
   formatHiddenUntilLabel,
-  formatPasskeyDate,
   getDemoPayload,
   getPreferredLocale,
   hideItemForLater,
@@ -25,7 +24,7 @@ import {
   bindListSwitcher,
   renderCategoryOrderSettings,
   renderHouseholds,
-  renderPasskeys,
+  householdInvitePayload,
   renderItems,
   renderItemSuggestions,
   renderListSwitcher,
@@ -94,10 +93,6 @@ import {
   confirmCategoryDisable,
   saveCategoryOrderInBackground,
   setCategoryDropIndicator,
-  addPasskeyWithLink,
-  transitionAuthPanels,
-  setAuthTab,
-  initPasskeyAuth,
 } from "./app.js";
 
 function setGlobalProperty(name, value) {
@@ -191,335 +186,12 @@ test("registerServiceWorker registers the root service worker when available", a
   }
 });
 
-test("transitionAuthPanels applies and clears height animation styles", () => {
-  const dom = new JSDOM(`
-    <section>
-      <div data-auth-panels></div>
-    </section>
-  `);
-  const originals = {
-    HTMLElement: globalThis.HTMLElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-  };
-  const originalWindow = globalThis.window;
-  const root = dom.window.document.querySelector("section");
-  const panels = dom.window.document.querySelector("[data-auth-panels]");
-  let didUpdate = false;
 
-  setDomGlobals(dom);
-  setGlobalProperty("window", dom.window);
-  panels.getBoundingClientRect = () => ({ height: 120 });
-  Object.defineProperty(panels, "scrollHeight", { configurable: true, value: 220 });
 
-  try {
-    transitionAuthPanels(root, () => {
-      didUpdate = true;
-    });
-    assert.equal(didUpdate, true);
-    assert.equal(panels.style.height, "220px");
-    assert.equal(panels.style.overflow, "hidden");
 
-    panels.dispatchEvent(new dom.window.Event("transitionend"));
-    assert.equal(panels.style.height, "");
-    assert.equal(panels.style.overflow, "");
-  } finally {
-    restoreDomGlobals(originals);
-    setGlobalProperty("window", originalWindow);
-    dom.window.close();
-  }
-});
 
-test("transitionAuthPanels updates without animation when no wrapper exists", () => {
-  const dom = new JSDOM("<section></section>");
-  const originals = {
-    HTMLElement: globalThis.HTMLElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-  };
-  let didUpdate = false;
 
-  setDomGlobals(dom);
 
-  try {
-    transitionAuthPanels(dom.window.document.querySelector("section"), () => {
-      didUpdate = true;
-    });
-    assert.equal(didUpdate, true);
-  } finally {
-    restoreDomGlobals(originals);
-    dom.window.close();
-  }
-});
-
-test("transitionAuthPanels skips styles when panel height is stable", () => {
-  const dom = new JSDOM(`
-    <section>
-      <div data-auth-panels></div>
-    </section>
-  `);
-  const originals = {
-    HTMLElement: globalThis.HTMLElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-  };
-  const originalWindow = globalThis.window;
-  const root = dom.window.document.querySelector("section");
-  const panels = dom.window.document.querySelector("[data-auth-panels]");
-
-  setDomGlobals(dom);
-  setGlobalProperty("window", dom.window);
-  panels.getBoundingClientRect = () => ({ height: 120 });
-  Object.defineProperty(panels, "scrollHeight", { configurable: true, value: 120 });
-
-  try {
-    transitionAuthPanels(root, () => undefined);
-    assert.equal(panels.style.height, "");
-    assert.equal(panels.style.overflow, "");
-  } finally {
-    restoreDomGlobals(originals);
-    setGlobalProperty("window", originalWindow);
-    dom.window.close();
-  }
-});
-
-test("setAuthTab toggles panels, selected state, focus, and panel height", () => {
-  const dom = new JSDOM(`
-    <section data-passkey-auth>
-      <div data-auth-panels>
-        <div data-auth-tab-panel="signin">
-          <form data-passkey-login></form>
-        </div>
-        <div data-auth-tab-panel="signup" hidden>
-          <form data-passkey-register>
-            <input name="display_name" />
-          </form>
-        </div>
-      </div>
-      <button data-auth-tab-trigger="signin" aria-selected="true"></button>
-      <button data-auth-tab-trigger="signup" aria-selected="false"></button>
-    </section>
-  `);
-  const originals = {
-    HTMLElement: globalThis.HTMLElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-  };
-  const originalWindow = globalThis.window;
-  const root = dom.window.document.querySelector("[data-passkey-auth]");
-  const panels = dom.window.document.querySelector("[data-auth-panels]");
-
-  setDomGlobals(dom);
-  setGlobalProperty("window", dom.window);
-  panels.getBoundingClientRect = () => ({ height: 120 });
-  Object.defineProperty(panels, "scrollHeight", { configurable: true, value: 220 });
-
-  try {
-    setAuthTab(root, "signup");
-    assert.equal(root.querySelector('[data-auth-tab-panel="signin"]').hidden, true);
-    assert.equal(root.querySelector('[data-auth-tab-panel="signup"]').hidden, false);
-    assert.equal(root.querySelector('[data-auth-tab-trigger="signin"]').getAttribute("aria-selected"), "false");
-    assert.equal(root.querySelector('[data-auth-tab-trigger="signup"]').getAttribute("aria-selected"), "true");
-    assert.equal(dom.window.document.activeElement, root.querySelector('input[name="display_name"]'));
-    assert.equal(panels.style.height, "220px");
-    panels.dispatchEvent(new dom.window.Event("transitionend"));
-
-    setAuthTab(root, "signin");
-    assert.equal(root.querySelector('[data-auth-tab-panel="signin"]').hidden, false);
-    assert.equal(root.querySelector('[data-auth-tab-panel="signup"]').hidden, true);
-    assert.equal(root.querySelector('[data-auth-tab-trigger="signin"]').getAttribute("aria-selected"), "true");
-  } finally {
-    restoreDomGlobals(originals);
-    setGlobalProperty("window", originalWindow);
-    dom.window.close();
-  }
-});
-
-test("initPasskeyAuth submits registration form on Enter", async () => {
-  const dom = new JSDOM(`
-    <section data-passkey-auth data-next-url="/dashboard">
-      <p data-auth-error hidden></p>
-      <p data-auth-success hidden></p>
-      <div data-auth-panels>
-        <div data-auth-tab-panel="signin">
-          <form data-passkey-login>
-            <button type="button" data-passkey-login-button>Sign in</button>
-          </form>
-        </div>
-        <div data-auth-tab-panel="signup">
-          <form data-passkey-register>
-            <input name="display_name" value="Ada" />
-            <input name="email" value="ada@example.test" />
-            <button type="submit" data-passkey-register-button>Create passkey</button>
-          </form>
-        </div>
-      </div>
-      <button data-auth-tab-trigger="signin" aria-selected="false"></button>
-      <button data-auth-tab-trigger="signup" aria-selected="true"></button>
-    </section>
-  `, { url: "https://example.test/login" });
-  const originals = {
-    FormData: globalThis.FormData,
-    HTMLElement: globalThis.HTMLElement,
-    HTMLButtonElement: globalThis.HTMLButtonElement,
-    HTMLFormElement: globalThis.HTMLFormElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-    document: globalThis.document,
-    fetch: globalThis.fetch,
-    navigator: globalThis.navigator,
-    window: globalThis.window,
-    __appNavigateTo: globalThis.__appNavigateTo,
-  };
-  const calls = [];
-  const assigned = [];
-  let createdPublicKey = null;
-  let resolveNavigate;
-  const navigated = new Promise((resolve) => {
-    resolveNavigate = resolve;
-  });
-
-  setDomGlobals(dom);
-  setGlobalProperty("document", dom.window.document);
-  setGlobalProperty("window", dom.window);
-  dom.window.PublicKeyCredential = function PublicKeyCredential() {};
-  setGlobalProperty("navigator", {
-    credentials: {
-      create: async ({ publicKey }) => {
-        createdPublicKey = publicKey;
-        return { id: "credential-id", type: "public-key", response: {} };
-      },
-    },
-  });
-  setGlobalProperty("fetch", async (url, options) => {
-    calls.push({ url, payload: JSON.parse(options.body) });
-    if (url === "/api/v1/auth/register/options") {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ challenge: "AA", user: { id: "AQ" } }),
-      };
-    }
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    };
-  });
-  setGlobalProperty("__appNavigateTo", (url) => {
-    assigned.push(url);
-    resolveNavigate();
-  });
-
-  try {
-    initPasskeyAuth();
-    const form = dom.window.document.querySelector("[data-passkey-register]");
-    const submitted = form.dispatchEvent(
-      new dom.window.Event("submit", { bubbles: true, cancelable: true }),
-    );
-    assert.equal(submitted, false);
-    await navigated;
-
-    assert.deepEqual(calls[0], {
-      url: "/api/v1/auth/register/options",
-      payload: { email: "ada@example.test", display_name: "Ada" },
-    });
-    assert.equal(calls[1].url, "/api/v1/auth/register/verify");
-    assert.equal(calls[1].payload.credential.id, "credential-id");
-    assert.ok(createdPublicKey.challenge instanceof Uint8Array);
-    assert.ok(createdPublicKey.user.id instanceof Uint8Array);
-    assert.deepEqual(assigned, ["/dashboard"]);
-    assert.equal(dom.window.document.querySelector("[data-auth-success]").hidden, false);
-    assert.equal(dom.window.document.querySelector("[data-passkey-register-button]").disabled, false);
-  } finally {
-    restoreDomGlobals(originals);
-    setGlobalProperty("document", originals.document);
-    setGlobalProperty("fetch", originals.fetch);
-    setGlobalProperty("navigator", originals.navigator);
-    setGlobalProperty("window", originals.window);
-    setGlobalProperty("__appNavigateTo", originals.__appNavigateTo);
-    dom.window.close();
-  }
-});
-
-test("addPasskeyWithLink submits token from the one-time link path", async () => {
-  const dom = new JSDOM(`
-    <section data-passkey-add-link data-passkey-add-token="secret-token">
-      <p data-auth-error hidden></p>
-      <p data-auth-success hidden></p>
-    </section>
-  `, { url: "https://example.test/passkey-add/secret-token#identifier=abc" });
-  const originals = {
-    FormData: globalThis.FormData,
-    HTMLElement: globalThis.HTMLElement,
-    HTMLButtonElement: globalThis.HTMLButtonElement,
-    HTMLFormElement: globalThis.HTMLFormElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-  };
-  const originalFetch = globalThis.fetch;
-  const originalNavigator = globalThis.navigator;
-  const originalWindow = globalThis.window;
-  const originalCredential = globalThis.PublicKeyCredential;
-  const root = dom.window.document.querySelector("[data-passkey-add-link]");
-  const calls = [];
-
-  setDomGlobals(dom);
-  setGlobalProperty("window", dom.window);
-  setGlobalProperty("PublicKeyCredential", function PublicKeyCredential() {});
-  setGlobalProperty("navigator", {
-    credentials: {
-      create: async () => ({
-        id: "credential-id",
-        rawId: new Uint8Array([1, 2]).buffer,
-        response: {},
-        type: "public-key",
-      }),
-    },
-  });
-  setGlobalProperty("fetch", async (url, options) => {
-    const payload = JSON.parse(options.body);
-    calls.push({ url, payload });
-    return {
-      ok: true,
-      status: 200,
-      json: async () => {
-        if (url === "/api/v1/auth/passkey-add/secret-token/options") {
-          return {
-            challenge: "AQID",
-            user: { id: "BAUG" },
-            excludeCredentials: [{ id: "Bwg", type: "public-key" }],
-          };
-        }
-        return { email: "recover@example.com" };
-      },
-    };
-  });
-
-  try {
-    await addPasskeyWithLink(root);
-    assert.deepEqual(calls.map((call) => call.url), [
-      "/api/v1/auth/passkey-add/secret-token/options",
-      "/api/v1/auth/passkey-add/secret-token/verify",
-    ]);
-    assert.deepEqual(calls[0].payload, {});
-    assert.equal(calls[1].payload.credential.id, "credential-id");
-    assert.equal(root.querySelector("[data-auth-success]").hidden, false);
-  } finally {
-    restoreDomGlobals(originals);
-    setGlobalProperty("fetch", originalFetch);
-    setGlobalProperty("navigator", originalNavigator);
-    setGlobalProperty("window", originalWindow);
-    setGlobalProperty("PublicKeyCredential", originalCredential);
-    dom.window.close();
-  }
-});
-
-test("setAuthTab ignores incomplete auth markup", () => {
-  const dom = new JSDOM("<section></section>");
-  assert.doesNotThrow(() => setAuthTab(dom.window.document.querySelector("section"), "signup"));
-  dom.window.close();
-});
 
 function createListRoot() {
   const dom = new JSDOM(`
@@ -658,6 +330,12 @@ function createDashboardRoot() {
     <section data-dashboard>
       <div data-dashboard-empty></div>
       <div data-household-list></div>
+      <select data-invite-mode>
+        <option value="time">Limit by time</option>
+        <option value="uses">Limit by uses</option>
+      </select>
+      <input data-invite-hours-input value="24" />
+      <input data-invite-max-uses value="5" />
     </section>
   `);
   return {
@@ -987,6 +665,32 @@ test("renderHouseholds shows open item counts on list links", () => {
   assert.equal(document.querySelector('[href="/lists/list-1"] small').textContent, "1 open item");
   assert.equal(document.querySelector('[href="/lists/list-2"] small').textContent, "3 open items");
   assert.equal(document.body.textContent.includes("Open list"), false);
+});
+
+test("renderHouseholds exposes invite action and invite sheet payloads", () => {
+  const { document, root } = createDashboardRoot();
+
+  renderHouseholds(root, [{ id: "household-1", name: "Home" }], new Map());
+
+  assert.equal(document.querySelector('[data-open-invite-sheet="household-1"]').textContent.trim(), "Create invite link");
+  assert.deepEqual(householdInvitePayload(root), { expires_in_hours: 24 });
+
+  document.querySelector("[data-invite-mode]").value = "uses";
+  document.querySelector("[data-invite-max-uses]").value = "7";
+  assert.deepEqual(householdInvitePayload(root), {
+    expires_in_hours: null,
+    max_uses: 7,
+  });
+
+  document.querySelector("[data-invite-max-uses]").value = "500";
+  assert.deepEqual(householdInvitePayload(root), {
+    expires_in_hours: null,
+    max_uses: 100,
+  });
+
+  document.querySelector("[data-invite-mode]").value = "time";
+  document.querySelector("[data-invite-hours-input]").value = "72.5";
+  assert.deepEqual(householdInvitePayload(root), { expires_in_hours: 72 });
 });
 
 test("saveListName trims, patches, and persists the list title", async () => {
@@ -2988,63 +2692,7 @@ test("date formatters use the stored language preference", () => {
 
   try {
     storeLanguagePreference("de");
-    assert.equal(formatPasskeyDate(null), "Never used yet");
-    assert.match(formatPasskeyDate("2026-04-06T12:30:00Z"), /06\.04\.2026|06\. Apr\. 2026/);
     assert.match(formatInviteExpiry("2026-04-06T12:30:00Z"), /06\.04\.2026|06\. Apr\. 2026/);
-  } finally {
-    setGlobalProperty("document", originalDocument);
-    setGlobalProperty("navigator", originalNavigator);
-    setGlobalProperty("window", originalWindow);
-  }
-});
-
-test("renderPasskeys only shows the empty state when no passkeys exist", () => {
-  const originalDocument = globalThis.document;
-  const originalNavigator = globalThis.navigator;
-  const originalWindow = globalThis.window;
-  const dom = new JSDOM(
-    `<!doctype html>
-    <html>
-      <body>
-        <section data-passkey-management>
-          <div class="dashboard-empty" data-passkey-empty hidden>
-            <h3>No passkeys loaded</h3>
-          </div>
-          <div data-passkey-list></div>
-        </section>
-      </body>
-    </html>`,
-    { url: "https://example.test/settings" },
-  );
-
-  setGlobalProperty("document", dom.window.document);
-  setGlobalProperty("navigator", { language: "en-US" });
-  setGlobalProperty("window", dom.window);
-
-  try {
-    const root = dom.window.document.querySelector("[data-passkey-management]");
-    const emptyState = root.querySelector("[data-passkey-empty]");
-    const list = root.querySelector("[data-passkey-list]");
-
-    renderPasskeys(root, [
-      {
-        id: "passkey-1",
-        name: "Bitwarden - Listerine",
-        created_at: "2026-03-18T18:09:00Z",
-        last_used_at: "2026-05-12T18:13:00Z",
-      },
-    ]);
-
-    assert.equal(emptyState.hidden, true);
-    assert.equal(emptyState.style.display, "none");
-    assert.equal(list.querySelectorAll(".passkey-row").length, 1);
-    assert.match(list.textContent, /Bitwarden - Listerine/);
-
-    renderPasskeys(root, []);
-
-    assert.equal(emptyState.hidden, false);
-    assert.equal(emptyState.style.display, "");
-    assert.equal(list.querySelectorAll(".passkey-row").length, 0);
   } finally {
     setGlobalProperty("document", originalDocument);
     setGlobalProperty("navigator", originalNavigator);
