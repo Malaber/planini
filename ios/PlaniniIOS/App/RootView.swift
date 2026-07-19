@@ -899,8 +899,7 @@ private struct HouseholdDetailManagementScreen: View {
     let householdID: UUID
 
     @State private var showingNewList = false
-    @State private var invite: HouseholdInviteLink?
-    @State private var isCreatingInvite = false
+    @State private var showingInviteSheet = false
 
     private var household: HouseholdSummary? {
         viewModel.households.first { $0.id == householdID }
@@ -953,22 +952,114 @@ private struct HouseholdDetailManagementScreen: View {
 
             Section(l10n.t("ios.households.invites_section")) {
                 Button {
-                    Task { await createInvite() }
+                    showingInviteSheet = true
                 } label: {
-                    if isCreatingInvite {
-                        HStack {
-                            ProgressView()
-                            Text(l10n.t("ios.households.creating_invite"))
+                    Label(l10n.t("ios.households.create_invite_link"), systemImage: "link.badge.plus")
+                }
+                .accessibilityIdentifier("open-household-invite-sheet-button")
+            }
+        }
+        .navigationTitle(household?.name ?? l10n.t("ios.households.fallback_title"))
+        .sheet(isPresented: $showingNewList) {
+            CreateNamedResourceSheet(
+                title: l10n.t("ios.households.new_list"),
+                placeholder: l10n.t("ios.households.list_name"),
+                saveTitle: l10n.t("common.create"),
+                fieldIdentifier: "new-household-list-name-field",
+                saveIdentifier: "new-household-list-save-button"
+            ) { name in
+                await viewModel.createList(householdID: householdID, name: name) != nil
+            }
+        }
+        .sheet(isPresented: $showingInviteSheet) {
+            HouseholdInviteSheet(householdID: householdID)
+        }
+        .accessibilityIdentifier("household-detail-management-screen")
+    }
+}
+
+private struct HouseholdInviteSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
+    let householdID: UUID
+
+    @State private var invite: HouseholdInviteLink?
+    @State private var isCreatingInvite = false
+    @State private var inviteMode = "time"
+    @State private var inviteHours = 24
+    @State private var inviteMaxUses = 5
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker(l10n.t("ios.households.invite_validity"), selection: $inviteMode) {
+                        Text(l10n.t("ios.households.invite_time_limited"))
+                            .tag("time")
+                            .accessibilityIdentifier("household-invite-mode-time")
+                        Text(l10n.t("ios.households.invite_usage_limited"))
+                            .tag("uses")
+                            .accessibilityIdentifier("household-invite-mode-uses")
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("household-invite-mode-picker")
+                }
+
+                Section {
+                    if inviteMode == "time" {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Stepper(
+                                l10n.t("ios.households.invite_hours_valid", ["count": "\(inviteHours)"]),
+                                value: $inviteHours,
+                                in: 1...720
+                            )
+                            .accessibilityIdentifier("household-invite-hours-stepper")
+
+                            Text(formattedInviteHours(inviteHours))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("household-invite-duration-label")
+
+                            HStack {
+                                Button(l10n.t("ios.households.invite_quick_1_day")) { inviteHours = 24 }
+                                    .accessibilityIdentifier("household-invite-quick-1-day-button")
+                                Button(l10n.t("ios.households.invite_quick_3_days")) { inviteHours = 72 }
+                                    .accessibilityIdentifier("household-invite-quick-3-days-button")
+                                Button(l10n.t("ios.households.invite_quick_1_week")) { inviteHours = 168 }
+                                    .accessibilityIdentifier("household-invite-quick-1-week-button")
+                            }
+                            .buttonStyle(.bordered)
                         }
                     } else {
-                        Label(l10n.t("ios.households.create_invite_link"), systemImage: "link.badge.plus")
+                        Stepper(
+                            l10n.t("ios.households.invite_max_uses", ["count": "\(inviteMaxUses)"]),
+                            value: $inviteMaxUses,
+                            in: 1...100
+                        )
+                        .accessibilityIdentifier("household-invite-max-uses-stepper")
                     }
                 }
-                .disabled(isCreatingInvite)
-                .accessibilityIdentifier("create-household-invite-button")
+
+                Section {
+                    Button {
+                        Task { await createInvite() }
+                    } label: {
+                        if isCreatingInvite {
+                            HStack {
+                                ProgressView()
+                                Text(l10n.t("ios.households.creating_invite"))
+                            }
+                        } else {
+                            Label(l10n.t("ios.households.create_invite_link"), systemImage: "link.badge.plus")
+                        }
+                    }
+                    .disabled(isCreatingInvite)
+                    .accessibilityIdentifier("create-household-invite-button")
+                }
 
                 if let invite {
-                    VStack(alignment: .leading, spacing: 8) {
+                    Section {
                         Text(invite.inviteURL)
                             .font(.footnote.monospaced())
                             .textSelection(.enabled)
@@ -976,6 +1067,11 @@ private struct HouseholdDetailManagementScreen: View {
 
                         if let expiresAtText = formattedExpiration(for: invite) {
                             Text(l10n.t("ios.households.expires_at", ["date": expiresAtText]))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("household-invite-expiration")
+                        } else if let maxUsesText = formattedMaxUses(for: invite) {
+                            Text(maxUsesText)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .accessibilityIdentifier("household-invite-expiration")
@@ -995,23 +1091,21 @@ private struct HouseholdDetailManagementScreen: View {
                             .accessibilityIdentifier("share-household-invite-button")
                         }
                     }
-                    .padding(.vertical, 4)
                 }
             }
-        }
-        .navigationTitle(household?.name ?? l10n.t("ios.households.fallback_title"))
-        .sheet(isPresented: $showingNewList) {
-            CreateNamedResourceSheet(
-                title: l10n.t("ios.households.new_list"),
-                placeholder: l10n.t("ios.households.list_name"),
-                saveTitle: l10n.t("common.create"),
-                fieldIdentifier: "new-household-list-name-field",
-                saveIdentifier: "new-household-list-save-button"
-            ) { name in
-                await viewModel.createList(householdID: householdID, name: name) != nil
+            .navigationTitle(l10n.t("ios.households.create_invite_link"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(l10n.t("common.cancel")) { dismiss() }
+                        .accessibilityIdentifier("close-household-invite-sheet-button")
+                }
             }
+            .accessibilityIdentifier("household-invite-sheet")
         }
-        .accessibilityIdentifier("household-detail-management-screen")
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(isCreatingInvite)
     }
 
     @MainActor
@@ -1020,7 +1114,13 @@ private struct HouseholdDetailManagementScreen: View {
         isCreatingInvite = true
         defer { isCreatingInvite = false }
 
-        if let createdInvite = await viewModel.createInvite(householdID: householdID) {
+        let maxUses = inviteMode == "uses" ? inviteMaxUses : nil
+        let expiresInHours = inviteMode == "uses" ? nil : inviteHours
+        if let createdInvite = await viewModel.createInvite(
+            householdID: householdID,
+            expiresInHours: expiresInHours,
+            maxUses: maxUses
+        ) {
             invite = createdInvite
             AppHaptics.confirmation()
         }
@@ -1029,6 +1129,21 @@ private struct HouseholdDetailManagementScreen: View {
     private func formattedExpiration(for invite: HouseholdInviteLink) -> String? {
         guard let expiresAt = invite.expiresAt else { return nil }
         return inviteExpirationFormatter.string(from: expiresAt)
+    }
+
+    private func formattedMaxUses(for invite: HouseholdInviteLink) -> String? {
+        guard let maxUses = invite.maxUses else { return nil }
+        return l10n.t("ios.households.invite_max_uses", ["count": "\(maxUses)"])
+    }
+
+    private func formattedInviteHours(_ hours: Int) -> String {
+        if hours % 24 == 0 {
+            let days = hours / 24
+            let key = days == 1 ? "ios.households.invite_duration_day_one" : "ios.households.invite_duration_days"
+            return l10n.t(key, ["count": "\(days)"])
+        }
+        let key = hours == 1 ? "ios.households.invite_duration_hour_one" : "ios.households.invite_duration_hours"
+        return l10n.t(key, ["count": "\(hours)"])
     }
 
     private func copyInvite(_ inviteURL: String) {

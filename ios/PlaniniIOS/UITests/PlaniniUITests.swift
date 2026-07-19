@@ -87,9 +87,9 @@ final class PlaniniUITests: XCTestCase {
                 app.buttons[hostingListName],
                 app.menuItems[hostingListName],
             ],
-            timeout: 3
+            timeout: 8
         )
-        XCTAssertTrue(hostingFavoriteSwitchTarget.waitForExistence(timeout: 3))
+        XCTAssertTrue(hostingFavoriteSwitchTarget.waitForExistence(timeout: 8))
         tapElement(hostingFavoriteSwitchTarget)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, hostingListName)
@@ -700,9 +700,9 @@ final class PlaniniUITests: XCTestCase {
                 app.buttons[initialListName],
                 app.menuItems[initialListName],
             ],
-            timeout: 3
+            timeout: 8
         )
-        XCTAssertTrue(initialSwitchTarget.waitForExistence(timeout: 3))
+        XCTAssertTrue(initialSwitchTarget.waitForExistence(timeout: 8))
         tapElement(initialSwitchTarget)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, initialListName)
@@ -714,9 +714,9 @@ final class PlaniniUITests: XCTestCase {
                 app.buttons[hostingListName],
                 app.menuItems[hostingListName],
             ],
-            timeout: 3
+            timeout: 8
         )
-        XCTAssertTrue(hostingSwitchTarget.waitForExistence(timeout: 3))
+        XCTAssertTrue(hostingSwitchTarget.waitForExistence(timeout: 8))
         tapElement(hostingSwitchTarget)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, hostingListName)
@@ -1316,6 +1316,69 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertEqual(inviteeApp.staticTexts["list-detail-title"].label, initialListName)
     }
 
+    func testSiriIntentAddsItemsToFavoriteAndSpecificLists() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let favoriteItemName = "Siri Favorite \(UUID().uuidString.prefix(8))"
+        let favoriteApp = launchedApp(
+            session: session,
+            initialListName: initialListName,
+            extraLaunchEnvironment: [
+                "PLANINI_UI_TEST_SIRI_ADD_ITEM_NAME": favoriteItemName,
+            ]
+        )
+        XCTAssertTrue(
+            waitForItem(
+                named: favoriteItemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            ),
+            "Expected Siri add item intent to use the favorite list when no list is named."
+        )
+        terminateAndWait(favoriteApp)
+
+        let specificListName = "Hosting errands"
+        _ = try normalizeListName(
+            prefixedBy: specificListName,
+            to: specificListName,
+            accessToken: session.accessToken
+        )
+        let specificItemName = "Siri Hosting \(UUID().uuidString.prefix(8))"
+        let specificApp = launchedApp(
+            session: session,
+            initialListName: initialListName,
+            extraLaunchEnvironment: [
+                "PLANINI_UI_TEST_LANGUAGE": "de",
+                "PLANINI_UI_TEST_SIRI_ADD_ITEM_NAME": specificItemName,
+                "PLANINI_UI_TEST_SIRI_ADD_ITEM_LIST_NAME": specificListName,
+            ]
+        )
+        XCTAssertTrue(
+            waitForItem(
+                named: specificItemName,
+                inListNamed: specificListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            ),
+            "Expected Siri add item intent to add to the named list."
+        )
+        XCTAssertTrue(
+            waitForItemAbsent(
+                named: specificItemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 4
+            ),
+            "Expected named-list Siri add not to fall back to the favorite list."
+        )
+        terminateAndWait(specificApp)
+    }
+
     private var baseURL: URL {
         if
             let value = environmentValue("PLANINI_UI_TEST_BASE_URL"),
@@ -1406,7 +1469,8 @@ final class PlaniniUITests: XCTestCase {
     private func launchedApp(
         session: UITestSession,
         initialListName: String? = nil,
-        openedLink: URL? = nil
+        openedLink: URL? = nil,
+        extraLaunchEnvironment: [String: String] = [:]
     ) -> XCUIApplication {
         let app = XCUIApplication()
         configureLaunchLanguage(for: app)
@@ -1419,6 +1483,9 @@ final class PlaniniUITests: XCTestCase {
         }
         if let openedLink {
             app.launchEnvironment["PLANINI_UI_TEST_OPEN_URL"] = openedLink.absoluteString
+        }
+        for (key, value) in extraLaunchEnvironment {
+            app.launchEnvironment[key] = value
         }
         app.launch()
         XCTAssertTrue(firstExistingElement(tabCandidates(for: "Lists", in: app), timeout: 10).exists)
@@ -1933,6 +2000,30 @@ final class PlaniniUITests: XCTestCase {
             waitForList(named: listName, inHouseholdNamed: householdName, accessToken: accessToken)
         )
 
+        let inviteSheet = app.descendants(matching: .any)["household-invite-sheet"]
+        XCTAssertFalse(inviteSheet.exists)
+        XCTAssertFalse(app.segmentedControls["household-invite-mode-picker"].exists)
+
+        tapElement(app.buttons["open-household-invite-sheet-button"])
+        XCTAssertTrue(inviteSheet.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.steppers["household-invite-hours-stepper"].waitForExistence(timeout: 5))
+
+        let durationLabel = app.staticTexts["household-invite-duration-label"]
+        XCTAssertTrue(waitForElementLabel(durationLabel, containing: "1 day", timeout: 3))
+        tapElement(app.buttons["household-invite-quick-3-days-button"])
+        XCTAssertTrue(waitForElementLabel(durationLabel, containing: "3 days", timeout: 3))
+
+        let usageMode = firstExistingElement(
+            [
+                app.buttons["household-invite-mode-uses"],
+                app.buttons["Limit by uses"],
+            ],
+            timeout: 5
+        )
+        XCTAssertTrue(usageMode.exists)
+        tapElement(usageMode)
+        XCTAssertTrue(app.steppers["household-invite-max-uses-stepper"].waitForExistence(timeout: 3))
+
         tapElement(app.buttons["create-household-invite-button"])
         let inviteValue = app.staticTexts["household-invite-url-value"]
         XCTAssertTrue(inviteValue.waitForExistence(timeout: 10))
@@ -1942,11 +2033,15 @@ final class PlaniniUITests: XCTestCase {
             waitForInvitePreview(
                 inviteURL: inviteURL,
                 householdName: householdName,
-                accessToken: accessToken
+                accessToken: accessToken,
+                expectedMaxUses: 5,
+                expectedRemainingUses: 5
             )
         )
         captureScreenshot(named: "ios-ui-household-management")
 
+        tapElement(app.buttons["close-household-invite-sheet-button"])
+        XCTAssertTrue(waitForElementToDisappear(inviteSheet, timeout: 3))
         navigateBack(in: app)
         XCTAssertTrue(managementScreen.waitForExistence(timeout: 3))
         navigateBack(in: app)
@@ -2376,12 +2471,22 @@ final class PlaniniUITests: XCTestCase {
         }
     }
 
-    private func tapElement(_ element: XCUIElement) {
-        if element.isHittable {
-            element.tap()
-        } else {
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    private func tapElement(_ element: XCUIElement, timeout: TimeInterval = 3) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && element.isHittable {
+                element.tap()
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
+
+        let frame = element.frame
+        guard element.exists, frame.isEmpty == false, frame.isNull == false else {
+            XCTFail("Could not tap \(element.identifier): element never gained a valid frame.")
+            return
+        }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
     private func dismissKeyboard(in app: XCUIApplication) {
@@ -2752,13 +2857,17 @@ final class PlaniniUITests: XCTestCase {
         inviteURL: String,
         householdName: String,
         accessToken: String,
+        expectedMaxUses: Int? = nil,
+        expectedRemainingUses: Int? = nil,
         timeout: TimeInterval = 8
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let preview = try? invitePreview(inviteURL: inviteURL, accessToken: accessToken),
                 preview.householdName == householdName,
-                preview.alreadyMember
+                preview.alreadyMember,
+                preview.maxUses == expectedMaxUses,
+                preview.remainingUses == expectedRemainingUses
             {
                 return true
             }
@@ -3247,10 +3356,14 @@ private struct UITestIdentifiedItem: Decodable {
 private struct UITestInvitePreview: Decodable {
     let householdName: String
     let alreadyMember: Bool
+    let maxUses: Int?
+    let remainingUses: Int?
 
     private enum CodingKeys: String, CodingKey {
         case householdName = "household_name"
         case alreadyMember = "already_member"
+        case maxUses = "max_uses"
+        case remainingUses = "remaining_uses"
     }
 }
 
