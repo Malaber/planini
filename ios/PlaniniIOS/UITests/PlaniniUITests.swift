@@ -1084,12 +1084,14 @@ final class PlaniniUITests: XCTestCase {
         )
         XCTAssertTrue(waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 20))
 
-        let targetRow = itemRow(itemID: targetItemID, in: app)
+        let targetHeader = app.descendants(matching: .any)[
+            "category-drop-target-category-\(targetCategoryID.uuidString)"
+        ].firstMatch
         XCTAssertTrue(
             dragItemRow(
                 itemID: itemID,
                 named: itemName,
-                toCategoryTarget: targetRow,
+                toCategoryTarget: targetHeader,
                 in: app,
                 categoryName: "Konserven",
                 listName: initialListName,
