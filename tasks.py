@@ -2401,6 +2401,7 @@ def check_ios_marketing_screenshots(
                         language=language,
                         access_token=session["access_token"],
                         display_name=session["display_name"],
+                        attempts=2,
                         only_testing=DEFAULT_IOS_MARKETING_SCREENSHOT_TEST,
                         expected_width=expected_size[0],
                         expected_height=expected_size[1],

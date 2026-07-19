@@ -491,7 +491,11 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
         XCTAssertTrue(waitForEditStatus("saved", app: app))
 
-        let undoButton = app.buttons["edit-item-undo-button"]
+        let editSheet = app.otherElements["edit-item-sheet"]
+        let undoButton = firstExistingElement(
+            [editSheet.buttons["Undo"], editSheet.buttons["Rückgängig"]],
+            timeout: 3
+        )
         XCTAssertTrue(undoButton.waitForExistence(timeout: 3))
         XCTAssertTrue(undoButton.isEnabled)
         tapElement(undoButton)
@@ -499,7 +503,10 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertFalse(editNameField.valueText.contains("Updated"))
         XCTAssertTrue(waitForEditStatus("saved", app: app))
 
-        let redoButton = app.buttons["edit-item-redo-button"]
+        let redoButton = firstExistingElement(
+            [editSheet.buttons["Redo"], editSheet.buttons["Wiederholen"]],
+            timeout: 3
+        )
         XCTAssertTrue(redoButton.waitForExistence(timeout: 3))
         XCTAssertTrue(redoButton.isEnabled)
         tapElement(redoButton)

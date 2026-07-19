@@ -1750,6 +1750,7 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
         run_call[1]["only_testing"] == "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
         for run_call in run_calls
     )
+    assert all(run_call[1]["attempts"] == 2 for run_call in run_calls)
     assert [
         (run_call[1]["expected_width"], run_call[1]["expected_height"]) for run_call in run_calls
     ] == [(1284, 2778), (2064, 2752), (1284, 2778), (2064, 2752)]
