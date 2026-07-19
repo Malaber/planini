@@ -2244,26 +2244,42 @@ private struct ItemRow: View {
             : l10n.t("ios.item.check", ["name": item.name])
     }
 
+    private func restoreHiddenItem(previousHiddenUntil: Date?) async {
+        let restored = await viewModel.restoreHiddenItem(item)
+        if restored {
+            AppHaptics.itemToggle()
+            onUndoableAction(
+                l10n.t("ios.undo.item_shown_now_named", ["name": item.name]),
+                {
+                    guard let previousHiddenUntil else { return false }
+                    return await viewModel.setHiddenUntil(
+                        itemID: item.id,
+                        hiddenUntil: previousHiddenUntil
+                    )
+                }
+            )
+        }
+    }
+
+    private func hideForLater() async {
+        let hidden = await viewModel.hideForLater(item)
+        if hidden {
+            AppHaptics.itemToggle()
+            onUndoableAction(
+                l10n.t("ios.undo.item_saved_for_later_named", ["name": item.name]),
+                {
+                    await viewModel.restoreHiddenItem(item)
+                }
+            )
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Button {
                 Task {
                     if isHiddenForLater {
-                        let previousHiddenUntil = item.hiddenUntil
-                        let restored = await viewModel.restoreHiddenItem(item)
-                        if restored {
-                            AppHaptics.itemToggle()
-                            onUndoableAction(
-                                l10n.t("ios.undo.item_shown_now_named", ["name": item.name]),
-                                {
-                                    guard let previousHiddenUntil else { return false }
-                                    return await viewModel.setHiddenUntil(
-                                        itemID: item.id,
-                                        hiddenUntil: previousHiddenUntil
-                                    )
-                                }
-                            )
-                        }
+                        await restoreHiddenItem(previousHiddenUntil: item.hiddenUntil)
                     } else {
                         let wasChecked = item.checked
                         let toggled = await viewModel.toggle(item)
@@ -2326,19 +2342,20 @@ private struct ItemRow: View {
             return NSItemProvider(object: item.id.uuidString as NSString)
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if item.checked == false && isHiddenForLater == false {
+            if isHiddenForLater {
                 Button {
                     Task {
-                        let hidden = await viewModel.hideForLater(item)
-                        if hidden {
-                            AppHaptics.itemToggle()
-                            onUndoableAction(
-                                l10n.t("ios.undo.item_saved_for_later_named", ["name": item.name]),
-                                {
-                                    await viewModel.restoreHiddenItem(item)
-                                }
-                            )
-                        }
+                        await restoreHiddenItem(previousHiddenUntil: item.hiddenUntil)
+                    }
+                } label: {
+                    Label(l10n.t("ios.item.show_hidden", ["name": item.name]), systemImage: "hourglass.circle")
+                }
+                .tint(.orange)
+                .accessibilityIdentifier("unhide-item-\(item.id.uuidString)")
+            } else if item.checked == false {
+                Button {
+                    Task {
+                        await hideForLater()
                     }
                 } label: {
                     Label(l10n.t("ios.item.hide_for_later_short"), systemImage: "hourglass")
