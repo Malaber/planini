@@ -1255,6 +1255,7 @@ final class PlaniniUITests: XCTestCase {
             session: session,
             initialListName: initialListName,
             extraLaunchEnvironment: [
+                "PLANINI_UI_TEST_LANGUAGE": "de",
                 "PLANINI_UI_TEST_SIRI_ADD_ITEM_NAME": specificItemName,
                 "PLANINI_UI_TEST_SIRI_ADD_ITEM_LIST_NAME": specificListName,
             ]

@@ -480,6 +480,94 @@ def test_generate_ios_app_icons_renders_variant_svg_color(tmp_path: Path, monkey
     assert (watch_iconset_path / "Icon-24@2x.png").exists()
 
 
+def test_generate_ios_app_shortcuts_localizations_uses_all_locale_catalogs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    locales_path = tmp_path / "locales"
+    output_path = tmp_path / "AppShortcutsLocalization"
+    locales_path.mkdir()
+    catalogs = {
+        "en": {
+            "ios": {
+                "siri": {
+                    "add_item_phrase": "Add Item in ${applicationName}",
+                    "add_item_to_list_phrase": ("Add Item to ${list} in ${applicationName}"),
+                }
+            }
+        },
+        "de": {
+            "ios": {
+                "siri": {
+                    "add_item_phrase": "Mit ${applicationName} hinzufügen",
+                    "add_item_to_list_phrase": ("Mit ${applicationName} zu ${list} hinzufügen"),
+                }
+            }
+        },
+    }
+    for locale, catalog in catalogs.items():
+        (locales_path / f"{locale}.json").write_text(tasks.json.dumps(catalog), encoding="utf-8")
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "LOCALES_PATH", locales_path)
+    monkeypatch.setattr(tasks, "IOS_APP_SHORTCUTS_LOCALIZATION_PATH", output_path)
+
+    tasks.generate_ios_app_shortcuts_localizations.body(None)
+
+    assert (output_path / "en.lproj" / "AppShortcuts.strings").read_text(encoding="utf-8") == (
+        '"Add Item in ${applicationName}" = "Add Item in ${applicationName}";\n'
+        '"Add Item to ${list} in ${applicationName}" = '
+        '"Add Item to ${list} in ${applicationName}";\n'
+    )
+    assert (output_path / "de.lproj" / "AppShortcuts.strings").read_text(encoding="utf-8") == (
+        '"Add Item in ${applicationName}" = "Mit ${applicationName} hinzufügen";\n'
+        '"Add Item to ${list} in ${applicationName}" = '
+        '"Mit ${applicationName} zu ${list} hinzufügen";\n'
+    )
+
+
+def test_ios_app_shortcuts_localizations_require_matching_placeholders() -> None:
+    catalog = {
+        "ios": {
+            "siri": {
+                "add_item_phrase": "Artikel hinzufügen",
+                "add_item_to_list_phrase": "Artikel zu ${list} hinzufügen",
+            }
+        }
+    }
+
+    try:
+        tasks._ios_app_shortcuts_strings_content(catalog, "de")
+    except tasks.Exit as exc:
+        assert "placeholders" in str(exc)
+        assert "${applicationName}" in str(exc)
+    else:
+        raise AssertionError("expected missing App Shortcut placeholders to fail")
+
+
+def test_ios_app_shortcuts_localizations_match_shared_locale_catalogs() -> None:
+    for locale_path in sorted(tasks.LOCALES_PATH.glob("*.json")):
+        locale = locale_path.stem
+        catalog = tasks.json.loads(locale_path.read_text(encoding="utf-8"))
+        generated_path = (
+            tasks.IOS_APP_SHORTCUTS_LOCALIZATION_PATH / f"{locale}.lproj" / "AppShortcuts.strings"
+        )
+
+        assert generated_path.read_text(
+            encoding="utf-8"
+        ) == tasks._ios_app_shortcuts_strings_content(catalog, locale)
+
+
+def test_ios_app_shortcut_source_phrases_match_swift_provider() -> None:
+    provider = (tasks.ROOT / "ios" / "PlaniniIOS" / "App" / "PlaniniAppIntents.swift").read_text(
+        encoding="utf-8"
+    )
+
+    for source_phrase, _ in tasks.IOS_APP_SHORTCUT_PHRASE_KEYS:
+        swift_phrase = source_phrase.replace("${applicationName}", r"\(.applicationName)")
+        swift_phrase = swift_phrase.replace("${list}", r"\(\.$list)")
+        assert f'"{swift_phrase}"' in provider
+
+
 def test_ios_testflight_workflow_adds_pr_build_component_and_variant_icon_colors() -> None:
     workflow = (
         Path(__file__).resolve().parents[1]
