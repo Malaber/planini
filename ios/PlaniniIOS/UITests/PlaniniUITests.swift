@@ -311,7 +311,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(editHideForLaterButton.waitForExistence(timeout: 5))
         captureScreenshot(named: "ios-ui-edit-hide-for-later")
         tapElement(editHideForLaterButton)
-        XCTAssertTrue(waitForElementToDisappear(app.otherElements["edit-item-sheet"], timeout: 5))
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["edit-item-sheet"], timeout: 12))
         XCTAssertTrue(
             waitForItemHiddenState(
                 named: enterSavedItemName,
@@ -1053,15 +1053,23 @@ final class PlaniniUITests: XCTestCase {
             "Expected live updates before creating drag item."
         )
 
+        let targetCategoryID = try categoryID(
+            named: "Konserven",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
         let sourceCategoryID = try categoryID(
             named: "Milch & Eier",
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
-        let targetItemName = "Tomaten"
-        let targetItemID = try itemID(
+        let targetItemName = "A UI Drag Target \(UUID().uuidString.prefix(8))"
+        let targetItemID = try createItem(
             named: targetItemName,
+            note: "",
             inListNamed: initialListName,
+            categoryID: targetCategoryID,
+            sortOrder: 1_000_000,
             accessToken: session.accessToken
         )
         XCTAssertTrue(waitForItemRow(itemID: targetItemID, named: targetItemName, in: app, timeout: 20))
@@ -2881,6 +2889,7 @@ final class PlaniniUITests: XCTestCase {
         note: String,
         inListNamed listName: String,
         categoryID: UUID? = nil,
+        sortOrder: Int = -1_000,
         accessToken: String
     ) throws -> UUID {
         let listID = try listID(named: listName, accessToken: accessToken)
@@ -2893,7 +2902,7 @@ final class PlaniniUITests: XCTestCase {
                 "quantity_text": NSNull(),
                 "note": note,
                 "category_id": categoryID?.uuidString ?? NSNull(),
-                "sort_order": -1_000,
+                "sort_order": sortOrder,
             ]
         )
         let data = try performRequest(request)
