@@ -1218,6 +1218,69 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertEqual(inviteeApp.staticTexts["list-detail-title"].label, initialListName)
     }
 
+    func testSiriIntentAddsItemsToFavoriteAndSpecificLists() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let favoriteItemName = "Siri Favorite \(UUID().uuidString.prefix(8))"
+        let favoriteApp = launchedApp(
+            session: session,
+            initialListName: initialListName,
+            extraLaunchEnvironment: [
+                "PLANINI_UI_TEST_SIRI_ADD_ITEM_NAME": favoriteItemName,
+            ]
+        )
+        XCTAssertTrue(
+            waitForItem(
+                named: favoriteItemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            ),
+            "Expected Siri add item intent to use the favorite list when no list is named."
+        )
+        terminateAndWait(favoriteApp)
+
+        let specificListName = "Hosting errands"
+        _ = try normalizeListName(
+            prefixedBy: specificListName,
+            to: specificListName,
+            accessToken: session.accessToken
+        )
+        let specificItemName = "Siri Hosting \(UUID().uuidString.prefix(8))"
+        let specificApp = launchedApp(
+            session: session,
+            initialListName: initialListName,
+            extraLaunchEnvironment: [
+                "PLANINI_UI_TEST_LANGUAGE": "de",
+                "PLANINI_UI_TEST_SIRI_ADD_ITEM_NAME": specificItemName,
+                "PLANINI_UI_TEST_SIRI_ADD_ITEM_LIST_NAME": specificListName,
+            ]
+        )
+        XCTAssertTrue(
+            waitForItem(
+                named: specificItemName,
+                inListNamed: specificListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            ),
+            "Expected Siri add item intent to add to the named list."
+        )
+        XCTAssertTrue(
+            waitForItemAbsent(
+                named: specificItemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 4
+            ),
+            "Expected named-list Siri add not to fall back to the favorite list."
+        )
+        terminateAndWait(specificApp)
+    }
+
     private var baseURL: URL {
         if
             let value = environmentValue("PLANINI_UI_TEST_BASE_URL"),
@@ -1308,7 +1371,8 @@ final class PlaniniUITests: XCTestCase {
     private func launchedApp(
         session: UITestSession,
         initialListName: String? = nil,
-        openedLink: URL? = nil
+        openedLink: URL? = nil,
+        extraLaunchEnvironment: [String: String] = [:]
     ) -> XCUIApplication {
         let app = XCUIApplication()
         configureLaunchLanguage(for: app)
@@ -1321,6 +1385,9 @@ final class PlaniniUITests: XCTestCase {
         }
         if let openedLink {
             app.launchEnvironment["PLANINI_UI_TEST_OPEN_URL"] = openedLink.absoluteString
+        }
+        for (key, value) in extraLaunchEnvironment {
+            app.launchEnvironment[key] = value
         }
         app.launch()
         XCTAssertTrue(firstExistingElement(tabCandidates(for: "Lists", in: app), timeout: 10).exists)

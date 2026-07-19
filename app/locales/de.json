@@ -421,6 +421,10 @@
     "load_failed": "Die Liste konnte nicht geladen werden."
   },
   "ios": {
+    "siri": {
+      "add_item_phrase": "Füge mit ${applicationName} einen Artikel hinzu",
+      "add_item_to_list_phrase": "Füge mit ${applicationName} einen Artikel zu ${list} hinzu"
+    },
     "error": {
       "title": "Fehler"
     },

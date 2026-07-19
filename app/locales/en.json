@@ -421,6 +421,10 @@
     "load_failed": "Could not load the list."
   },
   "ios": {
+    "siri": {
+      "add_item_phrase": "Add Item in ${applicationName}",
+      "add_item_to_list_phrase": "Add Item to ${list} in ${applicationName}"
+    },
     "error": {
       "title": "Error"
     },
