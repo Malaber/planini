@@ -285,6 +285,36 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(restoreHiddenButton.waitForExistence(timeout: 5))
         XCTAssertTrue(restoreHiddenButton.isHittable)
         captureScreenshot(named: "ios-ui-item-hidden-for-later")
+        XCTAssertTrue(
+            unhideItemUsingSwipe(
+                itemID: enterSavedItemID,
+                named: enterSavedItemName,
+                in: app,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            ),
+            "Expected swiping hidden item right to show it now."
+        )
+        let unhideUndoButton = app.buttons["list-undo-button"]
+        let unhideUndoMessage = app.staticTexts["list-undo-message"]
+        XCTAssertTrue(unhideUndoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(unhideUndoMessage.label.contains("\(enterSavedItemName) shown now."))
+        tapElement(unhideUndoButton)
+        XCTAssertTrue(
+            waitForItemHiddenState(
+                named: enterSavedItemName,
+                hidden: true,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
+
+        scrollToElement(hiddenForLaterHeader, in: app)
+        scrollToHittable(restoreHiddenButton, in: app)
+        XCTAssertTrue(restoreHiddenButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(restoreHiddenButton.isHittable)
         tapElement(restoreHiddenButton)
         XCTAssertTrue(
             waitForItemHiddenState(
@@ -1502,6 +1532,75 @@ final class PlaniniUITests: XCTestCase {
         return waitForItemHiddenState(
             named: itemName,
             hidden: true,
+            inListNamed: listName,
+            accessToken: accessToken,
+            timeout: 0.5
+        )
+    }
+
+    private func unhideItemUsingSwipe(
+        itemID: UUID,
+        named itemName: String,
+        in app: XCUIApplication,
+        inListNamed listName: String,
+        accessToken: String,
+        timeout: TimeInterval = 20
+    ) -> Bool {
+        let row = itemRow(itemID: itemID, in: app)
+        let unhideButton = app.buttons["unhide-item-\(itemID.uuidString)"]
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if waitForItemHiddenState(
+                named: itemName,
+                hidden: false,
+                inListNamed: listName,
+                accessToken: accessToken,
+                timeout: 0.5
+            ) {
+                return true
+            }
+
+            if unhideButton.exists {
+                tapElement(unhideButton)
+            } else {
+                _ = waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 2)
+                scrollToHittable(row, in: app, maxSwipes: 10)
+                if row.exists && row.isHittable {
+                    let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5))
+                    let end = row.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5))
+                    start.press(forDuration: 0.08, thenDragTo: end)
+                    if unhideButton.waitForExistence(timeout: 2) {
+                        tapElement(unhideButton)
+                    } else if waitForItemHiddenState(
+                        named: itemName,
+                        hidden: false,
+                        inListNamed: listName,
+                        accessToken: accessToken,
+                        timeout: 1
+                    ) == false {
+                        row.swipeRight()
+                        if unhideButton.waitForExistence(timeout: 2) {
+                            tapElement(unhideButton)
+                        }
+                    }
+                }
+            }
+
+            if waitForItemHiddenState(
+                named: itemName,
+                hidden: false,
+                inListNamed: listName,
+                accessToken: accessToken,
+                timeout: 3
+            ) {
+                return true
+            }
+        }
+
+        return waitForItemHiddenState(
+            named: itemName,
+            hidden: false,
             inListNamed: listName,
             accessToken: accessToken,
             timeout: 0.5
