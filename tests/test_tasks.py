@@ -1266,7 +1266,7 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
                 "initial_list_name": "Browser Test Shop",
                 "access_token": "token-123",
                 "display_name": "Test User",
-                "attempts": 2,
+                "attempts": 1,
                 "only_testing": (
                     "PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad"
                 ),
@@ -1274,6 +1274,81 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
         ),
         ("stop", {"pid_path": "ios-ui-e2e-server.pid"}),
     ]
+
+
+def test_check_ios_ui_e2e_restarts_backend_before_retry(monkeypatch, capsys) -> None:
+    calls: list[tuple[str, dict]] = []
+    sessions = iter(
+        [
+            {"access_token": "token-first", "display_name": "First User"},
+            {"access_token": "token-second", "display_name": "Second User"},
+        ]
+    )
+    outcomes = iter([tasks.Exit("first attempt failed"), None])
+
+    monkeypatch.setattr(
+        tasks,
+        "_reset_sqlite_database_file",
+        lambda database_url: calls.append(("reset", {"database_url": database_url})),
+    )
+    monkeypatch.setattr(tasks, "start_app", lambda c, **kwargs: calls.append(("start", kwargs)))
+    monkeypatch.setattr(tasks, "wait_for_app", lambda c, **kwargs: calls.append(("wait", kwargs)))
+    monkeypatch.setattr(tasks, "_bootstrap_ios_ui_test_session", lambda **kwargs: next(sessions))
+    monkeypatch.setattr(tasks.generate_ios_app_icons, "body", lambda c: calls.append(("icons", {})))
+    monkeypatch.setattr(
+        tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
+    )
+
+    def run_ios_ui_e2e(c, **kwargs):
+        calls.append(("run", kwargs))
+        outcome = next(outcomes)
+        if outcome is not None:
+            raise outcome
+
+    monkeypatch.setattr(tasks, "run_ios_ui_e2e", run_ios_ui_e2e)
+    monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: calls.append(("stop", kwargs)))
+
+    tasks.check_ios_ui_e2e.body(None, attempts=2)
+
+    assert [name for name, _ in calls].count("reset") == 2
+    assert [name for name, _ in calls].count("start") == 2
+    assert [name for name, _ in calls].count("stop") == 2
+    assert [name for name, _ in calls].count("icons") == 1
+    assert [name for name, _ in calls].count("generate") == 1
+    run_calls = [kwargs for name, kwargs in calls if name == "run"]
+    assert [kwargs["access_token"] for kwargs in run_calls] == ["token-first", "token-second"]
+    assert all(kwargs["attempts"] == 1 for kwargs in run_calls)
+    assert "Retrying iOS UI e2e with a fresh backend (attempt 1/2)" in capsys.readouterr().out
+
+
+def test_check_ios_ui_e2e_stops_backend_after_final_failure(monkeypatch) -> None:
+    stops: list[dict] = []
+
+    monkeypatch.setattr(tasks, "_reset_sqlite_database_file", lambda database_url: None)
+    monkeypatch.setattr(tasks, "start_app", lambda c, **kwargs: None)
+    monkeypatch.setattr(tasks, "wait_for_app", lambda c, **kwargs: None)
+    monkeypatch.setattr(
+        tasks,
+        "_bootstrap_ios_ui_test_session",
+        lambda **kwargs: {"access_token": "token", "display_name": "Test User"},
+    )
+    monkeypatch.setattr(tasks.generate_ios_app_icons, "body", lambda c: None)
+    monkeypatch.setattr(tasks.generate_ios_project, "body", lambda c: None)
+    monkeypatch.setattr(
+        tasks,
+        "run_ios_ui_e2e",
+        lambda c, **kwargs: (_ for _ in ()).throw(tasks.Exit("xcode failed")),
+    )
+    monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: stops.append(kwargs))
+
+    try:
+        tasks.check_ios_ui_e2e.body(None, attempts=1)
+    except tasks.Exit as exc:
+        assert "xcode failed" in str(exc)
+    else:
+        raise AssertionError("expected check_ios_ui_e2e to fail")
+
+    assert stops == [{"pid_path": tasks.DEFAULT_IOS_UI_E2E_PID_PATH}]
 
 
 def test_check_ios_ci_runs_only_mac_native_e2e_prerequisites() -> None:

@@ -598,6 +598,28 @@ main {
   cursor: progress;
 }
 
+.household-invite-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.household-invite-controls label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+.household-invite-controls input,
+.household-invite-controls select {
+  min-height: 2.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.45rem 0.65rem;
+}
+
 .household-invite-output {
   margin-top: 1rem;
   padding: 0.9rem 1rem;
@@ -616,6 +638,20 @@ main {
   flex: 1;
   min-width: 0;
   width: 100%;
+}
+
+.invite-share-panel {
+  gap: 1rem;
+}
+
+.invite-share-form {
+  gap: 0.9rem;
+}
+
+.invite-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .list-grid {

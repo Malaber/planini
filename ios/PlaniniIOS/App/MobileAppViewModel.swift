@@ -855,15 +855,25 @@ final class MobileAppViewModel: ObservableObject {
         }
     }
 
-    func createInvite(householdID: UUID) async -> HouseholdInviteLink? {
+    func createInvite(householdID: UUID, expiresInHours: Int? = 24, maxUses: Int? = nil) async -> HouseholdInviteLink? {
         guard let backendURL, let authToken else { return nil }
+
+        var inviteBody: [String: Any] = [:]
+        if let expiresInHours {
+            inviteBody["expires_in_hours"] = expiresInHours
+        } else {
+            inviteBody["expires_in_hours"] = NSNull()
+        }
+        if let maxUses {
+            inviteBody["max_uses"] = maxUses
+        }
 
         do {
             let payload = try await requestJSON(
                 backendURL: backendURL,
                 path: "/api/v1/households/\(householdID.uuidString)/invites",
                 method: "POST",
-                body: [:],
+                body: inviteBody,
                 token: authToken
             )
             guard let invite = HouseholdInviteLink(json: payload) else {
