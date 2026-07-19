@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from fastpasskey import PasskeyCredential
 from jose import jwt
 from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,14 +16,6 @@ from app.admin import (
     SessionAdminAuth,
     _passkey_add_link_duration_hours,
     get_application_version,
-)
-from app.api.v1.routes.auth import (
-    _auth_flow_session_is_valid,
-    _apply_bootstrap_admin_email,
-    _new_auth_flow_session,
-    _origin_for_request,
-    _password_auth_disabled,
-    _rp_id_for_request,
 )
 from app.core.config import (
     ConfigurationError,
@@ -51,6 +44,7 @@ from app.services.auth_sessions import (
     get_session_user,
     revoke_auth_session,
 )
+from app.services.passkey_repository import PlaniniPasskeyRepository
 from app.services.passkey_reset import (
     build_passkey_add_link,
     clear_passkey_reset,
@@ -282,22 +276,6 @@ def test_security_helpers_handle_long_passwords() -> None:
     assert verify_password(long_password, password_hash)
 
 
-def test_auth_flow_session_validity_uses_short_ttl(monkeypatch) -> None:
-    monkeypatch.setattr("app.api.v1.routes.auth.settings.auth_flow_expire_seconds", 60)
-
-    fresh_session = _new_auth_flow_session(challenge="x")
-    assert _auth_flow_session_is_valid(fresh_session) is True
-
-    expired_session = {
-        "issued_at": (datetime.now(UTC) - timedelta(seconds=61)).isoformat(),
-    }
-    assert _auth_flow_session_is_valid(expired_session) is False
-
-    assert _auth_flow_session_is_valid({}) is False
-    assert _auth_flow_session_is_valid({"issued_at": "not-a-date"}) is False
-    assert _auth_flow_session_is_valid({"issued_at": "2026-04-03T12:00:00"}) is False
-
-
 def test_auth_session_validity_checks_idle_and_absolute_windows(monkeypatch) -> None:
     now = datetime.now(UTC)
     monkeypatch.setattr("app.services.auth_sessions.settings.session_idle_timeout_seconds", 60)
@@ -428,23 +406,69 @@ def test_admin_auth_backend_redirects_and_allows(monkeypatch) -> None:
 def test_bootstrap_admin_email_helper_respects_config(monkeypatch) -> None:
     db = DummyDB()
     user = SimpleNamespace(email="admin@example.com", is_admin=False)
+    repository = PlaniniPasskeyRepository(db)
 
-    monkeypatch.setattr("app.api.v1.routes.auth.settings.bootstrap_admin_email", None)
-    assert asyncio.run(_apply_bootstrap_admin_email(db, user)) is user
+    monkeypatch.setattr("app.services.passkey_repository.settings.bootstrap_admin_email", None)
+    assert asyncio.run(repository._apply_bootstrap_admin(user)) is user
     assert db.commit_calls == 0
 
     monkeypatch.setattr(
-        "app.api.v1.routes.auth.settings.bootstrap_admin_email", "other@example.com"
+        "app.services.passkey_repository.settings.bootstrap_admin_email", "other@example.com"
     )
-    assert asyncio.run(_apply_bootstrap_admin_email(db, user)) is user
+    assert asyncio.run(repository._apply_bootstrap_admin(user)) is user
     assert db.commit_calls == 0
 
     monkeypatch.setattr(
-        "app.api.v1.routes.auth.settings.bootstrap_admin_email", "admin@example.com"
+        "app.services.passkey_repository.settings.bootstrap_admin_email", "admin@example.com"
     )
     user.is_admin = True
-    assert asyncio.run(_apply_bootstrap_admin_email(db, user)) is user
+    assert asyncio.run(repository._apply_bootstrap_admin(user)) is user
     assert db.commit_calls == 0
+
+
+def test_passkey_repository_defensive_missing_user_paths(monkeypatch) -> None:
+    class WriteDB(DummyDB):
+        async def execute(self, query):
+            return DummyScalarResult(None)
+
+    repository = PlaniniPasskeyRepository(WriteDB())
+    credential = PasskeyCredential(
+        credential_id="credential",
+        public_key=b"public",
+        sign_count=0,
+    )
+
+    async def _missing_user(user_id):
+        return None
+
+    repository.user_by_id = _missing_user
+    with pytest.raises(RuntimeError, match="missing user"):
+        asyncio.run(
+            repository.replace_passkeys(
+                user_id=uuid4(),
+                passkey_name="Passkey 1",
+                credential=credential,
+            )
+        )
+
+    async def _missing_link(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.passkey_repository.get_passkey_add_link_for_token",
+        _missing_link,
+    )
+    assert (
+        asyncio.run(
+            repository.complete_add_link(
+                token="missing",
+                user_id=uuid4(),
+                name="Passkey 2",
+                credential=credential,
+            )
+        )
+        is None
+    )
 
 
 def test_settings_normalize_blank_emails() -> None:
@@ -581,67 +605,6 @@ def test_load_settings_rejects_ui_test_bootstrap_with_production_env(monkeypatch
     message = str(exc_info.value)
     assert "Refusing startup because UI_TEST_BOOTSTRAP_ENABLED may only be used" in message
     assert "APP_BASE_URL='https://planini.malaber.de' must point to localhost" in message
-
-
-def test_passkey_request_helpers() -> None:
-    request = Request(
-        {
-            "type": "http",
-            "scheme": "http",
-            "path": "/login",
-            "server": ("localhost", 8000),
-            "headers": [(b"host", b"localhost:8000")],
-        }
-    )
-
-    assert _rp_id_for_request(request) == "localhost"
-    assert _origin_for_request(request) == "http://localhost:8000"
-    assert _password_auth_disabled().status_code == 400
-
-    hostless_request = Request({"type": "http", "scheme": "http", "path": "/", "headers": []})
-    assert _password_auth_disabled().detail.startswith("Password-based auth is disabled")
-    try:
-        _rp_id_for_request(hostless_request)
-    except Exception as exc:
-        assert getattr(exc, "status_code", None) == 400
-    else:  # pragma: no cover
-        raise AssertionError("Expected hostless passkey request to fail")
-
-
-def test_passkey_request_helper_prefers_configured_rp_id(monkeypatch) -> None:
-    request = Request(
-        {
-            "type": "http",
-            "scheme": "https",
-            "path": "/login",
-            "server": ("pr-42.review.example.com", 443),
-            "headers": [(b"host", b"pr-42.review.example.com")],
-        }
-    )
-
-    monkeypatch.setattr("app.api.v1.routes.auth.settings.webauthn_rp_id", "review.example.com")
-    assert _rp_id_for_request(request) == "review.example.com"
-
-
-def test_passkey_request_helpers_prefer_configured_app_base_url(monkeypatch) -> None:
-    request = Request(
-        {
-            "type": "http",
-            "scheme": "http",
-            "path": "/login",
-            "server": ("localhost", 8000),
-            "headers": [(b"host", b"localhost:8000")],
-        }
-    )
-
-    monkeypatch.setattr("app.api.v1.routes.auth.settings.webauthn_rp_id", None)
-    monkeypatch.setattr(
-        "app.api.v1.routes.auth.settings.app_base_url",
-        "https://planini.malaber.de",
-    )
-
-    assert _rp_id_for_request(request) == "planini.malaber.de"
-    assert _origin_for_request(request) == "https://planini.malaber.de"
 
 
 def test_sqlite_database_path_helper_handles_sqlite_and_non_sqlite_urls(tmp_path) -> None:
