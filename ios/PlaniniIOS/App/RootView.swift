@@ -1130,6 +1130,7 @@ private struct ListDetailScreen: View {
     @State private var displayedListID: UUID
     @State private var editingItem: GroceryItemRecord?
     @State private var addItemPresentation: AddItemPresentation?
+    @State private var isStartingShoppingMode = false
     @State private var highlightedItemID: UUID?
     @State private var moveNotice: ItemMoveNotice?
     @State private var moveNoticeDismissTask: Task<Void, Never>?
@@ -1200,6 +1201,24 @@ private struct ListDetailScreen: View {
                         )
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+
+                        let isShoppingModeActive = viewModel.shoppingModeListID == list.id
+                        Button {
+                            isStartingShoppingMode = true
+                            Task {
+                                _ = await viewModel.startShoppingMode(listID: list.id)
+                                isStartingShoppingMode = false
+                            }
+                        } label: {
+                            Label(
+                                isShoppingModeActive ? "Shopping mode active" : "Start shopping mode",
+                                systemImage: isShoppingModeActive ? "cart.fill" : "cart"
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(isStartingShoppingMode)
+                        .accessibilityIdentifier("shopping-mode-button")
                     }
                     .padding(.vertical, 4)
                 }
@@ -1661,8 +1680,12 @@ private struct ListSettingsSheet: View {
                 Label("No categories available", systemImage: "tray")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(categories) { category in
-                    categoryRow(category: category)
+                ForEach(Array(categories.enumerated()), id: \.element.id) { index, category in
+                    categoryRow(
+                        category: category,
+                        canMoveUp: index > categories.startIndex,
+                        canMoveDown: index < categories.index(before: categories.endIndex)
+                    )
                 }
                 .onMove(perform: moveCategories)
             }
@@ -1673,12 +1696,25 @@ private struct ListSettingsSheet: View {
         }
     }
 
-    private func categoryRow(category: GroceryCategorySummary) -> some View {
+    private func categoryRow(
+        category: GroceryCategorySummary,
+        canMoveUp: Bool,
+        canMoveDown: Bool
+    ) -> some View {
         CategorySettingsRow(
             category: category,
             disabled: viewModel.isCategoryDisabled(category.id),
             itemCount: viewModel.itemCount(inCategory: category.id),
             isBusy: busyCategoryID == category.id,
+            isOrderBusy: isSavingCategoryOrder,
+            canMoveUp: canMoveUp,
+            canMoveDown: canMoveDown,
+            onMoveUp: {
+                moveCategory(category, direction: .up)
+            },
+            onMoveDown: {
+                moveCategory(category, direction: .down)
+            },
             onToggleDisabled: { disabled in
                 set(category, disabled: disabled)
             }
@@ -1756,6 +1792,17 @@ private struct ListSettingsSheet: View {
         }
     }
 
+    private func moveCategory(_ category: GroceryCategorySummary, direction: ListCategoryMoveDirection) {
+        guard isSavingCategoryOrder == false else { return }
+        isSavingCategoryOrder = true
+        saveState = .saving
+        Task { @MainActor in
+            let saved = await viewModel.moveCategory(id: category.id, direction: direction)
+            isSavingCategoryOrder = false
+            saveState = saved ? .saved : .failed
+        }
+    }
+
     private func set(_ category: GroceryCategorySummary, disabled: Bool) {
         guard busyCategoryID == nil else { return }
         let affectedCount = viewModel.itemCount(inCategory: category.id)
@@ -1789,6 +1836,11 @@ private struct CategorySettingsRow: View {
     let disabled: Bool
     let itemCount: Int
     let isBusy: Bool
+    let isOrderBusy: Bool
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
     let onToggleDisabled: (Bool) -> Void
 
     var body: some View {
@@ -1806,6 +1858,23 @@ private struct CategorySettingsRow: View {
                 Spacer()
             }
             .opacity(disabled ? 0.42 : 1)
+
+            VStack(spacing: 2) {
+                moveButton(
+                    systemName: "chevron.up",
+                    identifier: "category-move-up-\(category.id.uuidString)",
+                    label: "Move \(category.name) up",
+                    enabled: canMoveUp,
+                    action: onMoveUp
+                )
+                moveButton(
+                    systemName: "chevron.down",
+                    identifier: "category-move-down-\(category.id.uuidString)",
+                    label: "Move \(category.name) down",
+                    enabled: canMoveDown,
+                    action: onMoveDown
+                )
+            }
 
             Button {
                 guard isBusy == false else { return }
@@ -1828,6 +1897,28 @@ private struct CategorySettingsRow: View {
     private var metaText: String {
         let itemText = itemCount == 1 ? "1 item" : "\(itemCount) items"
         return disabled ? "Disabled for this list · \(itemText)" : "Enabled · \(itemText)"
+    }
+
+    private func moveButton(
+        systemName: String,
+        identifier: String,
+        label: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            guard enabled && isOrderBusy == false else { return }
+            action()
+        } label: {
+            Image(systemName: systemName)
+                .font(.caption.weight(.bold))
+                .frame(width: 28, height: 22)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled && isOrderBusy == false ? Color.accentColor : Color.secondary.opacity(0.45))
+        .disabled(enabled == false || isOrderBusy)
+        .accessibilityIdentifier(identifier)
+        .accessibilityLabel(label)
     }
 }
 

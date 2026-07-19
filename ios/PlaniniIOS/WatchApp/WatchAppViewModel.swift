@@ -77,18 +77,13 @@ final class WatchAppViewModel: ObservableObject {
 
     func items(for list: GroceryListSummary) -> [GroceryItemRecord] {
         guard selectedListID == list.id else { return [] }
-        return state.items.sorted { left, right in
-            if left.checked != right.checked {
-                return left.checked == false
-            }
-            return left.sortOrder < right.sortOrder
-        }
+        return state.items(for: list.id)
     }
 
     func sections(for list: GroceryListSummary) -> [GroceryItemSection] {
         guard selectedListID == list.id else { return [] }
         return GroceryItemSectionBuilder.build(
-            items: state.items,
+            items: state.items(for: list.id),
             categories: categories,
             categoryOrder: categoryOrder
         )
@@ -139,11 +134,11 @@ final class WatchAppViewModel: ObservableObject {
     func showList(_ list: GroceryListSummary) async {
         if selectedListID != list.id {
             selectedListID = list.id
-            if state.items.first?.listID != list.id {
+            if state.syncedListID != list.id {
                 state.items = []
             }
-            categories = list.id == state.favoriteListID ? state.categories : []
-            categoryOrder = list.id == state.favoriteListID ? state.categoryOrder : []
+            categories = list.id == state.syncedListID ? state.categories : []
+            categoryOrder = list.id == state.syncedListID ? state.categoryOrder : []
         }
         await refreshSelectedList()
     }
@@ -391,6 +386,7 @@ final class WatchAppViewModel: ObservableObject {
     private func clearAuthenticatedSession() {
         var updatedState = state
         updatedState.authToken = nil
+        updatedState.syncedListID = nil
         updatedState.items = []
         updatedState.categories = []
         updatedState.categoryOrder = []
@@ -432,9 +428,12 @@ final class WatchAppViewModel: ObservableObject {
         if selectedListID == nil || displayedLists.contains(where: { $0.id == selectedListID }) == false {
             selectedListID = updatedState.favoriteListID ?? updatedState.lists.first?.id
         }
-        if selectedListID == updatedState.favoriteListID {
+        if selectedListID == updatedState.syncedListID {
             categories = updatedState.categories
             categoryOrder = updatedState.categoryOrder
+        } else {
+            categories = []
+            categoryOrder = []
         }
         store.save(updatedState)
         if let selectedListID {

@@ -63,6 +63,20 @@
                ReferencedContainer = "container:PlaniniApp.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "DDB44EA4E3760B3B45CC1F6C"
+               BuildableName = "PlaniniWidgetExtension.appex"
+               BlueprintName = "PlaniniWidgetExtension"
+               ReferencedContainer = "container:PlaniniApp.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction

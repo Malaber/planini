@@ -1141,6 +1141,10 @@ function itemCard(page, text) {
   return page.locator(".item-card", { hasText: text }).first();
 }
 
+function escapedRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 async function swipeItemRight(card) {
   await card.evaluate((node) => {
     const rect = node.getBoundingClientRect();
@@ -1246,6 +1250,57 @@ async function dragCategoryAfter(page, sourceName, targetName) {
     () => !document.querySelector("[data-category-order-status]:not([hidden])"),
     null,
     { timeout: 5000 },
+  );
+}
+
+async function moveCategoryBefore(page, sourceName, targetName) {
+  const readPositions = () =>
+    page.evaluate(
+      ({ sourceName, targetName }) => {
+        const labels = [...document.querySelectorAll(".settings-category-row strong")].map(
+          (node) => node.textContent?.trim(),
+        );
+        return {
+          sourceIndex: labels.indexOf(sourceName),
+          targetIndex: labels.indexOf(targetName),
+        };
+      },
+      { sourceName, targetName },
+    );
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const { sourceIndex, targetIndex } = await readPositions();
+    if (sourceIndex > -1 && targetIndex > -1 && sourceIndex < targetIndex) {
+      return;
+    }
+    assert(sourceIndex > 0, `Expected ${sourceName} to be movable before ${targetName}`);
+
+    await page
+      .locator(".settings-category-row", { hasText: sourceName })
+      .getByRole("button", { name: new RegExp(`Move ${escapedRegExp(sourceName)} up`, "i") })
+      .click();
+    await page.waitForFunction(
+      ({ sourceName, previousIndex }) => {
+        const labels = [...document.querySelectorAll(".settings-category-row strong")].map(
+          (node) => node.textContent?.trim(),
+        );
+        const nextIndex = labels.indexOf(sourceName);
+        return nextIndex > -1 && nextIndex < previousIndex;
+      },
+      { sourceName, previousIndex: sourceIndex },
+      { timeout: 5000 },
+    );
+    await page.waitForFunction(
+      () => !document.querySelector("[data-category-order-status]:not([hidden])"),
+      null,
+      { timeout: 5000 },
+    );
+  }
+
+  const { sourceIndex, targetIndex } = await readPositions();
+  assert(
+    sourceIndex > -1 && targetIndex > -1 && sourceIndex < targetIndex,
+    `Expected ${sourceName} to move before ${targetName}`,
   );
 }
 
@@ -2015,11 +2070,7 @@ async function main() {
     ).slice(0, 3);
     assert.equal(topCategoryBefore[0], "Uncategorized", "Uncategorized should stay on top");
 
-    const backwarenSettingsRow = page.locator(".settings-category-row", { hasText: "Backwaren" });
-    for (let i = 0; i < 4; i += 1) {
-      await backwarenSettingsRow.getByRole("button", { name: /Move Backwaren up/i }).click();
-      await page.waitForTimeout(150);
-    }
+    await moveCategoryBefore(page, "Backwaren", "Nudeln");
     await page.locator("[data-list-settings-panel] .add-item-close").click();
 
     await page.waitForFunction(

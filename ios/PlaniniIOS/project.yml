@@ -18,6 +18,8 @@ targets:
     dependencies:
       - target: PlaniniWatchApp
         embed: true
+      - target: PlaniniWidgetExtension
+        embed: true
       - package: PlaniniCore
         product: PlaniniCore
     settings:
@@ -38,6 +40,7 @@ targets:
         INFOPLIST_KEY_CFBundleIconName: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: Planini
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
@@ -201,6 +204,31 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: WatchWidget/Info.plist
         CODE_SIGN_ENTITLEMENTS: WatchWidget/PlaniniWatchWidget.entitlements
+  PlaniniWidgetExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Widget
+        excludes:
+          - "*.entitlements"
+          - "*.plist"
+      - path: WatchShared
+    dependencies:
+      - package: PlaniniCore
+        product: PlaniniCore
+    settings:
+      base:
+        PRODUCT_NAME: Planini Widgets
+        PRODUCT_BUNDLE_IDENTIFIER: de.malaber.planini.widget
+        DEVELOPMENT_TEAM: VWKG94374J
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: 5.10
+        PROVISIONING_PROFILE_SPECIFIER: $(PLANINI_WIDGET_PROFILE_NAME)
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Widget/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Widget/PlaniniWidget.entitlements
   PlaniniUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -225,6 +253,7 @@ schemes:
         PlaniniWatchApp: all
         PlaniniWatchExtension: all
         PlaniniWatchWidgetExtension: all
+        PlaniniWidgetExtension: all
     test:
       gatherCoverageData: false
       environmentVariables:
