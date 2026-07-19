@@ -490,7 +490,6 @@ final class PlaniniUITests: XCTestCase {
         editNameField.typeText(" Updated")
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
         XCTAssertTrue(waitForEditStatus("saved", app: app))
-        dismissKeyboard(in: app)
 
         let undoButton = app.buttons["edit-item-undo-button"]
         XCTAssertTrue(undoButton.waitForExistence(timeout: 3))
