@@ -2257,12 +2257,22 @@ final class PlaniniUITests: XCTestCase {
         }
     }
 
-    private func tapElement(_ element: XCUIElement) {
-        if element.isHittable {
-            element.tap()
-        } else {
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    private func tapElement(_ element: XCUIElement, timeout: TimeInterval = 3) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && element.isHittable {
+                element.tap()
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
+
+        let frame = element.frame
+        guard element.exists, frame.isEmpty == false, frame.isNull == false else {
+            XCTFail("Could not tap \(element.identifier): element never gained a valid frame.")
+            return
+        }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
     private func dismissKeyboard(in app: XCUIApplication) {
