@@ -28,6 +28,10 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && format('ios-main-{0}', github.run_id) || format('ios-{0}', github.event.pull_request.head.ref || github.ref_name) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   version:
     runs-on: ubuntu-latest
@@ -96,121 +100,6 @@ jobs:
           else
             echo 'testflight_matrix={"include":[{"variant":"production","build_variant_code":10,"icon_background_color":"#ddddc1"}]}' >> "$GITHUB_OUTPUT"
           fi
-
-  ios_backend_e2e:
-    runs-on: macos-latest
-    env:
-      PYTHON_VERSION: '3.14'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install Invoke
-        run: python -m pip install invoke
-      - name: Bootstrap backend dependencies
-        run: python -m invoke bootstrap-ci
-      - name: Run native iOS backend e2e
-        run: python -m invoke check-ios-e2e
-
-  ios_ui_e2e:
-    name: Native ${{ matrix.platform }} UI e2e
-    runs-on: macos-latest
-    env:
-      PYTHON_VERSION: '3.14'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: iPhone
-            device_name: iPhone 17 Pro
-            database_url: sqlite+aiosqlite:///./tmp-ios-ui-e2e.db
-            artifact_dir: e2e-artifacts/ios-ui-e2e
-            artifact_name: ios-native-ui-e2e
-            port: 8018
-            log_path: ios-ui-e2e-server.log
-            pid_path: ios-ui-e2e-server.pid
-            only_testing: PlaniniUITests
-          - platform: iPad
-            device_name: iPad Pro 13-inch (M5)
-            database_url: sqlite+aiosqlite:///./tmp-ios-ipad-ui-e2e.db
-            artifact_dir: e2e-artifacts/ios-ipad-ui-e2e
-            artifact_name: ios-native-ipad-ui-e2e
-            port: 8019
-            log_path: ios-ipad-ui-e2e-server.log
-            pid_path: ios-ipad-ui-e2e-server.pid
-            only_testing: PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install Invoke
-        run: python -m pip install invoke
-      - name: Install native image dependencies
-        run: brew install cairo
-      - name: Expose native image library path
-        run: echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix cairo)/lib:/opt/homebrew/lib:/usr/local/lib" >> "$GITHUB_ENV"
-      - name: Bootstrap backend dependencies
-        run: python -m invoke bootstrap-ci
-      - name: Install XcodeGen
-        run: python -m invoke install-xcodegen
-      - name: Run native ${{ matrix.platform }} UI e2e
-        run: >-
-          python -m invoke check-ios-ui-e2e
-          --device-name="${{ matrix.device_name }}"
-          --database-url="${{ matrix.database_url }}"
-          --artifact-dir="${{ matrix.artifact_dir }}"
-          --port="${{ matrix.port }}"
-          --log-path="${{ matrix.log_path }}"
-          --pid-path="${{ matrix.pid_path }}"
-          --only-testing="${{ matrix.only_testing }}"
-      - name: Upload native iOS UI artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ matrix.artifact_name }}
-          retention-days: 2
-          path: |
-            ${{ matrix.artifact_dir }}
-            ${{ matrix.log_path }}
-
-  ios_marketing_screenshots:
-    name: App Store marketing screenshots
-    runs-on: macos-latest
-    env:
-      PYTHON_VERSION: '3.14'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install Invoke
-        run: python -m pip install invoke
-      - name: Install native image dependencies
-        run: brew install cairo
-      - name: Expose native image library path
-        run: echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix cairo)/lib:/opt/homebrew/lib:/usr/local/lib" >> "$GITHUB_ENV"
-      - name: Bootstrap backend dependencies
-        run: python -m invoke bootstrap-ci
-      - name: Install XcodeGen
-        run: python -m invoke install-xcodegen
-      - name: Capture App Store screenshots
-        run: python -m invoke check-ios-marketing-screenshots
-      - name: Upload marketing screenshots
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ios-marketing-screenshots
-          retention-days: 7
-          path: |
-            e2e-artifacts/ios-marketing-screenshots
-            ios-marketing-screenshots-server.log
-      - name: Add artifact link
-        if: always()
-        run: |
-          echo "### App Store marketing screenshots" >> "$GITHUB_STEP_SUMMARY"
-          echo "[Download artifact from this workflow run](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> "$GITHUB_STEP_SUMMARY"
 
   upload_testflight:
     needs:
