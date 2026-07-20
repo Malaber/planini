@@ -32,6 +32,7 @@ final class PlaniniUITests: XCTestCase {
         } else {
             try bootstrapSession(email: userEmail)
         }
+
         let app = XCUIApplication()
         configureLaunchLanguage(for: app)
         app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
@@ -992,7 +993,6 @@ final class PlaniniUITests: XCTestCase {
         } else {
             try bootstrapSession(email: userEmail)
         }
-
         let app = XCUIApplication()
         configureLaunchLanguage(for: app)
         app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
@@ -1058,6 +1058,21 @@ final class PlaniniUITests: XCTestCase {
         } else {
             try bootstrapSession(email: userEmail)
         }
+        let targetCategoryID = try categoryID(
+            named: "Konserven",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        let sourceCategoryID = try categoryID(
+            named: "Milch & Eier",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        try updateCategoryOrder(
+            listID: listID(named: initialListName, accessToken: session.accessToken),
+            categoryIDs: [sourceCategoryID, targetCategoryID],
+            accessToken: session.accessToken
+        )
 
         let app = XCUIApplication()
         configureLaunchLanguage(for: app)
@@ -1083,23 +1098,12 @@ final class PlaniniUITests: XCTestCase {
             "Expected live updates before creating drag item."
         )
 
-        let targetCategoryID = try categoryID(
-            named: "Konserven",
-            inListNamed: initialListName,
-            accessToken: session.accessToken
-        )
-        let sourceCategoryID = try categoryID(
-            named: "Milch & Eier",
-            inListNamed: initialListName,
-            accessToken: session.accessToken
-        )
         let targetItemName = "A UI Drag Target \(UUID().uuidString.prefix(8))"
         let targetItemID = try createItem(
             named: targetItemName,
             note: "",
             inListNamed: initialListName,
             categoryID: targetCategoryID,
-            sortOrder: 1_000_000,
             accessToken: session.accessToken
         )
         XCTAssertTrue(waitForItemRow(itemID: targetItemID, named: targetItemName, in: app, timeout: 20))
@@ -1110,6 +1114,7 @@ final class PlaniniUITests: XCTestCase {
             note: "",
             inListNamed: initialListName,
             categoryID: sourceCategoryID,
+            sortOrder: 1_000_000,
             accessToken: session.accessToken
         )
         XCTAssertTrue(waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 20))
@@ -1873,44 +1878,34 @@ final class PlaniniUITests: XCTestCase {
         listName: String,
         accessToken: String
     ) -> Bool {
-        let sourceOffsets: [CGFloat] = [0.5, 0.35, 0.65]
-        let targetOffsets: [CGFloat] = [0.5, 0.35, 0.75]
         let sourceRow = itemRow(itemID: itemID, in: app)
 
-        for sourceOffset in sourceOffsets {
-            for targetOffset in targetOffsets {
-                scrollToHittable(sourceRow, in: app, maxSwipes: 4)
-                scrollToHittable(targetElement, in: app, maxSwipes: 4)
-                guard
-                    sourceRow.waitForExistence(timeout: 3),
-                    targetElement.waitForExistence(timeout: 3),
-                    sourceRow.isHittable,
-                    targetElement.isHittable
-                else {
-                    continue
-                }
-
-                let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: sourceOffset))
-                let target = targetElement.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: targetOffset))
-                source.press(
-                    forDuration: 1.2,
-                    thenDragTo: target,
-                    withVelocity: .slow,
-                    thenHoldForDuration: 0.8
-                )
-                if waitForItemCategory(
-                    named: itemName,
-                    categoryNamed: categoryName,
-                    inListNamed: listName,
-                    accessToken: accessToken,
-                    timeout: 8
-                ) {
-                    return true
-                }
-                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-            }
+        scrollToHittable(sourceRow, in: app, maxSwipes: 4)
+        scrollToHittable(targetElement, in: app, maxSwipes: 4)
+        guard
+            sourceRow.waitForExistence(timeout: 3),
+            targetElement.waitForExistence(timeout: 3),
+            sourceRow.isHittable,
+            targetElement.isHittable
+        else {
+            return false
         }
-        return false
+
+        let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let target = targetElement.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        source.press(
+            forDuration: 1.2,
+            thenDragTo: target,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.8
+        )
+        return waitForItemCategory(
+            named: itemName,
+            categoryNamed: categoryName,
+            inListNamed: listName,
+            accessToken: accessToken,
+            timeout: 8
+        )
     }
 
     private func dragCategoryRow(

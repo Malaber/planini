@@ -1,6 +1,5 @@
 import PlaniniCore
 import SwiftUI
-import UniformTypeIdentifiers
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -1344,18 +1343,14 @@ private struct ListDetailScreen: View {
                                     showUndoToast(message: message, action: action)
                                 }
                                 .background(rowHighlight(for: item))
-                                .onDrop(
-                                    of: [UTType.text],
-                                    delegate: ItemCategoryDropDelegate(
-                                        sectionID: "row-\(item.id.uuidString)",
-                                        targetCategoryID: dropCategoryID(for: section.kind),
-                                        isEnabled: allowsItemDrop(into: section.kind),
-                                        targetedDropSectionID: $targetedDropSectionID,
-                                        onDropItem: { itemIDText, categoryID in
-                                            moveItem(itemIDText: itemIDText, toCategory: categoryID)
-                                        }
-                                    )
-                                )
+                                .itemCategoryDropDestination(
+                                    sectionID: "row-\(item.id.uuidString)",
+                                    targetCategoryID: dropCategoryID(for: section.kind),
+                                    isEnabled: allowsItemDrop(into: section.kind),
+                                    targetedDropSectionID: $targetedDropSectionID
+                                ) { itemIDText, categoryID in
+                                    moveItem(itemIDText: itemIDText, toCategory: categoryID)
+                                }
                             case let .moveNotice(notice):
                                 ItemMoveNoticeRow(notice: notice) {
                                     undoMove(notice)
@@ -2137,51 +2132,36 @@ private struct SectionHeader: View {
         .textCase(nil)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("category-drop-target-\(section.id)")
-        .onDrop(
-            of: [UTType.text],
-            delegate: ItemCategoryDropDelegate(
-                sectionID: section.id,
-                targetCategoryID: quickAddCategoryID,
-                isEnabled: allowsQuickAdd,
-                targetedDropSectionID: $targetedDropSectionID,
-                onDropItem: onDropItem
-            )
+        .itemCategoryDropDestination(
+            sectionID: section.id,
+            targetCategoryID: quickAddCategoryID,
+            isEnabled: allowsQuickAdd,
+            targetedDropSectionID: $targetedDropSectionID,
+            onDropItem: onDropItem
         )
     }
 }
 
-private struct ItemCategoryDropDelegate: DropDelegate {
-    let sectionID: String
-    let targetCategoryID: UUID?
-    let isEnabled: Bool
-    @Binding var targetedDropSectionID: String?
-    let onDropItem: (String, UUID?) -> Void
-
-    func validateDrop(info: DropInfo) -> Bool {
-        isEnabled && info.hasItemsConforming(to: [UTType.text])
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard validateDrop(info: info) else { return }
-        targetedDropSectionID = sectionID
-    }
-
-    func dropExited(info: DropInfo) {
-        guard targetedDropSectionID == sectionID else { return }
-        targetedDropSectionID = nil
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard validateDrop(info: info) else { return false }
-        targetedDropSectionID = nil
-        guard let provider = info.itemProviders(for: [UTType.text]).first else { return false }
-        provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let itemID = object as? NSString else { return }
-            Task { @MainActor in
-                onDropItem(itemID as String, targetCategoryID)
+private extension View {
+    func itemCategoryDropDestination(
+        sectionID: String,
+        targetCategoryID: UUID?,
+        isEnabled: Bool,
+        targetedDropSectionID: Binding<String?>,
+        onDropItem: @escaping (String, UUID?) -> Void
+    ) -> some View {
+        dropDestination(for: String.self) { itemIDs, _ in
+            guard isEnabled, let itemID = itemIDs.first else { return false }
+            targetedDropSectionID.wrappedValue = nil
+            onDropItem(itemID, targetCategoryID)
+            return true
+        } isTargeted: { isTargeted in
+            if isTargeted && isEnabled {
+                targetedDropSectionID.wrappedValue = sectionID
+            } else if targetedDropSectionID.wrappedValue == sectionID {
+                targetedDropSectionID.wrappedValue = nil
             }
         }
-        return true
     }
 }
 
@@ -2337,9 +2317,16 @@ private struct ItemRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("item-row-\(item.id.uuidString)")
-        .onDrag {
-            AppHaptics.dragStart()
-            return NSItemProvider(object: item.id.uuidString as NSString)
+        .draggable(item.id.uuidString) {
+            Text(item.name)
+                .font(.body.weight(.medium))
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .onAppear {
+                    AppHaptics.dragStart()
+                }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if isHiddenForLater {
