@@ -1,5 +1,4 @@
-#if canImport(CryptoKit)
-import CryptoKit
+import Crypto
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -634,9 +633,11 @@ private final class LiveBackendClient {
     init(baseURL: URL) {
         self.baseURL = baseURL
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieStorage = HTTPCookieStorage()
-        configuration.httpShouldSetCookies = true
-        configuration.httpCookieAcceptPolicy = .always
+        // Keep cookie handling isolated and portable. FoundationNetworking does
+        // not expose HTTPCookieStorage's empty initializer on Linux, while this
+        // client already captures and sends the session cookie explicitly.
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
         session = URLSession(configuration: configuration)
     }
 
@@ -1050,4 +1051,3 @@ private extension Data {
             .replacingOccurrences(of: "=", with: "")
     }
 }
-#endif
