@@ -1915,6 +1915,8 @@ def stream_ios_simulator_logs(
             "the base_url origin, but can be set to a shared native passkey host such "
             "as https://pr.planini.malaber.de."
         ),
+        "test_filter": "Swift test regular expression selecting native backend e2e tests.",
+        "skip_filter": "Optional Swift test regular expression excluded from the run.",
     }
 )
 def run_ios_e2e(
@@ -1924,6 +1926,8 @@ def run_ios_e2e(
     webauthn_rp_id="localhost",
     user_email=DEFAULT_IOS_E2E_USER_EMAIL,
     origin="",
+    test_filter="LiveBackendE2ETests",
+    skip_filter="",
 ) -> None:
     env = _ios_e2e_env(
         base_url=base_url,
@@ -1932,8 +1936,11 @@ def run_ios_e2e(
         user_email=user_email,
         origin=origin,
     )
+    command = f"swift test --package-path ios/PlaniniIOS --filter {shlex.quote(test_filter)}"
+    if skip_filter:
+        command += f" --skip {shlex.quote(skip_filter)}"
     c.run(
-        "xcrun swift test --package-path ios/PlaniniIOS --filter LiveBackendE2ETests",
+        command,
         env=env,
         pty=False,
         shell="/bin/bash",
@@ -2121,6 +2128,8 @@ def start_ios_backend(
             "http://localhost:<port>, but can be overridden to model shared native "
             "passkey hosts."
         ),
+        "test_filter": "Swift test regular expression selecting native backend e2e tests.",
+        "skip_filter": "Optional Swift test regular expression excluded from the run.",
         "host": "Host to bind the local app server to.",
         "port": "Port to bind the local app server to.",
         "log_path": "File used for uvicorn logs.",
@@ -2135,6 +2144,8 @@ def check_ios_e2e(
     webauthn_rp_id="localhost",
     user_email=DEFAULT_IOS_E2E_USER_EMAIL,
     origin="",
+    test_filter="LiveBackendE2ETests",
+    skip_filter="",
     host=DEFAULT_HOST,
     port=DEFAULT_IOS_E2E_PORT,
     log_path=DEFAULT_IOS_E2E_LOG_PATH,
@@ -2160,6 +2171,8 @@ def check_ios_e2e(
             webauthn_rp_id=webauthn_rp_id,
             user_email=user_email,
             origin=origin,
+            test_filter=test_filter,
+            skip_filter=skip_filter,
         )
     finally:
         stop_app(c, pid_path=pid_path)

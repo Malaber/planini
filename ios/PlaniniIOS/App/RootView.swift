@@ -1,5 +1,6 @@
 import PlaniniCore
 import SwiftUI
+import UniformTypeIdentifiers
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -1764,7 +1765,9 @@ private struct ListSettingsSheet: View {
     @State private var saveState: ListSettingsSaveState = .saved
     @State private var nameSaveTask: Task<Void, Never>?
     @State private var busyCategoryID: UUID?
-    @State private var isSavingCategoryOrder = false
+    @State private var draggedCategoryID: UUID?
+    @State private var categoryDragLastTargetID: UUID?
+    @State private var orderedCategories: [GroceryCategorySummary] = []
     @State private var pendingDisable: CategoryDisableConfirmation?
     @FocusState private var focusedField: ListSettingsFocusedField?
 
@@ -1798,9 +1801,17 @@ private struct ListSettingsSheet: View {
                     }
                 }
         }
-        .onAppear(perform: syncName)
+        .onAppear {
+            syncName()
+            syncOrderedCategories()
+            syncCategoryOrderSaveState(viewModel.categoryOrderBackgroundSaveState)
+        }
         .onChange(of: currentList?.name ?? "") { _ in syncName() }
         .onChange(of: name) { _ in scheduleNameAutosave() }
+        .onChange(of: viewModel.categoriesForSettings.map(\.id)) { _ in syncOrderedCategories() }
+        .onChange(of: viewModel.categoryOrderBackgroundSaveState) { newValue in
+            syncCategoryOrderSaveState(newValue)
+        }
         .onChange(of: focusedField) { newValue in
             if newValue != .name {
                 saveNameNow()
@@ -1826,39 +1837,74 @@ private struct ListSettingsSheet: View {
     }
 
     private var settingsForm: some View {
-        Form {
-            listNameSection
-            categoriesSection
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                listNameSection
+                categoriesSection
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
         }
-        .environment(\.editMode, .constant(.active))
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     private var listNameSection: some View {
-        Section("List name") {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("List name")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
             TextField("List name", text: $name)
                 .focused($focusedField, equals: .name)
                 .submitLabel(.done)
                 .onSubmit(saveNameNow)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 50)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .accessibilityIdentifier("list-name-field")
         }
     }
 
     private var categoriesSection: some View {
-        let categories = viewModel.categoriesForSettings
-        return Section {
-            if categories.isEmpty {
-                Label("No categories available", systemImage: "tray")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(categories) { category in
-                    categoryRow(category: category)
-                }
-                .onMove(perform: moveCategories)
-            }
-        } header: {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Categories")
-        } footer: {
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 0) {
+                if orderedCategories.isEmpty {
+                    Label("No categories available", systemImage: "tray")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                } else {
+                    ForEach(Array(orderedCategories.enumerated()), id: \.element.id) { index, category in
+                        categoryRow(category: category)
+                            .padding(.horizontal, 16)
+                            .contentShape(Rectangle())
+                            .onDrop(
+                                of: [.text],
+                                delegate: CategoryReorderDropDelegate(
+                                    targetCategoryID: category.id,
+                                    draggedCategoryID: $draggedCategoryID,
+                                    lastTargetCategoryID: $categoryDragLastTargetID,
+                                    orderedCategories: $orderedCategories,
+                                    onOrderChanged: saveCategoryOrder
+                                )
+                            )
+                        if index < orderedCategories.count - 1 {
+                            Divider().padding(.leading, 60)
+                        }
+                    }
+                }
+            }
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
             Text("Disabled categories stay hidden from item pickers for this list.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -1870,6 +1916,11 @@ private struct ListSettingsSheet: View {
             isBusy: busyCategoryID == category.id,
             onToggleDisabled: { disabled in
                 set(category, disabled: disabled)
+            },
+            onDrag: {
+                draggedCategoryID = category.id
+                categoryDragLastTargetID = nil
+                return NSItemProvider(object: category.id.uuidString as NSString)
             }
         )
     }
@@ -1932,16 +1983,26 @@ private struct ListSettingsSheet: View {
         }
     }
 
-    private func moveCategories(from source: IndexSet, to destination: Int) {
-        guard isSavingCategoryOrder == false else { return }
-        var categoryIDs = viewModel.categoriesForSettings.map(\.id)
-        categoryIDs.move(fromOffsets: source, toOffset: destination)
-        isSavingCategoryOrder = true
+    private func saveCategoryOrder(_ categoryIDs: [UUID]) {
         saveState = .saving
-        Task { @MainActor in
-            let saved = await viewModel.saveCategoryOrder(categoryIDs: categoryIDs)
-            isSavingCategoryOrder = false
-            saveState = saved ? .saved : .failed
+        viewModel.saveCategoryOrderInBackground(categoryIDs: categoryIDs)
+    }
+
+    private func syncOrderedCategories() {
+        let categories = viewModel.categoriesForSettings
+        if orderedCategories.map(\.id) != categories.map(\.id) {
+            orderedCategories = categories
+        }
+    }
+
+    private func syncCategoryOrderSaveState(_ state: CategoryOrderBackgroundSaveState) {
+        switch state {
+        case .saved:
+            saveState = .saved
+        case .saving:
+            saveState = .saving
+        case .failed:
+            saveState = .failed
         }
     }
 
@@ -1979,6 +2040,7 @@ private struct CategorySettingsRow: View {
     let itemCount: Int
     let isBusy: Bool
     let onToggleDisabled: (Bool) -> Void
+    let onDrag: () -> NSItemProvider
 
     var body: some View {
         HStack(spacing: 12) {
@@ -2008,6 +2070,17 @@ private struct CategorySettingsRow: View {
             .foregroundStyle(Color.accentColor)
             .accessibilityIdentifier("category-enabled-toggle-\(category.id.uuidString)")
             .accessibilityLabel(disabled ? "Show \(category.name)" : "Hide \(category.name)")
+
+            Image(systemName: "line.3.horizontal")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color.secondary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+                .onDrag(onDrag) {
+                    dragPreview
+                }
+                .accessibilityIdentifier("category-drag-handle-\(category.id.uuidString)")
+                .accessibilityLabel("Reorder \(category.name)")
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
@@ -2017,6 +2090,74 @@ private struct CategorySettingsRow: View {
     private var metaText: String {
         let itemText = itemCount == 1 ? "1 item" : "\(itemCount) items"
         return disabled ? "Disabled for this list · \(itemText)" : "Enabled · \(itemText)"
+    }
+
+    private var dragPreview: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(Color(hex: category.colorHex) ?? Color.secondary.opacity(0.4))
+                .frame(width: 12, height: 12)
+            Text(category.name)
+                .font(.body.weight(.medium))
+                .lineLimit(1)
+            Spacer(minLength: 12)
+            Image(systemName: "line.3.horizontal")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color.secondary)
+        }
+        .padding(.horizontal, 14)
+        .frame(minWidth: 180, minHeight: 48)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 8, y: 4)
+        .accessibilityIdentifier("category-drag-preview-\(category.id.uuidString)")
+    }
+}
+
+private struct CategoryReorderDropDelegate: DropDelegate {
+    let targetCategoryID: UUID
+    @Binding var draggedCategoryID: UUID?
+    @Binding var lastTargetCategoryID: UUID?
+    @Binding var orderedCategories: [GroceryCategorySummary]
+    let onOrderChanged: ([UUID]) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard
+            let draggedCategoryID,
+            draggedCategoryID != targetCategoryID,
+            lastTargetCategoryID != targetCategoryID,
+            let sourceIndex = orderedCategories.firstIndex(where: { $0.id == draggedCategoryID }),
+            let targetIndex = orderedCategories.firstIndex(where: { $0.id == targetCategoryID })
+        else {
+            return
+        }
+
+        lastTargetCategoryID = targetCategoryID
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            orderedCategories.move(
+                fromOffsets: IndexSet(integer: sourceIndex),
+                toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
+            )
+        }
+        onOrderChanged(orderedCategories.map(\.id))
+    }
+
+    func dropExited(info: DropInfo) {
+        if lastTargetCategoryID == targetCategoryID {
+            lastTargetCategoryID = nil
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedCategoryID = nil
+        lastTargetCategoryID = nil
+        return true
     }
 }
 
