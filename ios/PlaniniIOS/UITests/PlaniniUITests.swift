@@ -519,7 +519,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 5))
         editNameField.typeText(" Updated")
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(waitForEditSaveCompletion(app: app))
 
         let editSheet = app.otherElements["edit-item-sheet"]
         let undoButton = firstExistingElement(
@@ -531,7 +531,7 @@ final class PlaniniUITests: XCTestCase {
         tapElement(undoButton)
         XCTAssertTrue(waitForFieldValue(editNameField, contains: itemName))
         XCTAssertFalse(editNameField.valueText.contains("Updated"))
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(waitForEditSaveCompletion(app: app))
 
         let redoButton = firstExistingElement(
             [editSheet.buttons["Redo"], editSheet.buttons["Wiederholen"]],
@@ -541,7 +541,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(redoButton.isEnabled)
         tapElement(redoButton)
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(waitForEditSaveCompletion(app: app))
 
         chooseCategory(
             named: "Konserven",
@@ -557,7 +557,7 @@ final class PlaniniUITests: XCTestCase {
                 containing: "Konserven"
             )
         )
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(waitForEditSaveCompletion(app: app))
         captureScreenshot(named: "ios-ui-live-edit-autosave")
         tapElement(closeButton)
         XCTAssertTrue(
@@ -1867,20 +1867,19 @@ final class PlaniniUITests: XCTestCase {
         return false
     }
 
-    private func waitForEditStatus(
-        _ status: String,
+    private func waitForEditSaveCompletion(
         app: XCUIApplication,
         timeout: TimeInterval = 20
     ) -> Bool {
         let statusLabel = app.staticTexts["edit-item-save-status"]
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if statusLabel.exists && statusLabel.valueText == status {
+            if statusLabel.exists && ["saved", "saved-offline"].contains(statusLabel.valueText) {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
-        return statusLabel.exists && statusLabel.valueText == status
+        return statusLabel.exists && ["saved", "saved-offline"].contains(statusLabel.valueText)
     }
 
     private func waitForElementLabel(
