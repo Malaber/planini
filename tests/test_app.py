@@ -11,10 +11,18 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from webauthn.helpers import bytes_to_base64url
 
-from app.api.v1.routes.households import _as_utc
+from app.api.v1.routes.households import _as_utc, _claim_invite_use
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token
-from app.models import AuthSession, HouseholdInvite, HouseholdMember, Passkey, PasskeyAddLink, User
+from app.models import (
+    AuthSession,
+    HouseholdInvite,
+    HouseholdInviteUse,
+    HouseholdMember,
+    Passkey,
+    PasskeyAddLink,
+    User,
+)
 from fastpasskey import PasskeyOut
 from app.services.backups import (
     BackupConfirmationError,
@@ -1420,18 +1428,164 @@ def test_household_invite_flow_allows_joining_and_keeps_access_scoped(client) ->
         == 200
     )
 
+    outsider_accept = client.post(
+        f"/api/v1/households/invites/{token}/accept",
+        headers=outsider_headers,
+        json={},
+    )
+    assert outsider_accept.status_code == 200
+    assert outsider_accept.json()["id"] == household["id"]
+
+
+def test_household_invite_max_uses_limits_distinct_members(client) -> None:
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    first_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    second_headers = _auth_headers(client, f"{uuid4()}@example.com")
+
+    household = client.post(
+        "/api/v1/households", json={"name": "Limited"}, headers=owner_headers
+    ).json()
+    invite_response = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        headers=owner_headers,
+        json={"expires_in_hours": None, "max_uses": 1},
+    )
+    assert invite_response.status_code == 200
+    invite = invite_response.json()
+    assert invite["expires_at"] is None
+    assert invite["max_uses"] == 1
+    token = invite["invite_url"].rsplit("/", 1)[-1]
+
+    preview = client.get(f"/api/v1/households/invites/{token}", headers=first_headers)
+    assert preview.status_code == 200
+    assert preview.json()["max_uses"] == 1
+    assert preview.json()["remaining_uses"] == 1
+
     assert (
-        client.get(f"/api/v1/households/invites/{token}", headers=outsider_headers).status_code
-        == 404
+        client.post(
+            f"/api/v1/households/invites/{token}/accept",
+            headers=first_headers,
+            json={},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(f"/api/v1/households/invites/{token}", headers=second_headers).status_code == 404
+    )
+    first_preview_after_use = client.get(
+        f"/api/v1/households/invites/{token}", headers=first_headers
+    )
+    assert first_preview_after_use.status_code == 200
+    assert first_preview_after_use.json()["already_member"] is True
+    assert first_preview_after_use.json()["remaining_uses"] == 0
+    assert (
+        client.post(
+            f"/api/v1/households/invites/{token}/accept",
+            headers=first_headers,
+            json={},
+        ).status_code
+        == 200
     )
     assert (
         client.post(
             f"/api/v1/households/invites/{token}/accept",
-            headers=outsider_headers,
+            headers=second_headers,
             json={},
         ).status_code
         == 404
     )
+
+
+def test_household_invite_rejects_unbounded_links(client) -> None:
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households", json={"name": "No forever"}, headers=owner_headers
+    ).json()
+
+    response = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        headers=owner_headers,
+        json={"expires_in_hours": None},
+    )
+
+    assert response.status_code == 422
+
+
+def test_household_invite_use_claim_helper_handles_existing_full_and_racing_slots(client) -> None:
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    first_user_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    second_user_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    household = client.post(
+        "/api/v1/households", json={"name": "Race"}, headers=owner_headers
+    ).json()
+    invite_response = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        headers=owner_headers,
+        json={"expires_in_hours": None, "max_uses": 1},
+    )
+    token = invite_response.json()["invite_url"].rsplit("/", 1)[-1]
+
+    async def _exercise_claim_paths() -> None:
+        async with AsyncSessionLocal() as session:
+            invite = (
+                await session.execute(
+                    select(HouseholdInvite).where(
+                        HouseholdInvite.token_hash
+                        == hashlib.sha256(token.encode("utf-8")).hexdigest()
+                    )
+                )
+            ).scalar_one()
+            first_user = await session.get(User, first_user_id)
+            second_user = await session.get(User, second_user_id)
+            assert first_user is not None
+            assert second_user is not None
+
+            await _claim_invite_use(session, invite, first_user)
+            await _claim_invite_use(session, invite, first_user)
+            try:
+                await _claim_invite_use(session, invite, second_user)
+            except Exception as exc:
+                assert getattr(exc, "status_code", None) == 404
+            else:
+                raise AssertionError("Expected a full invite to be rejected")
+
+        class RacingSession:
+            def __init__(self) -> None:
+                self.flushes = 0
+
+            def add(self, value: object) -> None:
+                assert isinstance(value, HouseholdInviteUse)
+
+            async def execute(self, statement: object) -> SimpleNamespace:
+                return SimpleNamespace(
+                    scalar_one_or_none=lambda: None, scalars=lambda: SimpleNamespace(all=lambda: [])
+                )
+
+            def begin_nested(self) -> object:
+                return self
+
+            async def __aenter__(self) -> object:
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+            async def flush(self) -> None:
+                self.flushes += 1
+                raise IntegrityError("statement", {}, Exception("duplicate"))
+
+        racing_invite = SimpleNamespace(id=uuid4(), max_uses=1)
+        racing_user = SimpleNamespace(id=uuid4())
+        try:
+            await _claim_invite_use(
+                RacingSession(), racing_invite, racing_user  # type: ignore[arg-type]
+            )
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 404
+        else:
+            raise AssertionError("Expected a racing slot claim to be rejected")
+
+    asyncio.run(_exercise_claim_paths())
 
 
 def test_household_invites_require_owner_and_reject_expired_tokens(client) -> None:

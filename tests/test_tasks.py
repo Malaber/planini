@@ -753,6 +753,94 @@ def test_generate_ios_app_icons_renders_variant_svg_color(tmp_path: Path, monkey
     assert (watch_iconset_path / "Icon-24@2x.png").exists()
 
 
+def test_generate_ios_app_shortcuts_localizations_uses_all_locale_catalogs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    locales_path = tmp_path / "locales"
+    output_path = tmp_path / "AppShortcutsLocalization"
+    locales_path.mkdir()
+    catalogs = {
+        "en": {
+            "ios": {
+                "siri": {
+                    "add_item_phrase": "Add Item in ${applicationName}",
+                    "add_item_to_list_phrase": ("Add Item to ${list} in ${applicationName}"),
+                }
+            }
+        },
+        "de": {
+            "ios": {
+                "siri": {
+                    "add_item_phrase": "Mit ${applicationName} hinzufügen",
+                    "add_item_to_list_phrase": ("Mit ${applicationName} zu ${list} hinzufügen"),
+                }
+            }
+        },
+    }
+    for locale, catalog in catalogs.items():
+        (locales_path / f"{locale}.json").write_text(tasks.json.dumps(catalog), encoding="utf-8")
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "LOCALES_PATH", locales_path)
+    monkeypatch.setattr(tasks, "IOS_APP_SHORTCUTS_LOCALIZATION_PATH", output_path)
+
+    tasks.generate_ios_app_shortcuts_localizations.body(None)
+
+    assert (output_path / "en.lproj" / "AppShortcuts.strings").read_text(encoding="utf-8") == (
+        '"Add Item in ${applicationName}" = "Add Item in ${applicationName}";\n'
+        '"Add Item to ${list} in ${applicationName}" = '
+        '"Add Item to ${list} in ${applicationName}";\n'
+    )
+    assert (output_path / "de.lproj" / "AppShortcuts.strings").read_text(encoding="utf-8") == (
+        '"Add Item in ${applicationName}" = "Mit ${applicationName} hinzufügen";\n'
+        '"Add Item to ${list} in ${applicationName}" = '
+        '"Mit ${applicationName} zu ${list} hinzufügen";\n'
+    )
+
+
+def test_ios_app_shortcuts_localizations_require_matching_placeholders() -> None:
+    catalog = {
+        "ios": {
+            "siri": {
+                "add_item_phrase": "Artikel hinzufügen",
+                "add_item_to_list_phrase": "Artikel zu ${list} hinzufügen",
+            }
+        }
+    }
+
+    try:
+        tasks._ios_app_shortcuts_strings_content(catalog, "de")
+    except tasks.Exit as exc:
+        assert "placeholders" in str(exc)
+        assert "${applicationName}" in str(exc)
+    else:
+        raise AssertionError("expected missing App Shortcut placeholders to fail")
+
+
+def test_ios_app_shortcuts_localizations_match_shared_locale_catalogs() -> None:
+    for locale_path in sorted(tasks.LOCALES_PATH.glob("*.json")):
+        locale = locale_path.stem
+        catalog = tasks.json.loads(locale_path.read_text(encoding="utf-8"))
+        generated_path = (
+            tasks.IOS_APP_SHORTCUTS_LOCALIZATION_PATH / f"{locale}.lproj" / "AppShortcuts.strings"
+        )
+
+        assert generated_path.read_text(
+            encoding="utf-8"
+        ) == tasks._ios_app_shortcuts_strings_content(catalog, locale)
+
+
+def test_ios_app_shortcut_source_phrases_match_swift_provider() -> None:
+    provider = (tasks.ROOT / "ios" / "PlaniniIOS" / "App" / "PlaniniAppIntents.swift").read_text(
+        encoding="utf-8"
+    )
+
+    for source_phrase, _ in tasks.IOS_APP_SHORTCUT_PHRASE_KEYS:
+        swift_phrase = source_phrase.replace("${applicationName}", r"\(.applicationName)")
+        swift_phrase = swift_phrase.replace("${list}", r"\(\.$list)")
+        assert f'"{swift_phrase}"' in provider
+
+
 def test_ios_testflight_workflow_adds_pr_build_component_and_variant_icon_colors() -> None:
     workflow = (
         Path(__file__).resolve().parents[1]
@@ -1567,9 +1655,15 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
     ]
 
 
-def test_check_ios_ui_e2e_retries_with_fresh_seeded_backend(monkeypatch, capsys) -> None:
+def test_check_ios_ui_e2e_restarts_backend_before_retry(monkeypatch, capsys) -> None:
     calls: list[tuple[str, dict]] = []
-    run_results = iter([tasks.Exit("first attempt failed"), None])
+    sessions = iter(
+        [
+            {"access_token": "token-first", "display_name": "First User"},
+            {"access_token": "token-second", "display_name": "Second User"},
+        ]
+    )
+    outcomes = iter([tasks.Exit("first attempt failed"), None])
 
     monkeypatch.setattr(
         tasks,
@@ -1578,50 +1672,36 @@ def test_check_ios_ui_e2e_retries_with_fresh_seeded_backend(monkeypatch, capsys)
     )
     monkeypatch.setattr(tasks, "start_app", lambda c, **kwargs: calls.append(("start", kwargs)))
     monkeypatch.setattr(tasks, "wait_for_app", lambda c, **kwargs: calls.append(("wait", kwargs)))
+    monkeypatch.setattr(tasks, "_bootstrap_ios_ui_test_session", lambda **kwargs: next(sessions))
+    monkeypatch.setattr(tasks.generate_ios_app_icons, "body", lambda c: calls.append(("icons", {})))
     monkeypatch.setattr(
-        tasks,
-        "_bootstrap_ios_ui_test_session",
-        lambda **kwargs: calls.append(("bootstrap", kwargs))
-        or {"access_token": "token-123", "display_name": "Test User"},
+        tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
     )
-    monkeypatch.setattr(tasks.generate_ios_app_icons, "body", lambda c: None)
-    monkeypatch.setattr(tasks.generate_ios_project, "body", lambda c: None)
 
-    def run(c, **kwargs):
+    def run_ios_ui_e2e(c, **kwargs):
         calls.append(("run", kwargs))
-        result = next(run_results)
-        if result is not None:
-            raise result
+        outcome = next(outcomes)
+        if outcome is not None:
+            raise outcome
 
-    monkeypatch.setattr(tasks, "run_ios_ui_e2e", run)
+    monkeypatch.setattr(tasks, "run_ios_ui_e2e", run_ios_ui_e2e)
     monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: calls.append(("stop", kwargs)))
 
-    tasks.check_ios_ui_e2e.body(
-        None,
-        database_url="sqlite+aiosqlite:///./tmp-ios-ui-e2e.db",
-        attempts=2,
-    )
+    tasks.check_ios_ui_e2e.body(None, attempts=2)
 
-    assert [name for name, _ in calls] == [
-        "reset",
-        "start",
-        "wait",
-        "bootstrap",
-        "run",
-        "stop",
-        "reset",
-        "start",
-        "wait",
-        "bootstrap",
-        "run",
-        "stop",
-    ]
-    assert [kwargs["attempts"] for name, kwargs in calls if name == "run"] == [1, 1]
-    assert "Retrying iOS UI e2e with a fresh seeded database" in capsys.readouterr().out
+    assert [name for name, _ in calls].count("reset") == 2
+    assert [name for name, _ in calls].count("start") == 2
+    assert [name for name, _ in calls].count("stop") == 2
+    assert [name for name, _ in calls].count("icons") == 1
+    assert [name for name, _ in calls].count("generate") == 1
+    run_calls = [kwargs for name, kwargs in calls if name == "run"]
+    assert [kwargs["access_token"] for kwargs in run_calls] == ["token-first", "token-second"]
+    assert all(kwargs["attempts"] == 1 for kwargs in run_calls)
+    assert "Retrying iOS UI e2e with a fresh backend (attempt 1/2)" in capsys.readouterr().out
 
 
-def test_check_ios_ui_e2e_propagates_final_failure(monkeypatch) -> None:
-    stopped: list[dict] = []
+def test_check_ios_ui_e2e_stops_backend_after_final_failure(monkeypatch) -> None:
+    stops: list[dict] = []
 
     monkeypatch.setattr(tasks, "_reset_sqlite_database_file", lambda database_url: None)
     monkeypatch.setattr(tasks, "start_app", lambda c, **kwargs: None)
@@ -1629,25 +1709,25 @@ def test_check_ios_ui_e2e_propagates_final_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         tasks,
         "_bootstrap_ios_ui_test_session",
-        lambda **kwargs: {"access_token": "token-123", "display_name": "Test User"},
+        lambda **kwargs: {"access_token": "token", "display_name": "Test User"},
     )
     monkeypatch.setattr(tasks.generate_ios_app_icons, "body", lambda c: None)
     monkeypatch.setattr(tasks.generate_ios_project, "body", lambda c: None)
     monkeypatch.setattr(
         tasks,
         "run_ios_ui_e2e",
-        lambda c, **kwargs: (_ for _ in ()).throw(tasks.Exit("final failure")),
+        lambda c, **kwargs: (_ for _ in ()).throw(tasks.Exit("xcode failed")),
     )
-    monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: stopped.append(kwargs))
+    monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: stops.append(kwargs))
 
     try:
         tasks.check_ios_ui_e2e.body(None, attempts=1)
     except tasks.Exit as exc:
-        assert "final failure" in str(exc)
+        assert "xcode failed" in str(exc)
     else:
-        raise AssertionError("expected final iOS UI e2e failure")
+        raise AssertionError("expected check_ios_ui_e2e to fail")
 
-    assert stopped == [{"pid_path": tasks.DEFAULT_IOS_UI_E2E_PID_PATH}]
+    assert stops == [{"pid_path": tasks.DEFAULT_IOS_UI_E2E_PID_PATH}]
 
 
 def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_size(
