@@ -116,6 +116,19 @@ private struct PendingItemCreate: Codable, Equatable {
     }
 }
 
+private struct PendingCategoryOrderSave {
+    let listID: UUID
+    let backendURL: URL
+    let authToken: String
+    let categoryIDs: [UUID]
+}
+
+enum CategoryOrderBackgroundSaveState: Equatable {
+    case saved
+    case saving
+    case failed
+}
+
 struct LinkedListNavigationRequest: Equatable {
     let id = UUID()
     let listID: UUID
@@ -150,6 +163,7 @@ final class MobileAppViewModel: ObservableObject {
     @Published private(set) var items: [GroceryItemRecord] = []
     @Published private(set) var categories: [GroceryCategorySummary] = []
     @Published private(set) var categoryOrder: [ListCategoryOrderEntry] = []
+    @Published private(set) var categoryOrderBackgroundSaveState: CategoryOrderBackgroundSaveState = .saved
     @Published private(set) var disabledCategoryIDs: Set<UUID> = []
     @Published var selectedListID: UUID?
     @Published private(set) var favoriteListID: UUID?
@@ -174,6 +188,10 @@ final class MobileAppViewModel: ObservableObject {
     private var itemEditSaveRevisions: [UUID: Int] = [:]
     private var pendingPlaniniLink: PlaniniLink?
     private var preservesUITestOfflineStatusUntilMutation = false
+    private var pendingCategoryOrderSaves: [UUID: PendingCategoryOrderSave] = [:]
+    private var pendingCategoryOrderSaveListIDs: [UUID] = []
+    private var categoryOrderSaveTask: Task<Void, Never>?
+    private var optimisticCategoryOrders: [UUID: [ListCategoryOrderEntry]] = [:]
 
     init(
         passkeyClient: ApplePasskeyClient = ApplePasskeyClient(),
@@ -693,6 +711,12 @@ final class MobileAppViewModel: ObservableObject {
         items = []
         categories = []
         categoryOrder = []
+        categoryOrderBackgroundSaveState = .saved
+        categoryOrderSaveTask?.cancel()
+        categoryOrderSaveTask = nil
+        pendingCategoryOrderSaves = [:]
+        pendingCategoryOrderSaveListIDs = []
+        optimisticCategoryOrders = [:]
         disabledCategoryIDs = []
         selectedListID = nil
         errorMessage = nil
@@ -1556,6 +1580,12 @@ final class MobileAppViewModel: ObservableObject {
         items = []
         categories = []
         categoryOrder = []
+        categoryOrderBackgroundSaveState = .saved
+        categoryOrderSaveTask?.cancel()
+        categoryOrderSaveTask = nil
+        pendingCategoryOrderSaves = [:]
+        pendingCategoryOrderSaveListIDs = []
+        optimisticCategoryOrders = [:]
         selectedListID = nil
         reviewerOnboardingMessage = nil
         offlineStatusMessage = nil
@@ -1628,7 +1658,7 @@ final class MobileAppViewModel: ObservableObject {
             )
         )
         categories = listData.categories
-        categoryOrder = listData.categoryOrder
+        categoryOrder = selectedListID.flatMap { optimisticCategoryOrders[$0] } ?? listData.categoryOrder
         disabledCategoryIDs = Set(listData.disabledCategoryIDs)
     }
 
@@ -1674,6 +1704,93 @@ final class MobileAppViewModel: ObservableObject {
             errorMessage = error.localizedDescription
             return false
         }
+    }
+
+    func saveCategoryOrderInBackground(categoryIDs: [UUID]) {
+        guard let backendURL, let authToken, let selectedListID else {
+            categoryOrderBackgroundSaveState = .failed
+            return
+        }
+
+        let nextOrder = categoryIDs.enumerated().map { index, categoryID in
+            ListCategoryOrderEntry(categoryID: categoryID, sortOrder: index)
+        }
+        categoryOrder = nextOrder
+        optimisticCategoryOrders[selectedListID] = nextOrder
+        cacheCurrentListData()
+        watchSyncCoordinator.publishCurrentState()
+
+        if pendingCategoryOrderSaves[selectedListID] == nil {
+            pendingCategoryOrderSaveListIDs.append(selectedListID)
+        }
+        pendingCategoryOrderSaves[selectedListID] = PendingCategoryOrderSave(
+            listID: selectedListID,
+            backendURL: backendURL,
+            authToken: authToken,
+            categoryIDs: categoryIDs
+        )
+        categoryOrderBackgroundSaveState = .saving
+
+        guard categoryOrderSaveTask == nil else { return }
+        categoryOrderSaveTask = Task { [weak self] in
+            await self?.flushCategoryOrderSaveQueue()
+        }
+    }
+
+    private func flushCategoryOrderSaveQueue() async {
+        var latestSaveFailed = false
+
+        while Task.isCancelled == false, let listID = pendingCategoryOrderSaveListIDs.first {
+            pendingCategoryOrderSaveListIDs.removeFirst()
+            guard let request = pendingCategoryOrderSaves.removeValue(forKey: listID) else {
+                continue
+            }
+
+            if categoryOrderSaveDelayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: categoryOrderSaveDelayNanoseconds)
+            }
+            guard Task.isCancelled == false else { return }
+
+            do {
+                let response = try await requestArray(
+                    backendURL: request.backendURL,
+                    path: "/api/v1/lists/\(request.listID.uuidString)/category-order",
+                    method: "PUT",
+                    body: ["category_ids": request.categoryIDs.map(\.uuidString)],
+                    token: request.authToken
+                )
+                guard Task.isCancelled == false else { return }
+                guard pendingCategoryOrderSaves[request.listID] == nil else { continue }
+
+                optimisticCategoryOrders.removeValue(forKey: request.listID)
+                if selectedListID == request.listID {
+                    categoryOrder = response.compactMap(ListCategoryOrderEntry.init)
+                    cacheCurrentListData()
+                    watchSyncCoordinator.publishCurrentState()
+                }
+            } catch {
+                guard Task.isCancelled == false else { return }
+                if pendingCategoryOrderSaves[request.listID] == nil {
+                    latestSaveFailed = true
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+
+        guard Task.isCancelled == false else { return }
+        categoryOrderSaveTask = nil
+        categoryOrderBackgroundSaveState = latestSaveFailed ? .failed : .saved
+    }
+
+    private var categoryOrderSaveDelayNanoseconds: UInt64 {
+        guard
+            isRunningUITests,
+            let rawDelay = processInfo.environment["PLANINI_UI_TEST_CATEGORY_ORDER_SAVE_DELAY_MS"],
+            let delayMilliseconds = UInt64(rawDelay)
+        else {
+            return 0
+        }
+        return delayMilliseconds * 1_000_000
     }
 
     private func sortedLists(_ lists: [GroceryListSummary]) -> [GroceryListSummary] {
