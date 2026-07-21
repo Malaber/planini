@@ -31,6 +31,7 @@ router = create_passkey_router(
     PasskeyRouterConfig(
         service_factory=_passkey_service,
         repository_dependency=get_passkey_repository,
+        add_link_repository_dependency=get_passkey_repository,
         current_user_dependency=get_current_user,
     )
 )
