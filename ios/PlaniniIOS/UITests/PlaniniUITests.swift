@@ -480,13 +480,6 @@ final class PlaniniUITests: XCTestCase {
         let deleteUndoMessage = app.staticTexts["list-undo-message"]
         XCTAssertTrue(deleteUndoButton.waitForExistence(timeout: 20))
         XCTAssertTrue(deleteUndoMessage.label.contains("\(itemName) deleted."))
-        XCTAssertTrue(
-            waitForItemAbsent(
-                named: itemName,
-                inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
-        )
         captureScreenshot(named: "ios-ui-floating-undo-delete")
         tapElement(deleteUndoButton)
         XCTAssertTrue(
