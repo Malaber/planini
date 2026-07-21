@@ -648,8 +648,9 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(moveNoticeMessage.label.contains("Brot"))
         XCTAssertTrue(moveNoticeMessage.label.contains("Hosting errands"))
         captureScreenshot(named: "ios-ui-moved-item-notice")
-        let moveUndoButton = app.buttons["move-item-undo-button-\(seededItemID.uuidString)"]
-        scrollToHittable(moveUndoButton, in: app, maxSwipes: 12)
+        let moveUndoButtonID = "move-item-undo-button-\(seededItemID.uuidString)"
+        scrollToHittable(app.buttons[moveUndoButtonID], in: app, maxSwipes: 12)
+        let moveUndoButton = app.buttons[moveUndoButtonID]
         XCTAssertTrue(moveUndoButton.waitForExistence(timeout: 5))
         tapElement(moveUndoButton)
         XCTAssertTrue(
@@ -705,8 +706,9 @@ final class PlaniniUITests: XCTestCase {
         let failedUndoNotice = app.otherElements["item-move-notice-\(updatedItemID.uuidString)"]
         XCTAssertTrue(failedUndoNotice.waitForExistence(timeout: 5))
         try deleteItem(itemID: updatedItemID, accessToken: session.accessToken)
-        let failedUndoButton = app.buttons["move-item-undo-button-\(updatedItemID.uuidString)"]
-        scrollToHittable(failedUndoButton, in: app, maxSwipes: 12)
+        let failedUndoButtonID = "move-item-undo-button-\(updatedItemID.uuidString)"
+        scrollToHittable(app.buttons[failedUndoButtonID], in: app, maxSwipes: 12)
+        let failedUndoButton = app.buttons[failedUndoButtonID]
         XCTAssertTrue(failedUndoButton.waitForExistence(timeout: 5))
         tapElement(failedUndoButton)
         let failedUndoError = app.staticTexts["item-move-notice-error-\(updatedItemID.uuidString)"]
@@ -1914,12 +1916,7 @@ final class PlaniniUITests: XCTestCase {
 
         let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let target = targetElement.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        source.press(
-            forDuration: 1.2,
-            thenDragTo: target,
-            withVelocity: .slow,
-            thenHoldForDuration: 0.8
-        )
+        source.press(forDuration: 1.2, thenDragTo: target)
         return waitForItemCategory(
             named: itemName,
             categoryNamed: categoryName,
