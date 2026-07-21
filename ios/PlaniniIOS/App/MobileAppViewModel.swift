@@ -189,6 +189,7 @@ final class MobileAppViewModel: ObservableObject {
     private var itemEditSaveRevisions: [UUID: Int] = [:]
     private var pendingPlaniniLink: PlaniniLink?
     private var preservesUITestOfflineStatusUntilMutation = false
+    private var defersUITestPendingItemSyncUntilMutation = false
     private var pendingCategoryOrderSaves: [UUID: PendingCategoryOrderSave] = [:]
     private var pendingCategoryOrderSaveListIDs: [UUID] = []
     private var categoryOrderSaveTask: Task<Void, Never>?
@@ -1113,6 +1114,7 @@ final class MobileAppViewModel: ObservableObject {
         guard let selectedListID, trimmed.isEmpty == false else {
             return false
         }
+        defersUITestPendingItemSyncUntilMutation = false
         let quantityText = quantity.isEmpty ? nil : quantity
         let noteText = note.isEmpty ? nil : note
 
@@ -1608,6 +1610,7 @@ final class MobileAppViewModel: ObservableObject {
             note: nil,
             categoryID: nil
         )
+        defersUITestPendingItemSyncUntilMutation = true
     }
 
     private func applyUITestOfflineStatusOverrideIfNeeded() {
@@ -2101,6 +2104,7 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     private func flushPendingItemCreates() async {
+        guard defersUITestPendingItemSyncUntilMutation == false else { return }
         guard let backendURL, let authToken else { return }
         let createsByListID = Dictionary(grouping: pendingItemCreates, by: \.listID)
         var didSyncPendingItems = false
