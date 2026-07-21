@@ -11,6 +11,7 @@ private enum AppBuildConfiguration {
     static let uiTestStoredAccessTokenOverrideKey = "PLANINI_UI_TEST_STORED_ACCESS_TOKEN_OVERRIDE"
     static let uiTestStoredDisplayNameOverrideKey = "PLANINI_UI_TEST_STORED_DISPLAY_NAME_OVERRIDE"
     static let uiTestOfflineStatusMessageKey = "PLANINI_UI_TEST_OFFLINE_STATUS_MESSAGE"
+    static let uiTestPendingItemCreateNameKey = "PLANINI_UI_TEST_PENDING_ITEM_CREATE_NAME"
     static let uiTestSiriAddItemNameKey = "PLANINI_UI_TEST_SIRI_ADD_ITEM_NAME"
     static let uiTestSiriAddItemListNameKey = "PLANINI_UI_TEST_SIRI_ADD_ITEM_LIST_NAME"
 
@@ -697,6 +698,7 @@ final class MobileAppViewModel: ObservableObject {
         }
 
         errorMessage = nil
+        applyUITestPendingItemCreateIfNeeded()
         applyUITestOfflineStatusOverrideIfNeeded()
         await processPendingPlaniniLinkIfPossible()
         watchSyncCoordinator.publishCurrentState()
@@ -835,10 +837,14 @@ final class MobileAppViewModel: ObservableObject {
             if handleSessionExpired(error) {
                 throw error
             }
-            if let cachedLists = cachedLists(), cachedLists.isEmpty == false {
+            if
+                isOfflineError(error),
+                let cachedLists = cachedLists(),
+                cachedLists.isEmpty == false
+            {
                 lists = cachedLists
                 households = sortedHouseholds(Self.households(from: cachedLists))
-                showOfflineStatus("Offline. Showing saved list.")
+                showOfflineStatus("Offline. Showing saved list.", cause: error)
             } else {
                 throw error
             }
@@ -1076,9 +1082,9 @@ final class MobileAppViewModel: ObservableObject {
             if handleSessionExpired(error) {
                 throw error
             }
-            if let cachedListData = cachedListData(listID: reloadedListID) {
+            if isOfflineError(error), let cachedListData = cachedListData(listID: reloadedListID) {
                 listData = cachedListData
-                showOfflineStatus("Offline. Showing saved list.")
+                showOfflineStatus("Offline. Showing saved list.", cause: error)
             } else {
                 throw error
             }
@@ -1121,11 +1127,7 @@ final class MobileAppViewModel: ObservableObject {
             showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
         }
 
-        guard
-            pendingItemCreates.contains(where: { $0.listID == selectedListID }) == false,
-            let backendURL,
-            let authToken
-        else {
+        guard let backendURL, let authToken else {
             queueOfflineCreate()
             return true
         }
@@ -1135,25 +1137,51 @@ final class MobileAppViewModel: ObservableObject {
         body["note"] = noteText ?? NSNull()
         body["category_id"] = categoryID?.uuidString ?? NSNull()
 
+        let createdPayload: [String: Any]
         do {
-            _ = try await requestJSON(
+            createdPayload = try await requestJSON(
                 backendURL: backendURL,
                 path: "/api/v1/lists/\(selectedListID.uuidString)/items",
                 method: "POST",
                 body: body,
                 token: authToken
             )
-            try await reloadItems()
-            clearOfflineStatus()
-            watchSyncCoordinator.publishCurrentState()
-            return true
         } catch {
             if handleSessionExpired(error) {
                 return false
             }
-            queueOfflineCreate()
+            guard isOfflineError(error) else {
+                errorMessage = error.localizedDescription
+                return false
+            }
+            queuePendingItemCreate(
+                listID: selectedListID,
+                name: trimmed,
+                quantityText: quantityText,
+                note: noteText,
+                categoryID: categoryID
+            )
+            showOfflineStatus(
+                "Changes saved offline. They will sync when the backend is reachable.",
+                cause: error
+            )
             return true
         }
+
+        if let createdItem = GroceryItemRecord(json: createdPayload) {
+            upsertLocalItem(createdItem)
+            cacheCurrentListData()
+        }
+        do {
+            try await reloadItems()
+        } catch {
+            netLog.error(
+                "Item saved, but post-create refresh failed: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+        clearOfflineStatus()
+        watchSyncCoordinator.publishCurrentState()
+        return true
     }
 
     @discardableResult
@@ -1169,11 +1197,6 @@ final class MobileAppViewModel: ObservableObject {
         func queueOfflineToggle() {
             queuePendingItemToggle(listID: item.listID, itemID: itemID, checked: checked, recordedAt: recordedAt)
             showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
-        }
-
-        guard pendingItemToggles.isEmpty else {
-            queueOfflineToggle()
-            return true
         }
 
         guard let backendURL, let authToken else {
@@ -1192,8 +1215,10 @@ final class MobileAppViewModel: ObservableObject {
             if let savedItem = GroceryItemRecord(json: saved) {
                 upsertLocalItem(savedItem)
             } else {
-                try await reloadItems()
+                applyLocalToggle(itemID: itemID, checked: checked, recordedAt: recordedAt)
             }
+            removePendingItemToggles(itemID: itemID)
+            cacheCurrentListData()
             clearOfflineStatus()
             watchSyncCoordinator.publishCurrentState()
             return true
@@ -1201,7 +1226,20 @@ final class MobileAppViewModel: ObservableObject {
             if handleSessionExpired(error) {
                 return false
             }
-            queueOfflineToggle()
+            guard isOfflineError(error) else {
+                errorMessage = error.localizedDescription
+                return false
+            }
+            queuePendingItemToggle(
+                listID: item.listID,
+                itemID: itemID,
+                checked: checked,
+                recordedAt: recordedAt
+            )
+            showOfflineStatus(
+                "Changes saved offline. They will sync when the backend is reachable.",
+                cause: error
+            )
             return true
         }
     }
@@ -1303,10 +1341,16 @@ final class MobileAppViewModel: ObservableObject {
                 _ = handleSessionExpired(appError)
                 return false
             }
-            if itemEditSaveRevisions[item.id] == revision {
-                queuePendingItemEdit(listID: item.listID, itemID: item.id, payload: payload)
-                showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
+            guard itemEditSaveRevisions[item.id] == revision else { return true }
+            guard isOfflineError(error) else {
+                errorMessage = error.localizedDescription
+                return false
             }
+            queuePendingItemEdit(listID: item.listID, itemID: item.id, payload: payload)
+            showOfflineStatus(
+                "Changes saved offline. They will sync when the backend is reachable.",
+                cause: error
+            )
             return true
         }
     }
@@ -1538,9 +1582,32 @@ final class MobileAppViewModel: ObservableObject {
         )
     }
 
-    private func showOfflineStatus(_ message: String) {
+    private func showOfflineStatus(_ message: String, cause: Error? = nil) {
         errorMessage = nil
         offlineStatusMessage = message
+        netLog.notice(
+            "Showing offline status. pendingCreates=\(self.pendingItemCreates.count) pendingEdits=\(self.pendingItemEdits.count) pendingToggles=\(self.pendingItemToggles.count) cause=\(cause?.localizedDescription ?? "none", privacy: .public)"
+        )
+    }
+
+    private func applyUITestPendingItemCreateIfNeeded() {
+        guard
+            processInfo.environment["PLANINI_UI_TEST_MODE"] == "1",
+            let selectedListID,
+            let name = processInfo.environment[AppBuildConfiguration.uiTestPendingItemCreateNameKey]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            name.isEmpty == false,
+            pendingItemCreates.contains(where: { $0.listID == selectedListID && $0.name == name }) == false
+        else {
+            return
+        }
+        queuePendingItemCreate(
+            listID: selectedListID,
+            name: name,
+            quantityText: nil,
+            note: nil,
+            categoryID: nil
+        )
     }
 
     private func applyUITestOfflineStatusOverrideIfNeeded() {
@@ -1563,8 +1630,24 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     private func clearOfflineStatus() {
+        if offlineStatusMessage != nil {
+            netLog.notice(
+                "Clearing offline status. pendingCreates=\(self.pendingItemCreates.count) pendingEdits=\(self.pendingItemEdits.count) pendingToggles=\(self.pendingItemToggles.count)"
+            )
+        }
         preservesUITestOfflineStatusUntilMutation = false
         offlineStatusMessage = nil
+    }
+
+    private func isOfflineError(_ error: Error) -> Bool {
+        if error is URLError {
+            return true
+        }
+        guard let appError = error as? AppError else { return false }
+        if case .backendUnavailable = appError {
+            return true
+        }
+        return false
     }
 
     private func handleSessionExpired(_ error: Error) -> Bool {
@@ -1952,6 +2035,11 @@ final class MobileAppViewModel: ObservableObject {
         savePendingItemToggles()
     }
 
+    private func removePendingItemToggles(itemID: UUID) {
+        pendingItemToggles.removeAll { $0.itemID == itemID }
+        savePendingItemToggles()
+    }
+
     private func applyPendingItemCreates(to loadedItems: [GroceryItemRecord]) -> [GroceryItemRecord] {
         guard let selectedListID else { return loadedItems }
         var mergedItems = loadedItems
@@ -2067,7 +2155,12 @@ final class MobileAppViewModel: ObservableObject {
                 netLog.error(
                     "Pending iPhone item create sync failed: \(error.localizedDescription, privacy: .public)"
                 )
-                showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
+                if isOfflineError(error) {
+                    showOfflineStatus(
+                        "Changes saved offline. They will sync when the backend is reachable.",
+                        cause: error
+                    )
+                }
                 return
             }
         }
@@ -2173,10 +2266,18 @@ final class MobileAppViewModel: ObservableObject {
                 }
                 didSyncPendingItems = true
             } catch {
+                if handleSessionExpired(error) {
+                    return
+                }
                 netLog.error(
                     "Pending iPhone item toggle sync failed: \(error.localizedDescription, privacy: .public)"
                 )
-                showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
+                if isOfflineError(error) {
+                    showOfflineStatus(
+                        "Changes saved offline. They will sync when the backend is reachable.",
+                        cause: error
+                    )
+                }
                 return
             }
         }
@@ -2340,6 +2441,14 @@ final class MobileAppViewModel: ObservableObject {
 
         guard let http = response as? HTTPURLResponse else {
             throw AppError.invalidResponse
+        }
+        if token != nil {
+            if offlineStatusMessage != nil {
+                netLog.notice(
+                    "Authenticated backend response received. method=\(method, privacy: .public) path=\(path, privacy: .public) status=\(http.statusCode)"
+                )
+            }
+            clearOfflineStatusAfterRead()
         }
         guard (200 ... 299).contains(http.statusCode) else {
             if http.statusCode == 401, token != nil {
