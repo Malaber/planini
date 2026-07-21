@@ -1512,20 +1512,27 @@ final class PlaniniUITests: XCTestCase {
         }
         guard button.exists else { return false }
 
-        scrollToHittable(button, in: app, maxSwipes: 2)
-        if button.isHittable {
-            button.tap()
-        } else {
-            tapElement(button)
-        }
+        for attempt in 0..<2 {
+            scrollToHittable(button, in: app, maxSwipes: 2)
+            if button.isHittable {
+                button.tap()
+            } else {
+                tapElement(button)
+            }
 
-        return waitForItemCheckedState(
-            named: itemName,
-            checked: checked,
-            inListNamed: listName,
-            accessToken: accessToken,
-            timeout: max(0.5, deadline.timeIntervalSinceNow)
-        )
+            let remainingTimeout = max(0.5, deadline.timeIntervalSinceNow)
+            let stateTimeout = attempt == 0 ? min(5, remainingTimeout) : remainingTimeout
+            if waitForItemCheckedState(
+                named: itemName,
+                checked: checked,
+                inListNamed: listName,
+                accessToken: accessToken,
+                timeout: stateTimeout
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     private func hideItemUsingSwipe(
