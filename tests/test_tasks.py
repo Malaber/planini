@@ -1413,6 +1413,7 @@ def test_run_ios_e2e_invokes_swift_test_with_expected_env(monkeypatch) -> None:
 
 def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_path: Path) -> None:
     calls: list[tuple[str, dict]] = []
+    resets: list[str] = []
 
     class Context:
         def run(self, command, **kwargs):
@@ -1426,6 +1427,9 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
         lambda device_name: f"platform=iOS Simulator,name={device_name},OS=latest",
     )
     monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda device_name: None)
+    monkeypatch.setattr(
+        tasks, "_reset_ios_ui_test_app", lambda device_name: resets.append(device_name)
+    )
     artifact_path = tmp_path / "e2e-artifacts" / "ios-ui-e2e"
     result_bundle_path = artifact_path / tasks.DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
     result_bundle_path.mkdir(parents=True)
@@ -1497,11 +1501,13 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
     ]
     assert summaries == ["e2e-artifacts/ios-ui-e2e"]
     assert validations == [("e2e-artifacts/ios-ui-e2e", (1284, 2778))]
+    assert resets == ["iPhone 17"]
     assert not result_bundle_path.exists()
 
 
 def test_run_ios_ui_e2e_retries_once_before_succeeding(monkeypatch, tmp_path: Path, capsys) -> None:
     calls: list[tuple[str, dict]] = []
+    resets: list[str] = []
     results = iter([RunResult(exited=65), RunResult(exited=0)])
 
     class Context:
@@ -1511,6 +1517,9 @@ def test_run_ios_ui_e2e_retries_once_before_succeeding(monkeypatch, tmp_path: Pa
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda device_name: None)
+    monkeypatch.setattr(
+        tasks, "_reset_ios_ui_test_app", lambda device_name: resets.append(device_name)
+    )
     monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
     monkeypatch.setattr(tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: None)
 
@@ -1521,6 +1530,7 @@ def test_run_ios_ui_e2e_retries_once_before_succeeding(monkeypatch, tmp_path: Pa
     )
 
     assert len(calls) == 2
+    assert resets == [tasks.DEFAULT_IOS_UI_E2E_DEVICE, tasks.DEFAULT_IOS_UI_E2E_DEVICE]
     assert capsys.readouterr().out.count("Retrying iOS UI e2e after xcodebuild failure") == 1
 
 
@@ -1533,6 +1543,7 @@ def test_run_ios_ui_e2e_prints_failure_summary_before_exiting(
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda device_name: None)
+    monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda device_name: None)
     monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
     monkeypatch.setattr(tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: None)
     monkeypatch.setattr(
@@ -1552,6 +1563,31 @@ def test_run_ios_ui_e2e_prints_failure_summary_before_exiting(
     assert "Retrying iOS UI e2e after xcodebuild failure" not in captured.out
     assert "iOS UI e2e failure summary:" in captured.out
     assert "testListViewFlow() [Failure]: Timed out waiting for response" in captured.out
+
+
+def test_reset_ios_ui_test_app_uninstalls_target_app(monkeypatch) -> None:
+    env = {"DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"}
+    calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: env)
+    monkeypatch.setattr(tasks, "_find_simulator_udid", lambda actual_env, name: "device-id")
+    monkeypatch.setattr(
+        tasks,
+        "_terminate_if_running",
+        lambda actual_env, udid, bundle_id: calls.append(("terminate", udid, bundle_id)),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_uninstall_if_present",
+        lambda actual_env, udid, bundle_id: calls.append(("uninstall", udid, bundle_id)),
+    )
+
+    tasks._reset_ios_ui_test_app("iPhone 17")
+
+    assert calls == [
+        ("terminate", "device-id", tasks.DEFAULT_IOS_APP_BUNDLE_IDENTIFIER),
+        ("uninstall", "device-id", tasks.DEFAULT_IOS_APP_BUNDLE_IDENTIFIER),
+    ]
 
 
 def test_check_ios_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:

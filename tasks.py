@@ -1158,6 +1158,13 @@ def _uninstall_if_present(env: dict[str, str], udid: str, bundle_id: str) -> Non
     )
 
 
+def _reset_ios_ui_test_app(device_name: str) -> None:
+    env = _ios_toolchain_env()
+    udid = _find_simulator_udid(env, device_name)
+    _terminate_if_running(env, udid, DEFAULT_IOS_APP_BUNDLE_IDENTIFIER)
+    _uninstall_if_present(env, udid, DEFAULT_IOS_APP_BUNDLE_IDENTIFIER)
+
+
 def _build_ios_product_paths(derived_data_path: Path, configuration: str) -> tuple[Path, Path]:
     ios_app_path = (
         derived_data_path
@@ -2164,6 +2171,7 @@ def run_ios_ui_e2e(
     max_attempts = max(1, int(attempts))
     for attempt in range(max_attempts):
         shutil.rmtree(result_bundle_path, ignore_errors=True)
+        _reset_ios_ui_test_app(device_name)
         result = c.run(
             command,
             env=env,
