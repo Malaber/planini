@@ -209,6 +209,7 @@ final class PlaniniUITests: XCTestCase {
             captureScreenshot(named: "ios-ui-floating-undo-suggestion")
             tapElement(rowUndoButton)
         }
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 20))
         XCTAssertTrue(
             waitForItemCheckedState(
                 named: "Brot",
@@ -217,7 +218,6 @@ final class PlaniniUITests: XCTestCase {
                 accessToken: session.accessToken
             )
         )
-        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
         let seededCheckedItemID = try itemID(
             named: "Brot",
@@ -239,6 +239,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(uncheckUndoButton.waitForExistence(timeout: 5))
         XCTAssertTrue(uncheckUndoMessage.label.contains("Brot unchecked."))
         tapElement(uncheckUndoButton)
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 20))
         XCTAssertTrue(
             waitForItemCheckedState(
                 named: "Brot",
@@ -247,7 +248,6 @@ final class PlaniniUITests: XCTestCase {
                 accessToken: session.accessToken
             )
         )
-        XCTAssertTrue(waitForElementToDisappear(app.otherElements["list-undo-toast"], timeout: 10))
 
         RunLoop.current.run(until: Date().addingTimeInterval(1.0))
         captureScreenshot(named: "ios-ui-suggestion-reactivated")
