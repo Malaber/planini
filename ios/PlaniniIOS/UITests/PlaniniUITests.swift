@@ -1513,12 +1513,8 @@ final class PlaniniUITests: XCTestCase {
         guard button.exists else { return false }
 
         for attempt in 0..<2 {
-            scrollToHittable(button, in: app, maxSwipes: 2)
-            if button.isHittable {
-                button.tap()
-            } else {
-                tapElement(button)
-            }
+            guard scrollItemToggleIntoVisibleContent(button, in: app) else { return false }
+            button.tap()
 
             let remainingTimeout = max(0.5, deadline.timeIntervalSinceNow)
             let stateTimeout = attempt == 0 ? min(5, remainingTimeout) : remainingTimeout
@@ -1530,6 +1526,36 @@ final class PlaniniUITests: XCTestCase {
                 timeout: stateTimeout
             ) {
                 return true
+            }
+        }
+        return false
+    }
+
+    private func scrollItemToggleIntoVisibleContent(
+        _ button: XCUIElement,
+        in app: XCUIApplication
+    ) -> Bool {
+        scrollToHittable(button, in: app, maxSwipes: 2)
+
+        for _ in 0..<6 {
+            guard button.exists else { return false }
+
+            let topControl = app.buttons["add-item-button"]
+            let tabBar = app.tabBars.firstMatch
+            let visibleTop = topControl.exists
+                ? topControl.frame.maxY + 12
+                : app.frame.minY + 140
+            let visibleBottom = tabBar.exists
+                ? tabBar.frame.minY - 12
+                : app.frame.maxY - 120
+            let buttonMidY = button.frame.midY
+
+            if buttonMidY < visibleTop {
+                app.swipeDown()
+            } else if buttonMidY > visibleBottom {
+                app.swipeUp()
+            } else {
+                return button.isHittable
             }
         }
         return false
