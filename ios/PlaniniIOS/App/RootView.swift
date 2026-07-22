@@ -5,6 +5,68 @@ import UniformTypeIdentifiers
 import UIKit
 #endif
 
+#if canImport(UIKit)
+private struct ItemCategoryDropInteractionView: UIViewRepresentable {
+    let onTargetedChanged: (Bool) -> Void
+    let onDrop: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTargetedChanged: onTargetedChanged, onDrop: onDrop)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.addInteraction(UIDropInteraction(delegate: context.coordinator))
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onTargetedChanged = onTargetedChanged
+        context.coordinator.onDrop = onDrop
+    }
+
+    final class Coordinator: NSObject, UIDropInteractionDelegate {
+        var onTargetedChanged: (Bool) -> Void
+        var onDrop: (String) -> Void
+
+        init(onTargetedChanged: @escaping (Bool) -> Void, onDrop: @escaping (String) -> Void) {
+            self.onTargetedChanged = onTargetedChanged
+            self.onDrop = onDrop
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+            session.canLoadObjects(ofClass: NSString.self)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnter session: UIDropSession) {
+            onTargetedChanged(true)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) {
+            onTargetedChanged(false)
+        }
+
+        func dropInteraction(
+            _ interaction: UIDropInteraction,
+            sessionDidUpdate session: UIDropSession
+        ) -> UIDropProposal {
+            UIDropProposal(operation: .move)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+            onTargetedChanged(false)
+            session.loadObjects(ofClass: NSString.self) { [weak self] objects in
+                guard let itemID = objects.first as? String else { return }
+                Task { @MainActor in
+                    self?.onDrop(itemID)
+                }
+            }
+        }
+    }
+}
+#endif
+
 private struct AppErrorAlert: Identifiable {
     let id = UUID()
     let message: String
@@ -1344,14 +1406,6 @@ private struct ListDetailScreen: View {
                                     showUndoToast(message: message, action: action)
                                 }
                                 .background(rowHighlight(for: item))
-                                .itemCategoryDropDestination(
-                                    sectionID: "row-\(item.id.uuidString)",
-                                    targetCategoryID: dropCategoryID(for: section.kind),
-                                    isEnabled: allowsItemDrop(into: section.kind),
-                                    targetedDropSectionID: $targetedDropSectionID
-                                ) { itemIDText, categoryID in
-                                    moveItem(itemIDText: itemIDText, toCategory: categoryID)
-                                }
                             case let .moveNotice(notice):
                                 ItemMoveNoticeRow(notice: notice) {
                                     undoMove(notice)
@@ -1566,24 +1620,6 @@ private struct ListDetailScreen: View {
             return left.sortOrder < right.sortOrder
         }
         return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
-    }
-
-    private func allowsItemDrop(into kind: GroceryItemSectionKind) -> Bool {
-        switch kind {
-        case .uncategorized, .category:
-            return true
-        case .hidden, .checked:
-            return false
-        }
-    }
-
-    private func dropCategoryID(for kind: GroceryItemSectionKind) -> UUID? {
-        switch kind {
-        case .uncategorized, .hidden, .checked:
-            return nil
-        case let .category(categoryID):
-            return categoryID
-        }
     }
 
     private func showMoveNotice(_ notice: ItemMoveNotice) {
@@ -2269,40 +2305,23 @@ private struct SectionHeader: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(isDropTargeted ? Color.accentColor.opacity(0.14) : Color.clear)
         }
+        .background {
+            if allowsQuickAdd {
+                ItemCategoryDropInteractionView { isTargeted in
+                    if isTargeted {
+                        targetedDropSectionID = section.id
+                    } else if targetedDropSectionID == section.id {
+                        targetedDropSectionID = nil
+                    }
+                } onDrop: { itemID in
+                    onDropItem(itemID, quickAddCategoryID)
+                }
+            }
+        }
         .contentShape(Rectangle())
         .textCase(nil)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("category-drop-target-\(section.id)")
-        .itemCategoryDropDestination(
-            sectionID: section.id,
-            targetCategoryID: quickAddCategoryID,
-            isEnabled: allowsQuickAdd,
-            targetedDropSectionID: $targetedDropSectionID,
-            onDropItem: onDropItem
-        )
-    }
-}
-
-private extension View {
-    func itemCategoryDropDestination(
-        sectionID: String,
-        targetCategoryID: UUID?,
-        isEnabled: Bool,
-        targetedDropSectionID: Binding<String?>,
-        onDropItem: @escaping (String, UUID?) -> Void
-    ) -> some View {
-        dropDestination(for: String.self) { itemIDs, _ in
-            guard isEnabled, let itemID = itemIDs.first else { return false }
-            targetedDropSectionID.wrappedValue = nil
-            onDropItem(itemID, targetCategoryID)
-            return true
-        } isTargeted: { isTargeted in
-            if isTargeted && isEnabled {
-                targetedDropSectionID.wrappedValue = sectionID
-            } else if targetedDropSectionID.wrappedValue == sectionID {
-                targetedDropSectionID.wrappedValue = nil
-            }
-        }
     }
 }
 
@@ -2458,16 +2477,16 @@ private struct ItemRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("item-row-\(item.id.uuidString)")
-        .draggable(item.id.uuidString) {
+        .onDrag {
+            AppHaptics.dragStart()
+            return NSItemProvider(object: item.id.uuidString as NSString)
+        } preview: {
             Text(item.name)
                 .font(.body.weight(.medium))
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .onAppear {
-                    AppHaptics.dragStart()
-                }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if isHiddenForLater {

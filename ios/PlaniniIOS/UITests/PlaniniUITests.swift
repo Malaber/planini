@@ -1137,7 +1137,7 @@ final class PlaniniUITests: XCTestCase {
             note: "",
             inListNamed: initialListName,
             categoryID: sourceCategoryID,
-            sortOrder: 1_000_000,
+            sortOrder: -1_000_000,
             accessToken: session.accessToken
         )
         XCTAssertTrue(waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 20))
@@ -1916,7 +1916,12 @@ final class PlaniniUITests: XCTestCase {
 
         let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let target = targetElement.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        source.press(forDuration: 1.2, thenDragTo: target)
+        source.press(
+            forDuration: 1.2,
+            thenDragTo: target,
+            withVelocity: .slow,
+            thenHoldForDuration: 1.2
+        )
         return waitForItemCategory(
             named: itemName,
             categoryNamed: categoryName,
