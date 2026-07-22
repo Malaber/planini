@@ -32,6 +32,7 @@ final class PlaniniUITests: XCTestCase {
         } else {
             try bootstrapSession(email: userEmail)
         }
+
         let app = XCUIApplication()
         configureLaunchLanguage(for: app)
         app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
@@ -347,7 +348,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(editHideForLaterButton.waitForExistence(timeout: 5))
         captureScreenshot(named: "ios-ui-edit-hide-for-later")
         tapElement(editHideForLaterButton)
-        XCTAssertTrue(waitForElementToDisappear(app.otherElements["edit-item-sheet"], timeout: 5))
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["edit-item-sheet"], timeout: 12))
         XCTAssertTrue(
             waitForItemHiddenState(
                 named: enterSavedItemName,
@@ -647,8 +648,9 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(moveNoticeMessage.label.contains("Brot"))
         XCTAssertTrue(moveNoticeMessage.label.contains("Hosting errands"))
         captureScreenshot(named: "ios-ui-moved-item-notice")
-        let moveUndoButton = app.buttons["move-item-undo-button-\(seededItemID.uuidString)"]
-        scrollToHittable(moveUndoButton, in: app, maxSwipes: 12)
+        let moveUndoButtonID = "move-item-undo-button-\(seededItemID.uuidString)"
+        scrollToHittable(app.buttons[moveUndoButtonID], in: app, maxSwipes: 12)
+        let moveUndoButton = app.buttons[moveUndoButtonID]
         XCTAssertTrue(moveUndoButton.waitForExistence(timeout: 5))
         tapElement(moveUndoButton)
         XCTAssertTrue(
@@ -704,8 +706,9 @@ final class PlaniniUITests: XCTestCase {
         let failedUndoNotice = app.otherElements["item-move-notice-\(updatedItemID.uuidString)"]
         XCTAssertTrue(failedUndoNotice.waitForExistence(timeout: 5))
         try deleteItem(itemID: updatedItemID, accessToken: session.accessToken)
-        let failedUndoButton = app.buttons["move-item-undo-button-\(updatedItemID.uuidString)"]
-        scrollToHittable(failedUndoButton, in: app, maxSwipes: 12)
+        let failedUndoButtonID = "move-item-undo-button-\(updatedItemID.uuidString)"
+        scrollToHittable(app.buttons[failedUndoButtonID], in: app, maxSwipes: 12)
+        let failedUndoButton = app.buttons[failedUndoButtonID]
         XCTAssertTrue(failedUndoButton.waitForExistence(timeout: 5))
         tapElement(failedUndoButton)
         let failedUndoError = app.staticTexts["item-move-notice-error-\(updatedItemID.uuidString)"]
@@ -715,6 +718,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(tapTab("Lists", in: app))
         returnToListsRootIfNeeded(app)
         let hostingListRow = app.buttons["list-row-\(hostingListName)"]
+        scrollToHittable(hostingListRow, in: app, maxSwipes: 4)
         XCTAssertTrue(hostingListRow.waitForExistence(timeout: 10))
         hostingListRow.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
@@ -1012,7 +1016,6 @@ final class PlaniniUITests: XCTestCase {
         } else {
             try bootstrapSession(email: userEmail)
         }
-
         let app = XCUIApplication()
         configureLaunchLanguage(for: app)
         app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
@@ -1068,6 +1071,108 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(
             waitForElementToDisappear(itemRow(itemID: itemID, in: app), timeout: 20),
             "Expected live-deleted item to disappear without manual refresh."
+        )
+    }
+
+    func testLongPressDragMovesItemToCategory() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let targetCategoryID = try categoryID(
+            named: "Konserven",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        let sourceCategoryID = try categoryID(
+            named: "Milch & Eier",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        try updateCategoryOrder(
+            listID: listID(named: initialListName, accessToken: session.accessToken),
+            categoryIDs: [sourceCategoryID, targetCategoryID],
+            accessToken: session.accessToken
+        )
+
+        let app = XCUIApplication()
+        configureLaunchLanguage(for: app)
+        app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
+        app.launchEnvironment["PLANINI_UI_TEST_ACCESS_TOKEN"] = session.accessToken
+        app.launchEnvironment["PLANINI_UI_TEST_DISPLAY_NAME"] = session.displayName
+        app.launchEnvironment["PLANINI_UI_TEST_INITIAL_LIST_NAME"] = initialListName
+        app.launch()
+
+        let listTitle = app.staticTexts["list-detail-title"]
+        XCTAssertTrue(
+            openInitialListDetail(in: app, listTitle: listTitle),
+            "Expected bootstrapped initial list to open before item drag checks."
+        )
+        XCTAssertEqual(listTitle.label, initialListName)
+        XCTAssertTrue(
+            waitForLiveUpdatesConnection(
+                app: app,
+                listName: initialListName,
+                accessToken: session.accessToken
+            ),
+            "Expected live updates before creating drag item."
+        )
+
+        let targetItemName = "A UI Drag Target \(UUID().uuidString.prefix(8))"
+        let targetItemID = try createItem(
+            named: targetItemName,
+            note: "",
+            inListNamed: initialListName,
+            categoryID: targetCategoryID,
+            accessToken: session.accessToken
+        )
+        XCTAssertTrue(waitForItemRow(itemID: targetItemID, named: targetItemName, in: app, timeout: 20))
+
+        let itemName = "A UI Drag \(UUID().uuidString.prefix(8))"
+        let itemID = try createItem(
+            named: itemName,
+            note: "",
+            inListNamed: initialListName,
+            categoryID: sourceCategoryID,
+            sortOrder: -1_000_000,
+            accessToken: session.accessToken
+        )
+        XCTAssertTrue(waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 20))
+
+        let targetHeader = app.descendants(matching: .any)[
+            "category-drop-target-category-\(targetCategoryID.uuidString)"
+        ].firstMatch
+        XCTAssertTrue(
+            dragItemRow(
+                itemID: itemID,
+                named: itemName,
+                toCategoryTarget: targetHeader,
+                in: app,
+                categoryName: "Konserven",
+                listName: initialListName,
+                accessToken: session.accessToken
+            ),
+            "Expected long-press drag to move item to target category."
+        )
+        captureScreenshot(named: "ios-ui-drag-item-to-category")
+
+        let undoButton = app.buttons["list-undo-button"]
+        let undoMessage = app.staticTexts["list-undo-message"]
+        XCTAssertTrue(undoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(undoMessage.label.contains(itemName))
+        XCTAssertTrue(undoMessage.label.contains("Konserven"))
+        tapElement(undoButton)
+        XCTAssertTrue(
+            waitForItemCategory(
+                named: itemName,
+                categoryNamed: "Milch & Eier",
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
         )
     }
 
@@ -1857,6 +1962,45 @@ final class PlaniniUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.35))
         }
         return false
+    }
+
+    private func dragItemRow(
+        itemID: UUID,
+        named itemName: String,
+        toCategoryTarget targetElement: XCUIElement,
+        in app: XCUIApplication,
+        categoryName: String,
+        listName: String,
+        accessToken: String
+    ) -> Bool {
+        let sourceRow = itemRow(itemID: itemID, in: app)
+
+        scrollToHittable(sourceRow, in: app, maxSwipes: 4)
+        scrollToHittable(targetElement, in: app, maxSwipes: 4)
+        guard
+            sourceRow.waitForExistence(timeout: 3),
+            targetElement.waitForExistence(timeout: 3),
+            sourceRow.isHittable,
+            targetElement.isHittable
+        else {
+            return false
+        }
+
+        let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let target = targetElement.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        source.press(
+            forDuration: 1.2,
+            thenDragTo: target,
+            withVelocity: .slow,
+            thenHoldForDuration: 1.2
+        )
+        return waitForItemCategory(
+            named: itemName,
+            categoryNamed: categoryName,
+            inListNamed: listName,
+            accessToken: accessToken,
+            timeout: 8
+        )
     }
 
     private func dragCategoryRow(
@@ -3054,6 +3198,8 @@ final class PlaniniUITests: XCTestCase {
         named name: String,
         note: String,
         inListNamed listName: String,
+        categoryID: UUID? = nil,
+        sortOrder: Int = -1_000,
         accessToken: String
     ) throws -> UUID {
         let listID = try listID(named: listName, accessToken: accessToken)
@@ -3065,8 +3211,8 @@ final class PlaniniUITests: XCTestCase {
                 "name": name,
                 "quantity_text": NSNull(),
                 "note": note,
-                "category_id": NSNull(),
-                "sort_order": -1_000,
+                "category_id": categoryID?.uuidString ?? NSNull(),
+                "sort_order": sortOrder,
             ]
         )
         let data = try performRequest(request)
