@@ -1218,6 +1218,78 @@ final class PlaniniUITests: XCTestCase {
         syncApp.terminate()
     }
 
+    func testStaleOfflineBannerClearsAfterOnlineAdd() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let pendingCreatedName = "Pending Banner UI \(UUID().uuidString.prefix(8))"
+        let onlineCreatedName = "Online Banner UI \(UUID().uuidString.prefix(8))"
+
+        let app = XCUIApplication()
+        configureLaunchLanguage(for: app)
+        app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
+        app.launchEnvironment["PLANINI_UI_TEST_ACCESS_TOKEN"] = session.accessToken
+        app.launchEnvironment["PLANINI_UI_TEST_DISPLAY_NAME"] = session.displayName
+        app.launchEnvironment["PLANINI_UI_TEST_INITIAL_LIST_NAME"] = initialListName
+        app.launchEnvironment["PLANINI_UI_TEST_PENDING_ITEM_CREATE_NAME"] = pendingCreatedName
+        app.launchEnvironment["PLANINI_UI_TEST_OFFLINE_STATUS_MESSAGE"] =
+            "Changes saved offline. They will sync when the backend is reachable."
+        app.launch()
+
+        let listTitle = app.staticTexts["list-detail-title"]
+        XCTAssertTrue(
+            openInitialListDetail(in: app, listTitle: listTitle, timeout: 20),
+            "Expected online launch to open the initial list."
+        )
+        XCTAssertTrue(
+            waitForOfflineStatus(in: app, timeout: 5),
+            "Expected pending-mutation banner fixture to be visible before adding online."
+        )
+        XCTAssertTrue(openAddItemSheet(in: app))
+        let nameField = app.textFields["add-item-name-field"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        nameField.tap()
+        XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 3))
+        nameField.typeText(onlineCreatedName)
+        XCTAssertTrue(tapAddItemSaveAndWaitForDismissal(in: app))
+        XCTAssertTrue(
+            waitForItem(
+                named: onlineCreatedName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            ),
+            "Expected item added under a stale offline banner to save to the backend."
+        )
+        XCTAssertTrue(
+            waitForItem(
+                named: pendingCreatedName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            ),
+            "Expected an older pending create to sync without delaying the new online add."
+        )
+        XCTAssertTrue(
+            waitForOfflineStatusToDisappear(in: app, timeout: 8),
+            "Expected successful authenticated requests to clear the pending-mutation banner."
+        )
+
+        for createdName in [onlineCreatedName, pendingCreatedName] {
+            let createdItemID = try itemID(
+                named: createdName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+            try deleteItem(itemID: createdItemID, accessToken: session.accessToken)
+        }
+        terminateAndWait(app)
+    }
+
     func testUsesNativeIPadCanvasWhenRunningOnIPad() throws {
         #if canImport(UIKit)
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad)
@@ -2234,6 +2306,18 @@ final class PlaniniUITests: XCTestCase {
         }
         return app.descendants(matching: .any)["offline-status-banner"].exists
             || app.staticTexts["Offline. Showing saved list."].exists
+    }
+
+    private func waitForOfflineStatusToDisappear(in app: XCUIApplication, timeout: TimeInterval = 5) -> Bool {
+        let banner = app.descendants(matching: .any)["offline-status-banner"]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if banner.exists == false {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return banner.exists == false
     }
 
     private func openInitialListDetail(
