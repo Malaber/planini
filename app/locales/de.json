@@ -528,6 +528,7 @@
       "item_summary": "{items} Artikel in {sections} Abschnitten",
       "empty_title": "Nichts auf dieser Liste",
       "empty_message": "Füge einen Artikel hinzu, um ihn in Kategorien zu gruppieren.",
+      "on_sale": "Im Angebot",
       "uncategorized": "Ohne Kategorie",
       "hidden_for_later": "Für später gespeichert",
       "checked_off": "Abgehakt",
@@ -564,6 +565,13 @@
       "category_option_accessibility": "{name}, {count} Artikel",
       "notes_section": "Notizen",
       "note": "Notiz",
+      "sale_section": "Angebot",
+      "sale_enabled": "Im Angebot",
+      "sale_starts_at": "Beginn",
+      "sale_ends_at": "Ende",
+      "sale_explanation": "Artikel werden während dieses Zeitraums hervorgehoben und zusätzlich oben angezeigt.",
+      "sale_window_invalid": "Das Angebotsende muss nach dem Beginn liegen.",
+      "on_sale_badge": "Im Angebot",
       "add_title": "Artikel hinzufügen",
       "edit_title": "Artikel bearbeiten",
       "move_section": "Verschieben",
@@ -585,7 +593,8 @@
       "status_saved": "Gespeichert",
       "status_saving": "Speichern...",
       "status_saved_offline": "Offline gespeichert",
-      "status_name_required": "Name erforderlich"
+      "status_name_required": "Name erforderlich",
+      "status_sale_window_invalid": "Das Angebotsende muss nach dem Beginn liegen"
     }
   }
 }

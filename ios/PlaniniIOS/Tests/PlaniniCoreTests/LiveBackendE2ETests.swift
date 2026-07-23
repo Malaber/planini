@@ -154,8 +154,10 @@ struct LiveBackendE2ETests {
             categories: categories,
             categoryOrder: categoryOrder
         )
-        #expect(initialSections.map(\.title).prefix(4).elementsEqual(["Uncategorized", "Konserven", "Milch & Eier", "Nudeln"]))
-        #expect(initialSections.first?.items.map(\.name) == ["Loose item"])
+        #expect(initialSections.map(\.title).prefix(5).elementsEqual(["On sale", "Uncategorized", "Konserven", "Milch & Eier", "Nudeln"]))
+        #expect(initialSections.first?.items.map(\.name) == ["Sale apples"])
+        #expect(initialSections.dropFirst().first?.items.contains(where: { $0.name == "Loose item" }) == true)
+        #expect(initialSections.dropFirst().first?.items.contains(where: { $0.name == "Sale apples" }) == true)
         #expect(initialSections.last?.title == "Checked off")
         #expect(initialSections.last?.items.contains(where: { $0.name == "Brot" }) == true)
 
@@ -217,7 +219,7 @@ struct LiveBackendE2ETests {
             categories: restoredState.categories,
             categoryOrder: restoredState.categoryOrder
         )
-        #expect(restoredSections.map(\.title).prefix(4).elementsEqual(["Uncategorized", "Konserven", "Milch & Eier", "Nudeln"]))
+        #expect(restoredSections.map(\.title).prefix(5).elementsEqual(["On sale", "Uncategorized", "Konserven", "Milch & Eier", "Nudeln"]))
 
         let konservenID = try #require(categories.first { $0.name == "Konserven" }?.id)
         let gemueseID = try #require(categories.first { $0.name == "Gemuese" }?.id)
@@ -225,6 +227,11 @@ struct LiveBackendE2ETests {
         let uniqueSuffix = UUID().uuidString.prefix(8)
         let originalName = "iOS E2E \(uniqueSuffix)"
         let updatedName = "\(originalName) Updated"
+        let saleReferenceDate = Date()
+        let saleStartsAt = saleReferenceDate.addingTimeInterval(-60 * 60)
+        let saleEndsAt = saleReferenceDate.addingTimeInterval(60 * 60)
+        let saleStartsAtText = apiTimestamp(from: saleStartsAt)
+        let saleEndsAtText = apiTimestamp(from: saleEndsAt)
 
         let created = try await client.jsonObject(
             path: "/api/v1/lists/\(listID)/items",
@@ -233,7 +240,9 @@ struct LiveBackendE2ETests {
                 "name": originalName,
                 "quantity_text": "2 jars",
                 "note": "Created by iOS backend e2e",
-                "category_id": konservenID.uuidString
+                "category_id": konservenID.uuidString,
+                "sale_starts_at": saleStartsAtText,
+                "sale_ends_at": saleEndsAtText,
             ],
             token: accessToken
         )
@@ -241,12 +250,29 @@ struct LiveBackendE2ETests {
         #expect(created["name"] as? String == originalName)
         #expect(created["checked"] as? Bool == false)
         #expect((created["category_id"] as? String)?.lowercased() == konservenID.uuidString.lowercased())
+        #expect(created["sale_starts_at"] as? String != nil)
+        #expect(created["sale_ends_at"] as? String != nil)
 
         let itemsAfterCreate = try await client.jsonArray(
             path: "/api/v1/lists/\(listID)/items",
             token: accessToken
         )
         #expect(itemsAfterCreate.contains(where: { ($0["id"] as? String) == itemID }))
+        let itemsAfterCreateRecords = itemsAfterCreate.compactMap(GroceryItemRecord.init)
+        let createdRecord = try #require(itemsAfterCreateRecords.first { $0.id.uuidString.lowercased() == itemID.lowercased() })
+        #expect(createdRecord.isOnSale(at: saleReferenceDate))
+        let sectionsAfterCreate = GroceryItemSectionBuilder.build(
+            items: itemsAfterCreateRecords,
+            categories: categories,
+            categoryOrder: categoryOrder,
+            now: saleReferenceDate
+        )
+        let onSaleSection = try #require(sectionsAfterCreate.first { $0.kind == .onSale })
+        let createdCategorySection = try #require(
+            sectionsAfterCreate.first { $0.kind == .category(konservenID) }
+        )
+        #expect(onSaleSection.items.contains(where: { $0.id == createdRecord.id }))
+        #expect(createdCategorySection.items.contains(where: { $0.id == createdRecord.id }))
 
         let updated = try await client.jsonObject(
             path: "/api/v1/items/\(itemID)",
@@ -309,6 +335,24 @@ struct LiveBackendE2ETests {
             token: accessToken
         )
         #expect(checked["checked"] as? Bool == true)
+        let checkedRecord = try #require(GroceryItemRecord(json: checked))
+        #expect(checkedRecord.saleStartsAt == createdRecord.saleStartsAt)
+        #expect(checkedRecord.saleEndsAt == createdRecord.saleEndsAt)
+        let sectionsAfterCheck = GroceryItemSectionBuilder.build(
+            items: [checkedRecord],
+            categories: categories,
+            categoryOrder: categoryOrder,
+            now: saleReferenceDate
+        )
+        let checkedSaleItem = try #require(
+            sectionsAfterCheck.first { $0.kind == .onSale }?.items.first
+        )
+        let checkedNormalItem = try #require(
+            sectionsAfterCheck.first { $0.kind == .checked }?.items.first
+        )
+        #expect(checkedSaleItem.id == checkedNormalItem.id)
+        #expect(checkedSaleItem.checked)
+        #expect(checkedNormalItem.checked)
 
         let unchecked = try await client.jsonObject(
             path: "/api/v1/items/\(itemID)/uncheck",
@@ -351,6 +395,18 @@ struct LiveBackendE2ETests {
             token: accessToken
         )
         #expect(restoredHidden["hidden_until"] is NSNull || restoredHidden["hidden_until"] == nil)
+
+        let clearedSale = try await client.jsonObject(
+            path: "/api/v1/items/\(itemID)",
+            method: "PATCH",
+            body: [
+                "sale_starts_at": NSNull(),
+                "sale_ends_at": NSNull(),
+            ],
+            token: accessToken
+        )
+        #expect(clearedSale["sale_starts_at"] is NSNull || clearedSale["sale_starts_at"] == nil)
+        #expect(clearedSale["sale_ends_at"] is NSNull || clearedSale["sale_ends_at"] == nil)
 
         _ = try await client.data(
             path: "/api/v1/items/\(itemID)",
@@ -404,6 +460,8 @@ struct LiveBackendE2ETests {
         let uniqueSuffix = UUID().uuidString.prefix(8)
         let originalName = "WebSocket E2E \(uniqueSuffix)"
         let updatedName = "\(originalName) Updated"
+        let saleStartsAt = apiTimestamp(from: Date().addingTimeInterval(-60 * 60))
+        let saleEndsAt = apiTimestamp(from: Date().addingTimeInterval(60 * 60))
 
         let created = try await client.jsonObject(
             path: "/api/v1/lists/\(listID)/items",
@@ -413,6 +471,8 @@ struct LiveBackendE2ETests {
                 "quantity_text": NSNull(),
                 "note": "Created by websocket e2e",
                 "category_id": NSNull(),
+                "sale_starts_at": saleStartsAt,
+                "sale_ends_at": saleEndsAt,
             ],
             token: accessToken
         )
@@ -421,6 +481,8 @@ struct LiveBackendE2ETests {
         let createdEvent = try await client.receiveWebSocketEvent(from: socket)
         #expect(createdEvent.type == "item_created")
         #expect(createdEvent.itemID?.lowercased() == itemID.lowercased())
+        #expect(createdEvent.saleStartsAt != nil)
+        #expect(createdEvent.saleEndsAt != nil)
 
         _ = try await client.jsonObject(
             path: "/api/v1/items/\(itemID)",
@@ -501,6 +563,12 @@ private func loginSeededUser(
     }
 
     throw lastError ?? LiveBackendE2EError("Seeded login failed without a specific error.")
+}
+
+private func apiTimestamp(from date: Date) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: date)
 }
 
 private struct LiveBackendE2EConfiguration {
@@ -756,6 +824,15 @@ private struct LiveListSocketEvent: Decodable {
         struct Item: Decodable {
             let id: String?
             let name: String?
+            let saleStartsAt: String?
+            let saleEndsAt: String?
+
+            private enum CodingKeys: String, CodingKey {
+                case id
+                case name
+                case saleStartsAt = "sale_starts_at"
+                case saleEndsAt = "sale_ends_at"
+            }
         }
 
         let item: Item?
@@ -770,6 +847,14 @@ private struct LiveListSocketEvent: Decodable {
 
     var itemName: String? {
         payload?.item?.name
+    }
+
+    var saleStartsAt: String? {
+        payload?.item?.saleStartsAt
+    }
+
+    var saleEndsAt: String? {
+        payload?.item?.saleEndsAt
     }
 }
 

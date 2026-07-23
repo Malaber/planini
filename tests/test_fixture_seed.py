@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -68,6 +69,8 @@ def _fixture_payload() -> dict[str, object]:
                                 "name": "Apples",
                                 "category": "Produce",
                                 "quantity_text": "6",
+                                "sale_starts_at": "2026-07-23T10:00:00+02:00",
+                                "sale_ends_at": "2026-07-24T10:00:00+02:00",
                                 "created_by_email": "owner@example.com",
                             },
                             {
@@ -170,6 +173,15 @@ def test_seed_data_populates_real_database_and_passkeys(tmp_path) -> None:
                 .all()
             )
             assert [item.name for item in items] == ["Apples", "Peas", "Soap"]
+            sale_item = next(item for item in items if item.name == "Apples")
+            assert sale_item.sale_starts_at is not None
+            assert sale_item.sale_ends_at is not None
+            assert sale_item.sale_starts_at.replace(tzinfo=UTC) == datetime(
+                2026, 7, 23, 8, 0, tzinfo=UTC
+            )
+            assert sale_item.sale_ends_at.replace(tzinfo=UTC) == datetime(
+                2026, 7, 24, 8, 0, tzinfo=UTC
+            )
             checked_item = next(item for item in items if item.name == "Peas")
             assert checked_item.checked is True
             assert checked_item.checked_by is not None

@@ -1074,6 +1074,102 @@ final class PlaniniUITests: XCTestCase {
         )
     }
 
+    func testOnSaleItemStaysInSyncAcrossPromotedAndNormalRows() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let uniqueSuffix = UUID().uuidString.prefix(8)
+        let itemName = "A UI Sale \(uniqueSuffix)"
+        let itemID = try createItem(
+            named: itemName,
+            note: "On-sale UI e2e",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+
+        let app = launchedApp(session: session, initialListName: initialListName)
+        defer {
+            terminateAndWait(app)
+            try? deleteItem(itemID: itemID, accessToken: session.accessToken)
+        }
+
+        let listTitle = app.staticTexts["list-detail-title"]
+        XCTAssertTrue(
+            openInitialListDetail(in: app, listTitle: listTitle),
+            "Expected bootstrapped initial list before on-sale checks."
+        )
+        XCTAssertEqual(listTitle.label, initialListName)
+        XCTAssertTrue(waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 20))
+
+        let editableRow = app.buttons["edit-item-row-\(itemID.uuidString)"]
+        scrollToElement(editableRow, in: app, maxSwipes: 16)
+        XCTAssertTrue(editableRow.waitForExistence(timeout: 5))
+        tapElement(editableRow)
+        let saleToggle = firstExistingElement(
+            [
+                app.switches["edit-item-sale-toggle"],
+                app.buttons["edit-item-sale-toggle"],
+            ],
+            timeout: 5
+        )
+        XCTAssertTrue(saleToggle.exists)
+        tapElement(saleToggle)
+        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(
+            waitForItemSaleWindow(
+                named: itemName,
+                active: true,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        tapElement(app.buttons["edit-item-close-button"])
+
+        let onSaleBadge = app.staticTexts["section-count-badge-on-sale"]
+        XCTAssertTrue(onSaleBadge.waitForExistence(timeout: 15))
+        let promotedRow = app.descendants(matching: .any)[
+            "item-row-on-sale-\(itemID.uuidString)"
+        ]
+        let normalRow = app.descendants(matching: .any)["item-row-\(itemID.uuidString)"]
+        scrollToListTop(in: app, maxSwipes: 12)
+        XCTAssertTrue(promotedRow.waitForExistence(timeout: 10))
+        XCTAssertTrue(normalRow.waitForExistence(timeout: 10))
+
+        let promotedToggle = app.buttons["toggle-item-on-sale-\(itemID.uuidString)"]
+        XCTAssertTrue(waitForElementLabel(promotedToggle, containing: "Check \(itemName)"))
+        captureScreenshot(named: "ios-ui-on-sale-item")
+        tapElement(promotedToggle)
+        XCTAssertTrue(
+            waitForItemCheckedState(
+                named: itemName,
+                checked: true,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        XCTAssertTrue(waitForElementLabel(promotedToggle, containing: "Uncheck \(itemName)"))
+
+        let normalToggle = app.buttons["toggle-item-\(itemID.uuidString)"]
+        scrollToElement(normalToggle, in: app, maxSwipes: 16)
+        XCTAssertTrue(waitForElementLabel(normalToggle, containing: "Uncheck \(itemName)"))
+
+        tapElement(normalToggle)
+        XCTAssertTrue(
+            waitForItemCheckedState(
+                named: itemName,
+                checked: false,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        scrollToListTop(in: app, maxSwipes: 16)
+        XCTAssertTrue(waitForElementLabel(promotedToggle, containing: "Check \(itemName)"))
+        XCTAssertTrue(waitForElementLabel(normalToggle, containing: "Check \(itemName)"))
+    }
+
     func testLongPressDragMovesItemToCategory() throws {
         try assertLocalTestBackend()
         let session = if let injectedSession {
@@ -1840,6 +1936,26 @@ final class PlaniniUITests: XCTestCase {
             if let item = try? fetchItems(inListNamed: listName, accessToken: accessToken)
                 .first(where: { $0.name == itemName }),
                 (item.hiddenUntil != nil) == hidden
+            {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        }
+        return false
+    }
+
+    private func waitForItemSaleWindow(
+        named itemName: String,
+        active: Bool,
+        inListNamed listName: String,
+        accessToken: String,
+        timeout: TimeInterval = 8
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let item = try? fetchItems(inListNamed: listName, accessToken: accessToken)
+                .first(where: { $0.name == itemName }),
+                (item.saleStartsAt != nil && item.saleEndsAt != nil) == active
             {
                 return true
             }
@@ -3238,6 +3354,26 @@ final class PlaniniUITests: XCTestCase {
         _ = try performRequest(request)
     }
 
+    private func setItemSaleWindow(
+        itemID: UUID,
+        startsAt: Date,
+        endsAt: Date,
+        accessToken: String
+    ) throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let request = jsonRequest(
+            path: "/api/v1/items/\(itemID.uuidString)",
+            method: "PATCH",
+            token: accessToken,
+            body: [
+                "sale_starts_at": formatter.string(from: startsAt),
+                "sale_ends_at": formatter.string(from: endsAt),
+            ]
+        )
+        _ = try performRequest(request)
+    }
+
     private func checkItem(itemID: UUID, accessToken: String) throws {
         let request = jsonRequest(
             path: "/api/v1/items/\(itemID.uuidString)/check",
@@ -3538,6 +3674,8 @@ private struct UITestItem: Decodable {
     let checked: Bool
     let categoryID: UUID?
     let hiddenUntil: String?
+    let saleStartsAt: String?
+    let saleEndsAt: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -3545,6 +3683,8 @@ private struct UITestItem: Decodable {
         case checked
         case categoryID = "category_id"
         case hiddenUntil = "hidden_until"
+        case saleStartsAt = "sale_starts_at"
+        case saleEndsAt = "sale_ends_at"
     }
 }
 
