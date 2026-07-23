@@ -500,8 +500,8 @@ final class PlaniniUITests: XCTestCase {
         )
         let closeButton = app.buttons["edit-item-close-button"]
         XCTAssertTrue(closeButton.waitForExistence(timeout: 3))
-        XCTAssertTrue(closeButton.images["checkmark"].exists)
-        XCTAssertFalse(closeButton.images["xmark"].exists)
+        XCTAssertEqual(closeButton.label, "Done")
+        XCTAssertTrue(closeButton.isHittable)
         captureScreenshot(named: "promotion-edit-item-dialogue")
 
         let editNameField = app.textFields["edit-item-name-field"]
@@ -2789,9 +2789,16 @@ final class PlaniniUITests: XCTestCase {
                 scrollToHittable(row, in: app, maxSwipes: 12)
             }
             if row.exists {
+                let navigationBar = app.navigationBars.firstMatch
                 let tabBar = app.tabBars.firstMatch
+                let rowIsBelowNavigationBar =
+                    navigationBar.exists == false || row.frame.minY >= navigationBar.frame.maxY
                 let rowIsAboveTabBar = tabBar.exists == false || row.frame.maxY <= tabBar.frame.minY
-                if rowIsAboveTabBar {
+                if rowIsBelowNavigationBar == false {
+                    app.swipeDown()
+                } else if rowIsAboveTabBar == false {
+                    app.swipeUp()
+                } else {
                     if editTrigger.exists && editTrigger.isHittable {
                         tapElement(editTrigger)
                     } else if row.isHittable {
