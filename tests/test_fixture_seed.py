@@ -61,6 +61,7 @@ def _fixture_payload() -> dict[str, object]:
                 "lists": [
                     {
                         "name": "Weekly shop",
+                        "accent_color": "#3b82f6",
                         "created_by_email": "owner@example.com",
                         "category_order": ["Produce", "Frozen"],
                         "items": [
@@ -89,6 +90,7 @@ def _fixture_payload() -> dict[str, object]:
                 "lists": [
                     {
                         "name": "Weekend",
+                        "accent_color": "#22c55e",
                         "created_by_email": "member@example.com",
                         "category_order": ["Cleaning"],
                         "items": [
@@ -162,6 +164,10 @@ def test_seed_data_populates_real_database_and_passkeys(tmp_path) -> None:
             assert [grocery_list.name for grocery_list in grocery_lists] == [
                 "Weekend",
                 "Weekly shop",
+            ]
+            assert [grocery_list.accent_color for grocery_list in grocery_lists] == [
+                "#22c55e",
+                "#3b82f6",
             ]
 
             items = (
@@ -343,6 +349,7 @@ def test_seed_data_updates_existing_rows_and_removes_stale_items(tmp_path) -> No
                 "lists": [
                     {
                         "name": "Weekly shop",
+                        "accent_color": None,
                         "created_by_email": "member@example.com",
                         "category_order": ["Produce"],
                         "items": [
@@ -448,6 +455,11 @@ def test_seed_data_updates_existing_rows_and_removes_stale_items(tmp_path) -> No
             weekly_list = (
                 await session.execute(select(GroceryList).where(GroceryList.name == "Weekly shop"))
             ).scalar_one()
+            weekend_list = (
+                await session.execute(select(GroceryList).where(GroceryList.name == "Weekend"))
+            ).scalar_one()
+            assert weekly_list.accent_color is None
+            assert weekend_list.accent_color == "#22c55e"
             items = (
                 (
                     await session.execute(

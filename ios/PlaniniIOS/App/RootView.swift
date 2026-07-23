@@ -78,6 +78,73 @@ private enum AppTab: Hashable {
     case settings
 }
 
+private struct ListAccentColorOption: Identifiable, Equatable {
+    let id: String
+    let localizationKey: String
+    let hex: String?
+
+    static let all: [ListAccentColorOption] = [
+        ListAccentColorOption(
+            id: "none",
+            localizationKey: "ios.list_settings.accent_none",
+            hex: nil
+        ),
+        ListAccentColorOption(
+            id: "red",
+            localizationKey: "ios.list_settings.accent_red",
+            hex: "#ff3b30"
+        ),
+        ListAccentColorOption(
+            id: "orange",
+            localizationKey: "ios.list_settings.accent_orange",
+            hex: "#ff9500"
+        ),
+        ListAccentColorOption(
+            id: "yellow",
+            localizationKey: "ios.list_settings.accent_yellow",
+            hex: "#ffcc00"
+        ),
+        ListAccentColorOption(
+            id: "green",
+            localizationKey: "ios.list_settings.accent_green",
+            hex: "#34c759"
+        ),
+        ListAccentColorOption(
+            id: "teal",
+            localizationKey: "ios.list_settings.accent_teal",
+            hex: "#30b0c7"
+        ),
+        ListAccentColorOption(
+            id: "blue",
+            localizationKey: "ios.list_settings.accent_blue",
+            hex: "#007aff"
+        ),
+        ListAccentColorOption(
+            id: "purple",
+            localizationKey: "ios.list_settings.accent_purple",
+            hex: "#af52de"
+        ),
+        ListAccentColorOption(
+            id: "pink",
+            localizationKey: "ios.list_settings.accent_pink",
+            hex: "#ff2d55"
+        ),
+    ]
+
+    static func option(for hex: String?) -> ListAccentColorOption? {
+        all.first { option in
+            switch (option.hex, hex) {
+            case (nil, nil):
+                return true
+            case let (optionHex?, hex?):
+                return optionHex.caseInsensitiveCompare(hex) == .orderedSame
+            default:
+                return false
+            }
+        }
+    }
+}
+
 private struct AddItemPresentation: Identifiable {
     let id = UUID()
     let categoryID: UUID?
@@ -737,6 +804,7 @@ private struct ListsTab: View {
                                 .contentShape(Rectangle())
                             }
                             .accessibilityIdentifier("list-row-\(list.name)")
+                            .listRowBackground(rowBackground(for: list))
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 Button {
                                     viewModel.setFavoriteList(id: list.id)
@@ -753,6 +821,13 @@ private struct ListsTab: View {
             }
         }
         .navigationTitle(l10n.t("ios.tabs.lists"))
+    }
+
+    private func rowBackground(for list: GroceryListSummary) -> Color {
+        guard let accentColor = Color(hex: list.accentColorHex) else {
+            return Color(uiColor: .secondarySystemGroupedBackground)
+        }
+        return accentColor.opacity(0.10)
     }
 }
 
@@ -1001,6 +1076,7 @@ private struct HouseholdDetailManagementScreen: View {
                             }
                         }
                         .accessibilityIdentifier("managed-list-row-\(list.name)")
+                        .listRowBackground(rowBackground(for: list))
                     }
                 }
 
@@ -1037,6 +1113,13 @@ private struct HouseholdDetailManagementScreen: View {
             HouseholdInviteSheet(householdID: householdID)
         }
         .accessibilityIdentifier("household-detail-management-screen")
+    }
+
+    private func rowBackground(for list: GroceryListSummary) -> Color {
+        guard let accentColor = Color(hex: list.accentColorHex) else {
+            return Color(uiColor: .secondarySystemGroupedBackground)
+        }
+        return accentColor.opacity(0.10)
     }
 }
 
@@ -1328,6 +1411,28 @@ private struct ListDetailScreen: View {
         viewModel.lists.first { $0.id == displayedListID }
     }
 
+    private var listBackground: some View {
+        ZStack {
+            Color(uiColor: .systemGroupedBackground)
+            if let accentColor = Color(hex: currentList?.accentColorHex) {
+                accentColor.opacity(0.10)
+            }
+        }
+    }
+
+    private var accentColorAccessibilityValue: String {
+        guard
+            let accentColorHex = currentList?.accentColorHex,
+            let option = ListAccentColorOption.option(for: accentColorHex)
+        else {
+            return l10n.t("ios.list_settings.accent_none")
+        }
+        return l10n.t(
+            "ios.list_settings.accent_selected",
+            ["color": l10n.t(option.localizationKey)]
+        )
+    }
+
     private var listSwitchSections: [(name: String, lists: [GroceryListSummary])] {
         Dictionary(grouping: viewModel.lists, by: \.householdName)
             .map { key, value in
@@ -1429,6 +1534,10 @@ private struct ListDetailScreen: View {
             }
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background {
+            listBackground.ignoresSafeArea()
+        }
         .navigationTitle(currentList?.name ?? l10n.t("ios.list.fallback_title"))
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -1541,6 +1650,7 @@ private struct ListDetailScreen: View {
             undoDismissTask?.cancel()
         }
         .accessibilityIdentifier("list-detail-screen")
+        .accessibilityValue(accentColorAccessibilityValue)
     }
 
     private func displaySection(for notice: ItemMoveNotice) -> ListDisplaySection {
@@ -1794,10 +1904,13 @@ private struct ListDetailScreen: View {
 private struct ListSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
     let listID: UUID
 
     @State private var name = ""
     @State private var isSavingName = false
+    @State private var selectedAccentColorHex: String?
+    @State private var isSavingAccentColor = false
     @State private var saveState: ListSettingsSaveState = .saved
     @State private var nameSaveTask: Task<Void, Never>?
     @State private var busyCategoryID: UUID?
@@ -1839,10 +1952,12 @@ private struct ListSettingsSheet: View {
         }
         .onAppear {
             syncName()
+            syncAccentColor()
             syncOrderedCategories()
             syncCategoryOrderSaveState(viewModel.categoryOrderBackgroundSaveState)
         }
         .onChange(of: currentList?.name ?? "") { _ in syncName() }
+        .onChange(of: currentList?.accentColorHex ?? "") { _ in syncAccentColor() }
         .onChange(of: name) { _ in scheduleNameAutosave() }
         .onChange(of: viewModel.categoriesForSettings.map(\.id)) { _ in syncOrderedCategories() }
         .onChange(of: viewModel.categoryOrderBackgroundSaveState) { newValue in
@@ -1876,6 +1991,7 @@ private struct ListSettingsSheet: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
                 listNameSection
+                listAccentColorSection
                 categoriesSection
             }
             .padding(.horizontal, 20)
@@ -1899,6 +2015,106 @@ private struct ListSettingsSheet: View {
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .accessibilityIdentifier("list-name-field")
+        }
+    }
+
+    private var listAccentColorSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(l10n.t("ios.list_settings.accent_title"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 44), spacing: 12)],
+                alignment: .leading,
+                spacing: 12
+            ) {
+                ForEach(ListAccentColorOption.all) { option in
+                    accentColorButton(option)
+                }
+            }
+            .padding(16)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            Text(l10n.t("ios.list_settings.accent_hint"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func accentColorButton(_ option: ListAccentColorOption) -> some View {
+        let isSelected = ListAccentColorOption.option(for: selectedAccentColorHex) == option
+
+        return Button {
+            saveAccentColor(option.hex)
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(
+                        Color(hex: option.hex)
+                            ?? Color(uiColor: .tertiarySystemGroupedBackground)
+                    )
+
+                if option.hex == nil {
+                    Image(systemName: "circle.slash")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                } else if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.45), radius: 1, y: 1)
+                }
+
+                Circle()
+                    .stroke(
+                        isSelected ? Color.accentColor : Color.secondary.opacity(0.28),
+                        lineWidth: isSelected ? 3 : 1
+                    )
+            }
+            .frame(width: 40, height: 40)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isSavingAccentColor)
+        .accessibilityIdentifier("list-accent-color-\(option.id)")
+        .accessibilityLabel(l10n.t(option.localizationKey))
+        .accessibilityValue(
+            isSelected ? l10n.t("ios.list_settings.accent_selection_selected") : ""
+        )
+    }
+
+    private func syncAccentColor() {
+        guard isSavingAccentColor == false else { return }
+        selectedAccentColorHex = currentList?.accentColorHex
+    }
+
+    private func saveAccentColor(_ accentColorHex: String?) {
+        guard
+            isSavingAccentColor == false,
+            ListAccentColorOption.option(for: selectedAccentColorHex)
+                != ListAccentColorOption.option(for: accentColorHex)
+        else {
+            return
+        }
+
+        selectedAccentColorHex = accentColorHex
+        isSavingAccentColor = true
+        saveState = .saving
+        Task { @MainActor in
+            let saved = await viewModel.updateListAccentColor(
+                id: listID,
+                accentColorHex: accentColorHex
+            )
+            isSavingAccentColor = false
+            if saved {
+                syncAccentColor()
+                saveState = .saved
+            } else {
+                syncAccentColor()
+                saveState = .failed
+            }
         }
     }
 

@@ -776,6 +776,20 @@ final class PlaniniUITests: XCTestCase {
         dismissKeyboard(in: app)
         XCTAssertTrue(waitForElementLabel(settingsSaveState, containing: "Saved", timeout: 8))
 
+        let purpleAccentButton = app.buttons["list-accent-color-purple"]
+        scrollToHittable(purpleAccentButton, in: app)
+        XCTAssertTrue(purpleAccentButton.waitForExistence(timeout: 5))
+        tapElement(purpleAccentButton)
+        XCTAssertTrue(
+            waitForListAccentColor(
+                listID: hostingListID,
+                accentColorHex: "#af52de",
+                accessToken: session.accessToken
+            )
+        )
+        XCTAssertTrue(waitForElementLabel(settingsSaveState, containing: "Saved", timeout: 8))
+        XCTAssertTrue(waitForElementLabel(purpleAccentButton, containing: "Selected", timeout: 3))
+
         let haushaltRow = app.descendants(matching: .any)["category-settings-row-\(haushaltCategoryID.uuidString)"]
         let backwarenRow = app.descendants(matching: .any)["category-settings-row-\(backwarenCategoryID.uuidString)"]
         let konservenRow = app.descendants(matching: .any)["category-settings-row-\(hostingKonservenCategoryID.uuidString)"]
@@ -856,6 +870,41 @@ final class PlaniniUITests: XCTestCase {
         app.buttons["Done"].tap()
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, renamedHostingName)
+
+        let tintedListDetail = app.descendants(matching: .any)["list-detail-screen"].firstMatch
+        XCTAssertTrue(tintedListDetail.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForElementLabel(tintedListDetail, containing: "Purple", timeout: 5))
+        captureScreenshot(named: "ios-ui-list-accent-color")
+
+        tapElement(listSettingsButton)
+        XCTAssertTrue(app.otherElements["list-settings-sheet"].waitForExistence(timeout: 5))
+        let persistedPurpleAccentButton = app.buttons["list-accent-color-purple"]
+        scrollToHittable(persistedPurpleAccentButton, in: app)
+        XCTAssertTrue(
+            waitForElementLabel(
+                persistedPurpleAccentButton,
+                containing: "Selected",
+                timeout: 5
+            )
+        )
+
+        let noAccentButton = app.buttons["list-accent-color-none"]
+        scrollToHittable(noAccentButton, in: app)
+        tapElement(noAccentButton)
+        XCTAssertTrue(
+            waitForListAccentColor(
+                listID: hostingListID,
+                accentColorHex: nil,
+                accessToken: session.accessToken
+            )
+        )
+        let reopenedSaveState = app.descendants(matching: .any)[
+            "list-settings-save-state"
+        ].firstMatch
+        XCTAssertTrue(waitForElementLabel(reopenedSaveState, containing: "Saved", timeout: 8))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(tintedListDetail.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForElementLabel(tintedListDetail, containing: "No color", timeout: 5))
 
         XCTAssertTrue(openSettings(in: app, timeout: 10))
         XCTAssertTrue(app.buttons["settings-sign-out-button"].waitForExistence(timeout: 5))
@@ -1909,6 +1958,24 @@ final class PlaniniUITests: XCTestCase {
         while Date() < deadline {
             if let groceryList = try? fetchList(listID: listID, accessToken: accessToken),
                 groceryList.name == name
+            {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        }
+        return false
+    }
+
+    private func waitForListAccentColor(
+        listID: UUID,
+        accentColorHex: String?,
+        accessToken: String,
+        timeout: TimeInterval = 8
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let groceryList = try? fetchList(listID: listID, accessToken: accessToken),
+                groceryList.accentColorHex == accentColorHex
             {
                 return true
             }
@@ -3507,6 +3574,13 @@ private struct UITestHousehold: Decodable {
 private struct UITestList: Decodable {
     let id: UUID
     let name: String
+    let accentColorHex: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case accentColorHex = "accent_color"
+    }
 }
 
 private struct UITestCategory: Decodable {

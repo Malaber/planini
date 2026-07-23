@@ -825,7 +825,8 @@ final class MobileAppViewModel: ObservableObject {
                             householdID: householdID,
                             householdName: householdName,
                             name: name,
-                            archived: (listJSON["archived"] as? Bool) ?? false
+                            archived: (listJSON["archived"] as? Bool) ?? false,
+                            accentColorHex: listJSON["accent_color"] as? String
                         )
                     }
                 )
@@ -1486,7 +1487,11 @@ final class MobileAppViewModel: ObservableObject {
                 householdID: previous.householdID,
                 householdName: previous.householdName,
                 name: updatedName,
-                archived: previous.archived
+                archived: (payload["archived"] as? Bool) ?? previous.archived,
+                accentColorHex: resolvedAccentColorHex(
+                    from: payload,
+                    fallback: previous.accentColorHex
+                )
             )
             lists = sortedLists(lists)
             cacheLists(lists)
@@ -1497,6 +1502,50 @@ final class MobileAppViewModel: ObservableObject {
             errorMessage = error.localizedDescription
             return false
         }
+    }
+
+    @discardableResult
+    func updateListAccentColor(id listID: UUID, accentColorHex: String?) async -> Bool {
+        guard let backendURL, let authToken else { return false }
+        guard let listIndex = lists.firstIndex(where: { $0.id == listID }) else { return false }
+
+        var body: [String: Any] = [:]
+        body["accent_color"] = accentColorHex ?? NSNull()
+
+        do {
+            let payload = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/lists/\(listID.uuidString)",
+                method: "PATCH",
+                body: body,
+                token: authToken
+            )
+            let previous = lists[listIndex]
+            lists[listIndex] = GroceryListSummary(
+                id: previous.id,
+                householdID: previous.householdID,
+                householdName: previous.householdName,
+                name: (payload["name"] as? String) ?? previous.name,
+                archived: (payload["archived"] as? Bool) ?? previous.archived,
+                accentColorHex: resolvedAccentColorHex(from: payload, fallback: accentColorHex)
+            )
+            lists = sortedLists(lists)
+            cacheLists(lists)
+            clearOfflineStatus()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    private func resolvedAccentColorHex(
+        from payload: [String: Any],
+        fallback: String?
+    ) -> String? {
+        guard payload.keys.contains("accent_color") else { return fallback }
+        return payload["accent_color"] as? String
     }
 
     @discardableResult
