@@ -56,6 +56,7 @@ def _template_context(request: Request, user: User | None, **extra: object) -> d
         **_template_auth_context(user),
         "locale": locale,
         "canonical_url": canonical_url,
+        "smart_app_banner_url": canonical_url,
         "link_preview_image_url": _absolute_url(request, LINK_PREVIEW_IMAGE_PATH),
         "i18n_catalog_b64": encode_catalog(locale),
         "static_asset_version": _static_asset_version(),
@@ -376,6 +377,7 @@ async def login_page(request: Request, db: AsyncSession = Depends(get_db)) -> Re
             request,
             None,
             next_url=next_path,
+            smart_app_banner_url=_absolute_url(request, next_path),
         ),
     )
 
@@ -397,6 +399,7 @@ async def local_login_page(request: Request, db: AsyncSession = Depends(get_db))
             request,
             None,
             next_url=next_path,
+            smart_app_banner_url=_absolute_url(request, next_path),
         ),
     )
 
@@ -486,7 +489,7 @@ async def list_detail(
 ) -> Response:
     user = await _get_session_user(request, db)
     if user is None:
-        return RedirectResponse(url="/login", status_code=303)
+        return RedirectResponse(url=f"/login?next=/lists/{list_id}", status_code=303)
     if user.is_admin:
         return RedirectResponse(url="/admin", status_code=303)
     try:
