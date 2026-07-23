@@ -500,6 +500,8 @@ final class PlaniniUITests: XCTestCase {
         )
         let closeButton = app.buttons["edit-item-close-button"]
         XCTAssertTrue(closeButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(closeButton.images["checkmark"].exists)
+        XCTAssertFalse(closeButton.images["xmark"].exists)
         captureScreenshot(named: "promotion-edit-item-dialogue")
 
         let editNameField = app.textFields["edit-item-name-field"]

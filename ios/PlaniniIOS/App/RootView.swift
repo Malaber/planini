@@ -3198,7 +3198,7 @@ private struct EditItemSheet: View {
                         flushCurrentEdit()
                         dismiss()
                     } label: {
-                        Label(l10n.t("common.done"), systemImage: "xmark")
+                        Label(l10n.t("common.done"), systemImage: "checkmark")
                             .labelStyle(.iconOnly)
                     }
                     .accessibilityIdentifier("edit-item-close-button")
