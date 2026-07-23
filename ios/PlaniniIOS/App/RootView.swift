@@ -3134,13 +3134,15 @@ private struct EditItemSheet: View {
         _quantity = State(initialValue: item.quantityText ?? "")
         _note = State(initialValue: item.note ?? "")
         _categoryID = State(initialValue: item.categoryID)
-        let defaultSaleStart = item.saleStartsAt ?? Date()
+        let saleDefaultNow = Date()
+        let defaultSaleStart = item.saleStartsAt ?? saleDefaultNow.addingTimeInterval(-60 * 60)
+        let defaultSaleEndReference = item.saleStartsAt ?? saleDefaultNow
         _saleEnabled = State(initialValue: item.saleStartsAt != nil && item.saleEndsAt != nil)
         _saleStartsAt = State(initialValue: defaultSaleStart)
         _saleEndsAt = State(
             initialValue: item.saleEndsAt
-                ?? Calendar.current.date(byAdding: .day, value: 7, to: defaultSaleStart)
-                ?? defaultSaleStart.addingTimeInterval(7 * 24 * 60 * 60)
+                ?? Calendar.current.date(byAdding: .day, value: 7, to: defaultSaleEndReference)
+                ?? defaultSaleEndReference.addingTimeInterval(7 * 24 * 60 * 60)
         )
         _history = State(initialValue: Self.loadHistory(itemID: item.id))
         _lastSavedPayload = State(initialValue: payload)

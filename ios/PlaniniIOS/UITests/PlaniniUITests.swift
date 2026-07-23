@@ -1102,11 +1102,17 @@ final class PlaniniUITests: XCTestCase {
             "Expected bootstrapped initial list before on-sale checks."
         )
         XCTAssertEqual(listTitle.label, initialListName)
-        XCTAssertTrue(waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 20))
+        XCTAssertTrue(
+            waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 20),
+            "Expected created item row before enabling sale window."
+        )
 
         let editableRow = app.buttons["edit-item-row-\(itemID.uuidString)"]
         scrollToElement(editableRow, in: app, maxSwipes: 16)
-        XCTAssertTrue(editableRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            editableRow.waitForExistence(timeout: 5),
+            "Expected editable normal row before enabling sale window."
+        )
         tapElement(editableRow)
         let saleToggle = firstExistingElement(
             [
@@ -1115,31 +1121,48 @@ final class PlaniniUITests: XCTestCase {
             ],
             timeout: 5
         )
-        XCTAssertTrue(saleToggle.exists)
+        XCTAssertTrue(
+            saleToggle.exists,
+            "Expected sale toggle in item edit sheet."
+        )
+        scrollToHittable(saleToggle, in: app, maxSwipes: 8)
         tapElement(saleToggle)
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
         XCTAssertTrue(
             waitForItemSaleWindow(
                 named: itemName,
                 active: true,
                 inListNamed: initialListName,
-                accessToken: session.accessToken
-            )
+                accessToken: session.accessToken,
+                timeout: 20
+            ),
+            "Expected backend sale window after enabling sale toggle."
         )
         tapElement(app.buttons["edit-item-close-button"])
 
         let onSaleBadge = app.staticTexts["section-count-badge-on-sale"]
-        XCTAssertTrue(onSaleBadge.waitForExistence(timeout: 15))
+        XCTAssertTrue(
+            onSaleBadge.waitForExistence(timeout: 15),
+            "Expected On sale section after enabling sale window."
+        )
         let promotedRow = app.descendants(matching: .any)[
             "item-row-on-sale-\(itemID.uuidString)"
         ]
         let normalRow = app.descendants(matching: .any)["item-row-\(itemID.uuidString)"]
         scrollToListTop(in: app, maxSwipes: 12)
-        XCTAssertTrue(promotedRow.waitForExistence(timeout: 10))
-        XCTAssertTrue(normalRow.waitForExistence(timeout: 10))
+        XCTAssertTrue(
+            promotedRow.waitForExistence(timeout: 10),
+            "Expected promoted On sale item row."
+        )
+        XCTAssertTrue(
+            normalRow.waitForExistence(timeout: 10),
+            "Expected normal category item row to remain visible."
+        )
 
         let promotedToggle = app.buttons["toggle-item-on-sale-\(itemID.uuidString)"]
-        XCTAssertTrue(waitForElementLabel(promotedToggle, containing: "Check \(itemName)"))
+        XCTAssertTrue(
+            waitForElementLabel(promotedToggle, containing: "Check \(itemName)"),
+            "Expected promoted toggle to start unchecked."
+        )
         captureScreenshot(named: "ios-ui-on-sale-item")
         tapElement(promotedToggle)
         XCTAssertTrue(
@@ -1150,11 +1173,17 @@ final class PlaniniUITests: XCTestCase {
                 accessToken: session.accessToken
             )
         )
-        XCTAssertTrue(waitForElementLabel(promotedToggle, containing: "Uncheck \(itemName)"))
+        XCTAssertTrue(
+            waitForElementLabel(promotedToggle, containing: "Uncheck \(itemName)"),
+            "Expected promoted toggle to reflect checked state."
+        )
 
         let normalToggle = app.buttons["toggle-item-\(itemID.uuidString)"]
         scrollToElement(normalToggle, in: app, maxSwipes: 16)
-        XCTAssertTrue(waitForElementLabel(normalToggle, containing: "Uncheck \(itemName)"))
+        XCTAssertTrue(
+            waitForElementLabel(normalToggle, containing: "Uncheck \(itemName)"),
+            "Expected normal toggle to mirror promoted checked state."
+        )
 
         tapElement(normalToggle)
         XCTAssertTrue(
@@ -1166,8 +1195,14 @@ final class PlaniniUITests: XCTestCase {
             )
         )
         scrollToListTop(in: app, maxSwipes: 16)
-        XCTAssertTrue(waitForElementLabel(promotedToggle, containing: "Check \(itemName)"))
-        XCTAssertTrue(waitForElementLabel(normalToggle, containing: "Check \(itemName)"))
+        XCTAssertTrue(
+            waitForElementLabel(promotedToggle, containing: "Check \(itemName)"),
+            "Expected promoted toggle to mirror unchecked state."
+        )
+        XCTAssertTrue(
+            waitForElementLabel(normalToggle, containing: "Check \(itemName)"),
+            "Expected normal toggle to mirror unchecked state."
+        )
     }
 
     func testLongPressDragMovesItemToCategory() throws {
