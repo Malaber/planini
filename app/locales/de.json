@@ -540,6 +540,7 @@
       "item_checked_named": "{name} wurde abgehakt.",
       "item_unchecked_named": "{name} wurde wieder geöffnet.",
       "item_deleted_named": "{name} wurde gelöscht.",
+      "item_moved_to_category_named": "{name} wurde nach {category} verschoben.",
       "item_saved_for_later_named": "{name} wurde für später gespeichert.",
       "item_shown_now_named": "{name} wird jetzt angezeigt."
     },

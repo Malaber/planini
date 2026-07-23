@@ -540,6 +540,7 @@
       "item_checked_named": "{name} checked.",
       "item_unchecked_named": "{name} unchecked.",
       "item_deleted_named": "{name} deleted.",
+      "item_moved_to_category_named": "{name} moved to {category}.",
       "item_saved_for_later_named": "{name} saved for later.",
       "item_shown_now_named": "{name} shown now."
     },

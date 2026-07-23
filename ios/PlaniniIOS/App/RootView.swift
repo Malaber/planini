@@ -5,6 +5,68 @@ import UniformTypeIdentifiers
 import UIKit
 #endif
 
+#if canImport(UIKit)
+private struct ItemCategoryDropInteractionView: UIViewRepresentable {
+    let onTargetedChanged: (Bool) -> Void
+    let onDrop: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTargetedChanged: onTargetedChanged, onDrop: onDrop)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.addInteraction(UIDropInteraction(delegate: context.coordinator))
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onTargetedChanged = onTargetedChanged
+        context.coordinator.onDrop = onDrop
+    }
+
+    final class Coordinator: NSObject, UIDropInteractionDelegate {
+        var onTargetedChanged: (Bool) -> Void
+        var onDrop: (String) -> Void
+
+        init(onTargetedChanged: @escaping (Bool) -> Void, onDrop: @escaping (String) -> Void) {
+            self.onTargetedChanged = onTargetedChanged
+            self.onDrop = onDrop
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+            session.canLoadObjects(ofClass: NSString.self)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnter session: UIDropSession) {
+            onTargetedChanged(true)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) {
+            onTargetedChanged(false)
+        }
+
+        func dropInteraction(
+            _ interaction: UIDropInteraction,
+            sessionDidUpdate session: UIDropSession
+        ) -> UIDropProposal {
+            UIDropProposal(operation: .move)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+            onTargetedChanged(false)
+            session.loadObjects(ofClass: NSString.self) { [weak self] objects in
+                guard let itemID = objects.first as? String else { return }
+                Task { @MainActor in
+                    self?.onDrop(itemID)
+                }
+            }
+        }
+    }
+}
+#endif
+
 private struct AppErrorAlert: Identifiable {
     let id = UUID()
     let message: String
@@ -1253,6 +1315,7 @@ private struct ListDetailScreen: View {
     @State private var undoDismissTask: Task<Void, Never>?
     @State private var isRunningUndo = false
     @State private var showingListSettings = false
+    @State private var targetedDropSectionID: String?
 
     init(listID: UUID, showsFavoriteButton: Bool, onListSwitch: ((UUID) -> Void)? = nil) {
         self.listID = listID
@@ -1352,8 +1415,14 @@ private struct ListDetailScreen: View {
                             }
                         }
                     } header: {
-                        SectionHeader(section: section, title: localizedTitle(for: section)) { categoryID in
+                        SectionHeader(
+                            section: section,
+                            title: localizedTitle(for: section),
+                            targetedDropSectionID: $targetedDropSectionID
+                        ) { categoryID in
                             addItemPresentation = AddItemPresentation(categoryID: categoryID)
+                        } onDropItem: { itemIDText, categoryID in
+                            moveItem(itemIDText: itemIDText, toCategory: categoryID)
                         }
                     }
                 }
@@ -1635,6 +1704,47 @@ private struct ListDetailScreen: View {
                 highlightedItemID = restoredItem.id
             }
         }
+    }
+
+    private func moveItem(itemIDText: String, toCategory categoryID: UUID?) {
+        guard
+            let itemID = UUID(uuidString: itemIDText),
+            let item = viewModel.items.first(where: { $0.id == itemID }),
+            item.categoryID != categoryID
+        else {
+            return
+        }
+
+        let previousPayload = GroceryItemEditPayload(item: item)
+        var nextPayload = previousPayload
+        nextPayload.categoryID = categoryID
+        let categoryName = categoryID.flatMap { id in
+            viewModel.categories.first { $0.id == id }?.name
+        } ?? l10n.t("ios.list.uncategorized")
+
+        Task { @MainActor in
+            let saved = await viewModel.saveEdit(item: item, payload: nextPayload)
+            guard saved else { return }
+            AppHaptics.itemDrop()
+            highlightedItemID = item.id
+            onItemMovedToCategory(item: item, categoryName: categoryName, previousPayload: previousPayload)
+        }
+    }
+
+    private func onItemMovedToCategory(
+        item: GroceryItemRecord,
+        categoryName: String,
+        previousPayload: GroceryItemEditPayload
+    ) {
+        showUndoToast(
+            message: l10n.t(
+                "ios.undo.item_moved_to_category_named",
+                ["name": item.name, "category": categoryName]
+            ),
+            action: {
+                await viewModel.saveEdit(item: item, payload: previousPayload)
+            }
+        )
     }
 
     private func rowHighlight(for item: GroceryItemRecord) -> Color {
@@ -2136,7 +2246,9 @@ private struct SectionHeader: View {
     @EnvironmentObject private var l10n: AppLocalization
     let section: ListDisplaySection
     let title: String
+    @Binding var targetedDropSectionID: String?
     let onQuickAdd: (UUID?) -> Void
+    let onDropItem: (String, UUID?) -> Void
 
     private var allowsQuickAdd: Bool {
         switch section.kind {
@@ -2154,6 +2266,10 @@ private struct SectionHeader: View {
         case let .category(categoryID):
             return categoryID
         }
+    }
+
+    private var isDropTargeted: Bool {
+        targetedDropSectionID == section.id
     }
 
     var body: some View {
@@ -2183,8 +2299,29 @@ private struct SectionHeader: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        .padding(.horizontal, 4)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isDropTargeted ? Color.accentColor.opacity(0.14) : Color.clear)
+        }
+        .background {
+            if allowsQuickAdd {
+                ItemCategoryDropInteractionView { isTargeted in
+                    if isTargeted {
+                        targetedDropSectionID = section.id
+                    } else if targetedDropSectionID == section.id {
+                        targetedDropSectionID = nil
+                    }
+                } onDrop: { itemID in
+                    onDropItem(itemID, quickAddCategoryID)
+                }
+            }
+        }
+        .contentShape(Rectangle())
         .textCase(nil)
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("category-drop-target-\(section.id)")
     }
 }
 
@@ -2340,6 +2477,17 @@ private struct ItemRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("item-row-\(item.id.uuidString)")
+        .onDrag {
+            AppHaptics.dragStart()
+            return NSItemProvider(object: item.id.uuidString as NSString)
+        } preview: {
+            Text(item.name)
+                .font(.body.weight(.medium))
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if isHiddenForLater {
                 Button {
@@ -3280,6 +3428,22 @@ private struct EmptyStateView: View {
 }
 
 private enum AppHaptics {
+    static func dragStart() {
+        #if canImport(UIKit)
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.prepare()
+        generator.impactOccurred(intensity: 0.42)
+        #endif
+    }
+
+    static func itemDrop() {
+        #if canImport(UIKit)
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.prepare()
+        generator.impactOccurred(intensity: 0.55)
+        #endif
+    }
+
     static func itemToggle() {
         #if canImport(UIKit)
         let generator = UIImpactFeedbackGenerator(style: .light)
