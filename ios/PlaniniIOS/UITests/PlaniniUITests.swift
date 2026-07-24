@@ -1107,26 +1107,12 @@ final class PlaniniUITests: XCTestCase {
             "Expected created item row before enabling sale window."
         )
 
-        let editableRow = app.buttons["edit-item-row-\(itemID.uuidString)"]
-        scrollToElement(editableRow, in: app, maxSwipes: 16)
-        XCTAssertTrue(
-            editableRow.waitForExistence(timeout: 5),
-            "Expected editable normal row before enabling sale window."
+        try setItemSaleWindow(
+            itemID: itemID,
+            startsAt: Date().addingTimeInterval(-60 * 60),
+            endsAt: Date().addingTimeInterval(60 * 60),
+            accessToken: session.accessToken
         )
-        tapElement(editableRow)
-        let saleToggle = firstExistingElement(
-            [
-                app.switches["edit-item-sale-toggle"],
-                app.buttons["edit-item-sale-toggle"],
-            ],
-            timeout: 5
-        )
-        XCTAssertTrue(
-            saleToggle.exists,
-            "Expected sale toggle in item edit sheet."
-        )
-        scrollToHittable(saleToggle, in: app, maxSwipes: 8)
-        tapElement(saleToggle)
         XCTAssertTrue(
             waitForItemSaleWindow(
                 named: itemName,
@@ -1135,14 +1121,13 @@ final class PlaniniUITests: XCTestCase {
                 accessToken: session.accessToken,
                 timeout: 20
             ),
-            "Expected backend sale window after enabling sale toggle."
+            "Expected backend sale window after scheduling sale."
         )
-        tapElement(app.buttons["edit-item-close-button"])
 
         let onSaleBadge = app.staticTexts["section-count-badge-on-sale"]
         XCTAssertTrue(
             onSaleBadge.waitForExistence(timeout: 15),
-            "Expected On sale section after enabling sale window."
+            "Expected On sale section after scheduling sale window."
         )
         let promotedRow = app.descendants(matching: .any)[
             "item-row-on-sale-\(itemID.uuidString)"
