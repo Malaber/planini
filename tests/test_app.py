@@ -545,6 +545,8 @@ def test_pwa_assets_are_exposed(client) -> None:
     )
     assert 'rel="manifest" href="/manifest.webmanifest"' in login_page.text
     assert 'name="theme-color" content="#6b4f3b"' in login_page.text
+    assert 'name="apple-itunes-app"' in login_page.text
+    assert 'content="app-id=6762043307, app-argument=http://testserver/"' in login_page.text
     assert 'rel="icon" type="image/png" href="/static/img/Favicon.png"' in login_page.text
     assert 'rel="apple-touch-icon" href="/static/img/apple-touch-icon.png"' in login_page.text
     assert 'rel="stylesheet" href="/static/app.css?v=' in login_page.text
@@ -1661,9 +1663,16 @@ def test_invite_web_flow_redirects_through_login(client, monkeypatch) -> None:
     assert invite_page.status_code == 303
     assert invite_page.headers["location"] == f"/login?next=/invite/{token}"
 
+    invite_login_page = client.get(invite_page.headers["location"])
+    assert (
+        f'content="app-id=6762043307, app-argument=http://testserver/invite/{token}"'
+        in invite_login_page.text
+    )
+
     login_page = client.get("/login?next=//evil.example")
     assert login_page.status_code == 200
     assert 'data-next-url="/"' in login_page.text
+    assert 'content="app-id=6762043307, app-argument=http://testserver/"' in login_page.text
 
     _register_session_user(client, monkeypatch, f"{uuid4()}@example.com")
 
@@ -2810,7 +2819,16 @@ def test_web_pages_require_login(client) -> None:
     assert "Logout" not in response.text
     assert client.get("/", follow_redirects=False).status_code == 303
     assert client.get("/settings", follow_redirects=False).status_code == 303
-    assert client.get("/lists/abc", follow_redirects=False).status_code == 303
+    list_id = "11111111-2222-3333-4444-555555555555"
+    list_page = client.get(f"/lists/{list_id}", follow_redirects=False)
+    assert list_page.status_code == 303
+    assert list_page.headers["location"] == f"/login?next=/lists/{list_id}"
+
+    list_login_page = client.get(list_page.headers["location"])
+    assert (
+        f'content="app-id=6762043307, app-argument=http://testserver/lists/{list_id}"'
+        in list_login_page.text
+    )
 
     script = client.get("/api/v1/auth/assets/fastpasskey.js")
     assert "navigator.credentials.create" in script.text
@@ -2879,6 +2897,10 @@ def test_web_pages_render_for_logged_in_user(client, monkeypatch) -> None:
     assert "data-list-sync-status" in list_detail.text
     assert "data-list-switcher" in list_detail.text
     assert "All lists" in list_detail.text
+    assert 'name="apple-itunes-app"' in list_detail.text
+    assert (
+        'content="app-id=6762043307, app-argument=http://testserver/lists/abc"' in list_detail.text
+    )
 
     settings = client.get("/settings")
     assert settings.status_code == 200
@@ -3933,7 +3955,7 @@ def test_stale_web_session_redirects_to_login(client, monkeypatch) -> None:
 
     list_detail = client.get("/lists/abc", follow_redirects=False)
     assert list_detail.status_code == 303
-    assert list_detail.headers["location"] == "/login"
+    assert list_detail.headers["location"] == "/login?next=/lists/abc"
 
 
 def test_browser_session_slides_on_use(client, monkeypatch) -> None:
