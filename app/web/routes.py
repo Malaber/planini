@@ -69,16 +69,32 @@ def _absolute_url(request: Request, path: str) -> str:
     return str(request.url.replace(path=path, query="", fragment=""))
 
 
-def _capabilities_demo_payload() -> dict[str, object]:
+def _capabilities_demo_payload(locale: str = "en") -> dict[str, object]:
+    english_category_names = {
+        "produce": "Produce",
+        "fridge": "Fridge",
+        "pantry": "Pantry",
+    }
+    translated_category_names = {
+        "de": {
+            "produce": "Obst und Gemüse",
+            "fridge": "Kühlschrank",
+            "pantry": "Vorrat",
+        }
+    }
+    category_names = {
+        category_id: translated_category_names.get(locale, {}).get(category_id, english_name)
+        for category_id, english_name in english_category_names.items()
+    }
     return {
         "list": {
             "id": "capabilities-demo",
             "name": "Saturday Groceries",
         },
         "categories": [
-            {"id": "produce", "name": "Produce", "color": "#6bbf59"},
-            {"id": "fridge", "name": "Fridge", "color": "#1db8d9"},
-            {"id": "pantry", "name": "Pantry", "color": "#f59e0b"},
+            {"id": "produce", "name": category_names["produce"], "color": "#6bbf59"},
+            {"id": "fridge", "name": category_names["fridge"], "color": "#1db8d9"},
+            {"id": "pantry", "name": category_names["pantry"], "color": "#f59e0b"},
         ],
         "category_order": [
             {"category_id": "produce", "sort_order": 0},
@@ -344,8 +360,9 @@ async def capabilities_live_demo_page(
     request: Request, db: AsyncSession = Depends(get_db)
 ) -> Response:
     user = await _get_session_user(request, db)
-    t = translator_for(getattr(request.state, "locale", "en"))
-    demo_payload = _capabilities_demo_payload()
+    locale = getattr(request.state, "locale", "en")
+    t = translator_for(locale)
+    demo_payload = _capabilities_demo_payload(locale)
     return templates.TemplateResponse(
         request,
         "list_detail.html",

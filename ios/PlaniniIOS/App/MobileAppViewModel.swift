@@ -2482,6 +2482,10 @@ final class MobileAppViewModel: ObservableObject {
         var request = URLRequest(url: backendURL.appending(path: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(
+            Locale.preferredLanguages.first ?? "en",
+            forHTTPHeaderField: "Accept-Language"
+        )
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
