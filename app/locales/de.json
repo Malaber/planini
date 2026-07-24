@@ -471,6 +471,21 @@
       "empty_message": "Erstelle in den Einstellungen einen Haushalt und eine Liste, um loszulegen.",
       "open_settings": "Einstellungen öffnen"
     },
+    "list_settings": {
+      "accent_title": "Akzentfarbe",
+      "accent_hint": "Eine dezente Tönung macht diese Liste leichter erkennbar.",
+      "accent_none": "Keine Farbe",
+      "accent_red": "Rot",
+      "accent_orange": "Orange",
+      "accent_yellow": "Gelb",
+      "accent_green": "Grün",
+      "accent_teal": "Türkis",
+      "accent_blue": "Blau",
+      "accent_purple": "Lila",
+      "accent_pink": "Pink",
+      "accent_selected": "Akzent {color} ausgewählt",
+      "accent_selection_selected": "Ausgewählt"
+    },
     "settings": {
       "account": "Konto",
       "unknown": "Unbekannt",

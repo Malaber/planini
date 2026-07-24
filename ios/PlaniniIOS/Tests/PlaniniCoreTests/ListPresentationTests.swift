@@ -64,7 +64,8 @@ struct ListPresentationTests {
             householdID: householdID,
             householdName: "Home",
             name: "Weekly shop",
-            archived: true
+            archived: true,
+            accentColorHex: "#007aff"
         )
 
         #expect(summary.id == listID)
@@ -72,6 +73,25 @@ struct ListPresentationTests {
         #expect(summary.householdName == "Home")
         #expect(summary.name == "Weekly shop")
         #expect(summary.archived == true)
+        #expect(summary.accentColorHex == "#007aff")
+    }
+
+    @Test func groceryListSummaryDecodesLegacyPayloadWithoutAccentColor() throws {
+        let listID = UUID()
+        let householdID = UUID()
+        let payload = """
+        {
+          "id": "\(listID.uuidString)",
+          "householdID": "\(householdID.uuidString)",
+          "householdName": "Home",
+          "name": "Weekly shop",
+          "archived": false
+        }
+        """
+
+        let summary = try JSONDecoder().decode(GroceryListSummary.self, from: Data(payload.utf8))
+
+        #expect(summary.accentColorHex == nil)
     }
 
     @Test func groceryCategorySummaryParsesJSON() {

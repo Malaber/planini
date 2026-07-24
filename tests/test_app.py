@@ -1044,6 +1044,107 @@ def test_lists_include_open_item_count(client) -> None:
     assert blank_rename.status_code == 400
 
 
+def test_list_accent_color_defaults_updates_clears_and_validates(client) -> None:
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households",
+        json={"name": "Home"},
+        headers=headers,
+    ).json()
+
+    default_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Default"},
+        headers=headers,
+    )
+    assert default_list.status_code == 200
+    assert default_list.json()["accent_color"] is None
+
+    tinted_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Tinted", "accent_color": "#3b82f6"},
+        headers=headers,
+    )
+    assert tinted_list.status_code == 200
+    tinted = tinted_list.json()
+    assert tinted["accent_color"] == "#3b82f6"
+
+    lists = client.get(
+        f"/api/v1/households/{household['id']}/lists",
+        headers=headers,
+    ).json()
+    assert {grocery_list["name"]: grocery_list["accent_color"] for grocery_list in lists} == {
+        "Default": None,
+        "Tinted": "#3b82f6",
+    }
+    detail = client.get(f"/api/v1/lists/{tinted['id']}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["accent_color"] == "#3b82f6"
+
+    recolored = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={"accent_color": "#A1b2C3"},
+        headers=headers,
+    )
+    assert recolored.status_code == 200
+    assert recolored.json()["name"] == "Tinted"
+    assert recolored.json()["accent_color"] == "#A1b2C3"
+
+    renamed = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={"name": "Renamed"},
+        headers=headers,
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "Renamed"
+    assert renamed.json()["accent_color"] == "#A1b2C3"
+
+    no_op = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={},
+        headers=headers,
+    )
+    assert no_op.status_code == 200
+    assert no_op.json()["name"] == "Renamed"
+    assert no_op.json()["accent_color"] == "#A1b2C3"
+
+    for invalid_name in (None, "   "):
+        invalid_rename = client.patch(
+            f"/api/v1/lists/{tinted['id']}",
+            json={"name": invalid_name},
+            headers=headers,
+        )
+        assert invalid_rename.status_code == 400
+
+    for invalid_color in ("3b82f6", "#3b82f", "#3b82f60", "#zzzzzz"):
+        invalid_recolor = client.patch(
+            f"/api/v1/lists/{tinted['id']}",
+            json={"accent_color": invalid_color},
+            headers=headers,
+        )
+        assert invalid_recolor.status_code == 422
+
+    invalid_create = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Invalid", "accent_color": "blue"},
+        headers=headers,
+    )
+    assert invalid_create.status_code == 422
+
+    unchanged = client.get(f"/api/v1/lists/{tinted['id']}", headers=headers).json()
+    assert unchanged["name"] == "Renamed"
+    assert unchanged["accent_color"] == "#A1b2C3"
+
+    cleared = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={"accent_color": None},
+        headers=headers,
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["name"] == "Renamed"
+    assert cleared.json()["accent_color"] is None
+
+
 def test_offline_item_sync_replays_changes_idempotently(client) -> None:
     headers = _auth_headers(client, f"{uuid4()}@example.com")
     household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
