@@ -1700,9 +1700,9 @@ final class PlaniniUITests: XCTestCase {
     ) -> Bool {
         let row = itemRow(itemID: itemID, in: app)
         let hideButton = app.buttons["hide-item-\(itemID.uuidString)"]
-        let deadline = Date().addingTimeInterval(timeout)
 
         scrollToListTop(in: app, maxSwipes: 10)
+        let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
             if waitForItemHiddenState(
