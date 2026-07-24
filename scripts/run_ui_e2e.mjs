@@ -924,7 +924,7 @@ async function runAdminTableControlsFlow(page) {
   await page.waitForURL(/\/admin\/category\/list\?pageSize=100/);
   await expectVisible(page.getByRole("link", { name: "100 / Page" }), "Expected page size to persist");
 
-  await page.getByRole("link", { name: "Name" }).click();
+  await page.getByRole("link", { name: "English" }).click();
   await page.waitForURL(/\/admin\/category\/list\?.*pageSize=100.*sortBy=name.*sort=asc/);
 
   await page.getByRole("link", { name: "Reset view" }).click();
