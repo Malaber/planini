@@ -1611,6 +1611,18 @@ async function main() {
     await installSeededPasskey(authenticator, owner, rpId);
     await assertSupportPage(page);
     await assertPrivacyPage(page);
+    logStep("Checking signed-out list Smart App Banner context");
+    const signedOutListPath = "/lists/11111111-2222-3333-4444-555555555555";
+    const signedOutListUrl = new URL(signedOutListPath, baseUrl).toString();
+    await page.goto(signedOutListUrl, { waitUntil: "networkidle" });
+    const signedOutLoginUrl = new URL(page.url());
+    assert.equal(signedOutLoginUrl.pathname, "/login");
+    assert.equal(signedOutLoginUrl.searchParams.get("next"), signedOutListPath);
+    assert.equal(
+      await page.locator('head meta[name="apple-itunes-app"]').getAttribute("content"),
+      `app-id=6762043307, app-argument=${signedOutListUrl}`,
+      "Expected signed-out Smart App Banner to preserve current list",
+    );
     logStep("Signing in with the seeded owner passkey");
     await loginFromRoot(page, owner, "Households and Lists");
     await screenshot(page, "promotion-list-of-lists");
@@ -1646,6 +1658,11 @@ async function main() {
       page.goto(listUrl, { waitUntil: "networkidle" }),
       pageTwo.goto(listUrl, { waitUntil: "networkidle" }),
     ]);
+    assert.equal(
+      await page.locator('head meta[name="apple-itunes-app"]').getAttribute("content"),
+      `app-id=6762043307, app-argument=${listUrl}`,
+      "Expected Smart App Banner to deep-link to the current list",
+    );
 
     const addForm = page.locator("[data-item-form]");
     const editForm = page.locator("[data-item-edit-form]");

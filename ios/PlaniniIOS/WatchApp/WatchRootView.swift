@@ -96,6 +96,7 @@ struct WatchRootView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(Color(hex: list.accentColorHex)?.opacity(0.12))
             }
         }
     }
@@ -120,6 +121,16 @@ private struct WatchListDetailView: View {
         List {
             addItemSection
             itemsSection
+        }
+        .scrollContentBackground(.hidden)
+        .background {
+            ZStack {
+                Color.black
+                if let accentColor = Color(hex: list.accentColorHex) {
+                    accentColor.opacity(0.14)
+                }
+            }
+            .ignoresSafeArea()
         }
         .navigationTitle(list.name)
         .task(id: list.id) {

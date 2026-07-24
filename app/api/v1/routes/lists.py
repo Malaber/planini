@@ -19,6 +19,7 @@ from app.schemas.domain import (
     CategoryOut,
     GroceryListCreate,
     GroceryListOut,
+    GroceryListUpdate,
     ListCategoryOrderOut,
     ListCategoryOrderUpdate,
     ListDisabledCategoriesOut,
@@ -130,7 +131,12 @@ async def create_list(
     db: AsyncSession = Depends(get_db),
 ) -> GroceryListOut:
     await ensure_household_member(db, household_id, user.id)
-    grocery_list = GroceryList(household_id=household_id, name=payload.name, created_by=user.id)
+    grocery_list = GroceryList(
+        household_id=household_id,
+        name=payload.name,
+        accent_color=payload.accent_color,
+        created_by=user.id,
+    )
     db.add(grocery_list)
     await db.commit()
     await db.refresh(grocery_list)
@@ -312,15 +318,20 @@ async def delete_list(
 @router.patch("/lists/{list_id}", response_model=GroceryListOut)
 async def patch_list(
     list_id: UUID,
-    payload: GroceryListCreate,
+    payload: GroceryListUpdate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GroceryListOut:
     grocery_list = await get_list_for_user(db, list_id, user.id)
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST)
-    grocery_list.name = name
+    if "name" in payload.model_fields_set:
+        if payload.name is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST)
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST)
+        grocery_list.name = name
+    if "accent_color" in payload.model_fields_set:
+        grocery_list.accent_color = payload.accent_color
     await db.commit()
     await db.refresh(grocery_list)
     return _serialize_list(grocery_list, await _open_item_count(db, list_id))

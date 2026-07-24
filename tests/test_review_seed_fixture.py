@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.models import Passkey, User
+from app.models import GroceryList, Passkey, User
 from app.services.fixture_seed import ensure_seed_data
 from db_utils import dispose_db, reset_db
 
@@ -15,6 +15,16 @@ def test_review_seed_fixture_has_unique_passkey_credentials_and_seeds() -> None:
     payload = json.loads(fixture_path.read_text(encoding="utf-8"))
     users = payload["users"]
     emails = {user["email"] for user in users}
+    primary_household = next(
+        household
+        for household in payload["households"]
+        if household["name"] == payload["e2e"]["primary_household"]
+    )
+    primary_list = next(
+        grocery_list
+        for grocery_list in primary_household["lists"]
+        if grocery_list["name"] == payload["e2e"]["primary_list"]
+    )
 
     credential_ids = [
         user["passkey"]["credential_id"] for user in users if isinstance(user.get("passkey"), dict)
@@ -22,6 +32,7 @@ def test_review_seed_fixture_has_unique_passkey_credentials_and_seeds() -> None:
     assert len(credential_ids) == len(set(credential_ids))
     assert "planini_admin@schaedler.rocks" in emails
     assert "planini@schaedler.rocks" in emails
+    assert primary_list["accent_color"] == "#3b82f6"
     for user in users:
         passkey = user.get("passkey")
         if isinstance(passkey, dict):
@@ -60,6 +71,12 @@ def test_review_seed_fixture_has_unique_passkey_credentials_and_seeds() -> None:
                 .all()
             )
             assert len(passkeys) >= 3
+            seeded_primary_list = (
+                await session.execute(
+                    select(GroceryList).where(GroceryList.name == payload["e2e"]["primary_list"])
+                )
+            ).scalar_one()
+            assert seeded_primary_list.accent_color == "#3b82f6"
 
     try:
         asyncio.run(_assert_seeded())
@@ -76,6 +93,11 @@ def test_review_e2e_seed_fixture_contains_private_passkey_material() -> None:
         for household in payload["households"]
         if household["name"] == payload["e2e"]["primary_household"]
     )
+    primary_list = next(
+        grocery_list
+        for grocery_list in primary_household["lists"]
+        if grocery_list["name"] == payload["e2e"]["primary_list"]
+    )
     checked_stress_list = next(
         grocery_list
         for grocery_list in primary_household["lists"]
@@ -85,6 +107,7 @@ def test_review_e2e_seed_fixture_contains_private_passkey_material() -> None:
     assert payload["e2e"]["owner_email"] == "planini@schaedler.rocks"
     assert payload["e2e"]["invitee_email"] == "preview-invitee@example.com"
     assert payload["e2e"]["checked_stress_list"] == "Checked History Stress Test"
+    assert primary_list["accent_color"] == "#3b82f6"
     assert sum(1 for item in checked_stress_list["items"] if item["checked"]) == 258
     assert users["planini@schaedler.rocks"]["passkey"]["private_key_pkcs8_b64"]
     assert users["planini@schaedler.rocks"]["passkey"]["user_handle_b64"]
