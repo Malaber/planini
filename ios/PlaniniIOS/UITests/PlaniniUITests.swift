@@ -927,6 +927,20 @@ final class PlaniniUITests: XCTestCase {
         assertLanguageSettings(in: app)
     }
 
+    func testPasskeyManagementScreen() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let app = launchedApp(session: session)
+
+        XCTAssertTrue(openSettings(in: app, timeout: 10))
+        try exercisePasskeyManagement(in: app, accessToken: session.accessToken)
+        terminateAndWait(app)
+    }
+
     func testForceClosedAppRestoresSavedSession() throws {
         try assertLocalTestBackend()
         let session = if let injectedSession {
@@ -1735,9 +1749,9 @@ final class PlaniniUITests: XCTestCase {
     ) -> Bool {
         let row = itemRow(itemID: itemID, in: app)
         let hideButton = app.buttons["hide-item-\(itemID.uuidString)"]
-        let deadline = Date().addingTimeInterval(timeout)
 
         scrollToListTop(in: app, maxSwipes: 10)
+        let deadline = Date().addingTimeInterval(timeout)
 
         while Date() < deadline {
             if waitForItemHiddenState(
@@ -2298,6 +2312,63 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(waitForElementToDisappear(inviteSheet, timeout: 3))
         navigateBack(in: app)
         XCTAssertTrue(managementScreen.waitForExistence(timeout: 3))
+        navigateBack(in: app)
+        XCTAssertTrue(app.buttons["settings-sign-out-button"].waitForExistence(timeout: 5))
+    }
+
+    private func exercisePasskeyManagement(in app: XCUIApplication, accessToken: String) throws {
+        let passkeys = try fetchPasskeys(accessToken: accessToken)
+        let passkey = try XCTUnwrap(passkeys.first)
+
+        let managementLink = app.buttons["settings-passkey-management-link"]
+        XCTAssertTrue(managementLink.waitForExistence(timeout: 5))
+        tapElement(managementLink)
+
+        let managementScreen = app.descendants(matching: .any)["passkey-management-screen"]
+        XCTAssertTrue(managementScreen.waitForExistence(timeout: 5))
+
+        let passkeyID = passkey.id.uuidString.lowercased()
+        let passkeyName = app.descendants(matching: .any)["passkey-name-\(passkeyID)"]
+        XCTAssertTrue(passkeyName.waitForExistence(timeout: 10))
+        XCTAssertEqual(passkeyName.label, passkey.name)
+
+        let deleteButton = app.descendants(matching: .any)["passkey-delete-\(passkeyID)"]
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 3))
+        if passkeys.count == 1 {
+            XCTAssertFalse(deleteButton.isEnabled)
+            XCTAssertTrue(
+                app.descendants(matching: .any)["passkey-delete-disabled-help"]
+                    .waitForExistence(timeout: 3)
+            )
+        }
+
+        let addButton = app.buttons["passkey-add-button"]
+        XCTAssertTrue(addButton.waitForExistence(timeout: 3))
+        tapElement(addButton)
+
+        let addSheet = app.descendants(matching: .any)["passkey-add-name-sheet"]
+        let addNameField = app.textFields["passkey-add-name-field"]
+        let addSubmitButton = app.buttons["passkey-add-submit-button"]
+        XCTAssertTrue(addSheet.waitForExistence(timeout: 3))
+        XCTAssertTrue(addNameField.waitForExistence(timeout: 3))
+        XCTAssertTrue(addSubmitButton.isEnabled)
+        replaceText(in: addNameField, with: "")
+        XCTAssertFalse(addSubmitButton.isEnabled)
+        tapElement(app.buttons["passkey-add-cancel-button"])
+        XCTAssertTrue(waitForElementToDisappear(addSheet, timeout: 3))
+
+        let renameButton = app.descendants(matching: .any)["passkey-rename-\(passkeyID)"]
+        XCTAssertTrue(renameButton.waitForExistence(timeout: 3))
+        tapElement(renameButton)
+
+        let renameSheet = app.descendants(matching: .any)["passkey-rename-name-sheet"]
+        XCTAssertTrue(renameSheet.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.textFields["passkey-rename-name-field"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["passkey-rename-submit-button"].isEnabled)
+        tapElement(app.buttons["passkey-rename-cancel-button"])
+        XCTAssertTrue(waitForElementToDisappear(renameSheet, timeout: 3))
+
+        captureScreenshot(named: "ios-ui-passkey-management")
         navigateBack(in: app)
         XCTAssertTrue(app.buttons["settings-sign-out-button"].waitForExistence(timeout: 5))
     }
@@ -3082,6 +3153,15 @@ final class PlaniniUITests: XCTestCase {
         return []
     }
 
+    private func fetchPasskeys(accessToken: String) throws -> [UITestPasskey] {
+        let request = jsonRequest(
+            path: "/api/v1/auth/passkeys",
+            method: "GET",
+            token: accessToken
+        )
+        return try JSONDecoder().decode([UITestPasskey].self, from: performRequest(request))
+    }
+
     private func waitForHousehold(
         named householdName: String,
         accessToken: String,
@@ -3564,6 +3644,11 @@ private struct UITestSession: Decodable {
         case accessToken = "access_token"
         case displayName = "display_name"
     }
+}
+
+private struct UITestPasskey: Decodable {
+    let id: UUID
+    let name: String
 }
 
 private struct UITestHousehold: Decodable {

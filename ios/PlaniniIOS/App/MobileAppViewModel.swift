@@ -159,6 +159,9 @@ final class MobileAppViewModel: ObservableObject {
     @Published private(set) var isAuthenticating = false
     @Published private(set) var authToken: String?
     @Published private(set) var displayName: String?
+    @Published private(set) var passkeys: [PasskeyRecord] = []
+    @Published private(set) var isManagingPasskeys = false
+    @Published private(set) var passkeyManagementErrorMessage: String?
     @Published private(set) var households: [HouseholdSummary] = []
     @Published private(set) var lists: [GroceryListSummary] = []
     @Published private(set) var items: [GroceryItemRecord] = []
@@ -482,6 +485,80 @@ final class MobileAppViewModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func loadPasskeys() async -> Bool {
+        await performPasskeyManagement { service in
+            passkeys = try await service.listPasskeys()
+        }
+    }
+
+    @discardableResult
+    func addPasskey(name: String) async -> Bool {
+        await performPasskeyManagement { service in
+            let added = try await service.addPasskey(name: name)
+            passkeys.removeAll { $0.id == added.id }
+            passkeys.append(added)
+        }
+    }
+
+    @discardableResult
+    func renamePasskey(_ passkey: PasskeyRecord, name: String) async -> Bool {
+        await performPasskeyManagement { service in
+            let renamed = try await service.renamePasskey(id: passkey.id, name: name)
+            if let index = passkeys.firstIndex(where: { $0.id == renamed.id }) {
+                passkeys[index] = renamed
+            } else {
+                passkeys.append(renamed)
+            }
+        }
+    }
+
+    @discardableResult
+    func deletePasskey(_ passkey: PasskeyRecord) async -> Bool {
+        await performPasskeyManagement { service in
+            try await service.deletePasskey(id: passkey.id)
+            passkeys.removeAll { $0.id == passkey.id }
+            do {
+                passkeys = try await service.listPasskeys()
+            } catch {
+                if let appError = error as? AppError, case .sessionExpired = appError {
+                    throw appError
+                }
+            }
+        }
+    }
+
+    private func performPasskeyManagement(
+        operation: (PasskeyManagementService) async throws -> Void
+    ) async -> Bool {
+        guard isManagingPasskeys == false else { return false }
+        guard let backendURL, let authToken else {
+            passkeyManagementErrorMessage = AppError.sessionExpired.localizedDescription
+            return false
+        }
+
+        isManagingPasskeys = true
+        passkeyManagementErrorMessage = nil
+        defer { isManagingPasskeys = false }
+
+        do {
+            try await ensureBackendReady(backendURL: backendURL)
+            let service = PasskeyManagementService(
+                backendURL: backendURL,
+                accessToken: authToken,
+                transport: AppPasskeyManagementTransport(backendURL: backendURL),
+                credentialProvider: passkeyClient
+            )
+            try await operation(service)
+            return true
+        } catch {
+            if handleSessionExpired(error) == false {
+                passkeyManagementErrorMessage = error.localizedDescription
+            }
+            return false
+        }
+    }
+
     private func performPasskeyLogin(backendURL: URL) async throws {
         try await ensureBackendReady(backendURL: backendURL)
         let options = try await requestJSON(
@@ -709,6 +786,8 @@ final class MobileAppViewModel: ObservableObject {
         liveUpdates.disconnect()
         authToken = nil
         displayName = nil
+        passkeys = []
+        passkeyManagementErrorMessage = nil
         households = []
         lists = []
         items = []
@@ -1711,6 +1790,8 @@ final class MobileAppViewModel: ObservableObject {
     private func expireSession() {
         liveUpdates.disconnect()
         authToken = nil
+        passkeys = []
+        passkeyManagementErrorMessage = nil
         lists = []
         items = []
         categories = []
