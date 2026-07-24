@@ -4,6 +4,9 @@
   class="list-shell"
   data-list-detail
   data-list-id="{{ list_id }}"
+  {% if public_list_token is defined %}
+  data-public-list-token="{{ public_list_token }}"
+  {% endif %}
   data-list-mode="{{ 'demo' if is_demo_list else 'live' }}"
   {% if is_demo_list %}
   data-demo-payload="{{ demo_payload_json|forceescape }}"
@@ -15,9 +18,11 @@
       <div class="list-kicker-row">
         <p class="dashboard-kicker">{{ list_kicker if list_kicker is defined else t("list_detail.kicker") }}</p>
         <div class="list-hero-actions">
+          {% if public_list_token is not defined %}
           <button class="list-settings-button" type="button" aria-label="{{ t("list_detail.open_settings") }}" data-list-settings-toggle>
             {{ t("list_detail.list_settings_short") }}
           </button>
+          {% endif %}
           <a class="back-link" href="{{ list_back_href if list_back_href is defined else '/?dashboard=1' }}">
             {{ list_back_label if list_back_label is defined else t("list_detail.back_to_households") }}
           </a>
@@ -145,6 +150,7 @@
     <div class="list-toast-timer" data-list-toast-timer></div>
   </div>
 
+  {% if public_list_token is not defined %}
   <div class="item-modal" data-list-settings-overlay hidden>
     <button
       class="item-modal-backdrop"
@@ -180,6 +186,29 @@
           </button>
         </div>
       </form>
+
+      <div class="dashboard-section-heading settings-subsection-heading">
+        <div>
+          <p class="dashboard-label">{{ t("list_detail.share_label") }}</p>
+          <h3>{{ t("list_detail.public_link_title") }}</h3>
+        </div>
+      </div>
+      <form class="dashboard-form public-list-link-form" data-public-list-link-form>
+        <label class="dashboard-field">
+          <span>{{ t("list_detail.public_link_days") }}</span>
+          <input type="number" name="expires_in_days" min="1" max="30" value="7" required data-public-list-link-days />
+        </label>
+        <div class="settings-list-name-actions">
+          <button type="submit" class="secondary-button" data-public-list-link-submit>{{ t("list_detail.public_link_create") }}</button>
+        </div>
+        <div class="household-invite-output" data-public-list-link-output hidden>
+          <p class="dashboard-helper" data-public-list-link-expiry></p>
+          <div class="household-invite-row">
+            <input type="text" readonly data-public-list-link-url />
+            <button type="button" class="secondary-button" data-public-list-link-copy>{{ t("common.copy") }}</button>
+          </div>
+        </div>
+      </form>
       <div class="dashboard-section-heading settings-subsection-heading">
         <div>
           <p class="dashboard-label">{{ t("list_detail.categories_label") }}</p>
@@ -190,6 +219,7 @@
       <div class="settings-category-list" data-list-settings-category-list></div>
     </section>
   </div>
+  {% endif %}
 
   <div class="item-modal" data-item-edit-overlay hidden>
     <button class="item-modal-backdrop" type="button" aria-label="{{ t("list_detail.close_item_editor") }}" data-item-edit-close></button>

@@ -1372,6 +1372,83 @@ async function runListQuickSwitchFlow(page, scenario, primaryListUrl) {
   );
 }
 
+async function runPublicListLinkFlow(browser, ownerPage, scenario, listUrl) {
+  logStep("Creating and editing through public list link");
+  await ownerPage.goto(listUrl, { waitUntil: "networkidle" });
+  await ownerPage.getByRole("button", { name: "List settings" }).click();
+  const shareForm = ownerPage.locator("[data-public-list-link-form]");
+  await expectVisible(shareForm, "Expected public list link form in list settings");
+  await shareForm.getByLabel("Link valid for days").fill("2");
+  await shareForm.getByRole("button", { name: "Create public link" }).click();
+  const linkInput = ownerPage.locator("[data-public-list-link-url]");
+  await expectVisible(linkInput, "Expected generated public link output");
+  const publicUrl = await linkInput.inputValue();
+  assert(publicUrl.includes("/public/lists/"), "Expected generated public URL to use public list route");
+  await ownerPage
+    .locator("[data-list-settings-panel]")
+    .getByRole("button", { name: /Close list settings/ })
+    .click();
+
+  const publicContext = await browser.newContext();
+  const publicPage = await publicContext.newPage();
+  try {
+    await publicPage.goto(publicUrl, { waitUntil: "networkidle" });
+    await expectVisible(
+      publicPage.locator("[data-list-title]", { hasText: scenario.listName }),
+      "Expected anonymous public list page to load the shared list",
+    );
+    await expectHidden(
+      publicPage.locator("[data-list-switcher]"),
+      "Expected public list page to hide household list switcher",
+    );
+    await expectHidden(
+      publicPage.locator("[data-list-settings-toggle]"),
+      "Expected public visitor to have item editing without owner list settings",
+    );
+    await publicPage.getByRole("button", { name: "Add item" }).click();
+    await publicPage.locator("[data-item-form]").getByLabel("Item name").fill("Public pears");
+    await publicPage.locator("[data-item-panel]").getByRole("button", { name: "Save now" }).click();
+    const publicItemCard = publicPage.locator("[data-item-card]", { hasText: "Public pears" });
+    await expectVisible(publicItemCard, "Expected anonymous visitor to add an item");
+    await publicItemCard.click();
+    const publicEditPanel = publicPage.locator("[data-item-edit-panel]", {
+      hasText: "Public pears",
+    });
+    await expectVisible(publicEditPanel, "Expected anonymous visitor to open item editor");
+    await publicEditPanel.locator('input[name="note"]').fill("shared link edit");
+    await expectVisible(
+      publicEditPanel.locator("[data-item-edit-status]", { hasText: "Saved." }),
+      "Expected anonymous item edit to save",
+    );
+    await publicEditPanel.locator("[data-item-edit-close]").click();
+    await expectVisible(
+      publicItemCard.locator(".item-meta", { hasText: "shared link edit" }),
+      "Expected anonymous item edit to remain visible",
+    );
+    await publicItemCard.getByRole("button", { name: /check/i }).click();
+    const checkedPublicItem = publicPage.locator("[data-item-card].is-checked", {
+      hasText: "Public pears",
+    });
+    await expectVisible(
+      checkedPublicItem,
+      "Expected anonymous visitor to check an item",
+    );
+    await checkedPublicItem.click();
+    const publicDeletePanel = publicPage.locator("[data-item-edit-panel]", {
+      hasText: "Public pears",
+    });
+    await expectVisible(publicDeletePanel, "Expected checked public item editor");
+    await publicDeletePanel.locator("[data-item-edit-delete]").click();
+    await expectHidden(
+      publicPage.locator("[data-item-card]", { hasText: "Public pears" }),
+      "Expected anonymous visitor to delete the public test item",
+    );
+  } finally {
+    await publicPage.close();
+    await publicContext.close();
+  }
+}
+
 async function runOfflineSyncFlow(page, requestContext, listId) {
   logStep("Checking offline list item save and resync");
   const offlineName = `Fresh thing offline ${Date.now()}`;
@@ -1673,6 +1750,7 @@ async function main() {
     await assertSeedMainCategoryColors(page);
     await assertBrownWhiteAccentChrome(page);
     await runListQuickSwitchFlow(page, scenario, listUrl);
+    await runPublicListLinkFlow(browser, page, scenario, listUrl);
 
     if (deviceName === "desktop") {
       await page.keyboard.press("Enter");

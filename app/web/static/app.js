@@ -1534,6 +1534,30 @@ function listTitleText(root) {
   return root.querySelector("[data-list-title]")?.textContent?.trim() || "";
 }
 
+function publicListToken(root) {
+  return root?.dataset?.publicListToken || "";
+}
+
+function isPublicList(root) {
+  return Boolean(publicListToken(root));
+}
+
+function listApiUrl(root, suffix = "") {
+  const token = publicListToken(root);
+  if (token) {
+    return `/api/v1/public/lists/${token}${suffix}`;
+  }
+  return `/api/v1/lists/${root.dataset.listId}${suffix}`;
+}
+
+function itemApiUrl(root, itemId, suffix = "") {
+  const token = publicListToken(root);
+  if (token) {
+    return `/api/v1/public/lists/${token}/items/${itemId}${suffix}`;
+  }
+  return `/api/v1/items/${itemId}${suffix}`;
+}
+
 function setListName(root, state, name) {
   state.listName = name;
   root.querySelector("[data-list-title]").textContent = name;
@@ -1554,7 +1578,7 @@ async function saveListName(root, state, name) {
   }
 
   const listId = root.dataset.listId;
-  const groceryList = await fetchJson(`/api/v1/lists/${listId}`, {
+  const groceryList = await fetchJson(listApiUrl(root), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: trimmedName }),
@@ -1565,7 +1589,7 @@ async function saveListName(root, state, name) {
 }
 
 function persistOfflineListState(root, state) {
-  if (typeof window === "undefined" || isDemoList(root)) {
+  if (typeof window === "undefined" || isDemoList(root) || isPublicList(root)) {
     return;
   }
 
@@ -1664,7 +1688,7 @@ function applyOfflineSyncResult(state, result) {
 }
 
 async function flushOfflineMutations(root, state) {
-  if (isDemoList(root) || state.pendingMutations.length === 0) {
+  if (isDemoList(root) || isPublicList(root) || state.pendingMutations.length === 0) {
     return null;
   }
 
@@ -1675,7 +1699,7 @@ async function flushOfflineMutations(root, state) {
   const listId = root.dataset.listId;
   const mutations = [...state.pendingMutations];
   setListSyncStatus(root, translate("list_detail.offline_syncing", {}, "Syncing saved changes..."));
-  state.offlineSyncInFlight = postJson(`/api/v1/lists/${listId}/items/sync`, { mutations })
+  state.offlineSyncInFlight = postJson(`${listApiUrl(root)}/items/sync`, { mutations })
     .then((result) => {
       applyOfflineSyncResult(state, result);
       persistOfflineListState(root, state);
@@ -2415,6 +2439,9 @@ async function createItemWithOfflineFallback(root, state, listId, payload) {
   if (isDemoList(root)) {
     return createDemoItem(state, payload);
   }
+  if (isPublicList(root)) {
+    return postJson(`${listApiUrl(root)}/items`, payload);
+  }
 
   const recordedAt = new Date().toISOString();
   const clientItemId = createOfflineId(OFFLINE_ITEM_ID_PREFIX);
@@ -2436,7 +2463,7 @@ async function createItemWithOfflineFallback(root, state, listId, payload) {
   }
 
   try {
-    return await postJson(`/api/v1/lists/${listId}/items`, payload);
+    return await postJson(`${listApiUrl(root)}/items`, payload);
   } catch (error) {
     if (!isOfflineRequestError(error)) {
       throw error;
@@ -2448,6 +2475,13 @@ async function createItemWithOfflineFallback(root, state, listId, payload) {
 async function updateItemWithOfflineFallback(root, state, itemId, payload) {
   if (isDemoList(root)) {
     return updateDemoItem(state, itemId, payload);
+  }
+  if (isPublicList(root)) {
+    return fetchJson(itemApiUrl(root, itemId), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
   }
 
   const existingItem = state.items.get(itemId);
@@ -2470,7 +2504,7 @@ async function updateItemWithOfflineFallback(root, state, itemId, payload) {
   }
 
   try {
-    return await fetchJson(`/api/v1/items/${itemId}`, {
+    return await fetchJson(itemApiUrl(root, itemId), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -2498,7 +2532,7 @@ async function moveItemWithOfflineFallback(root, state, itemId, payload) {
     );
   }
 
-  return fetchJson(`/api/v1/items/${itemId}`, {
+  return fetchJson(itemApiUrl(root, itemId), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -2508,6 +2542,9 @@ async function moveItemWithOfflineFallback(root, state, itemId, payload) {
 async function setItemCheckedWithOfflineFallback(root, state, itemId, checked) {
   if (isDemoList(root)) {
     return setDemoItemChecked(state, itemId, checked);
+  }
+  if (isPublicList(root)) {
+    return postJson(itemApiUrl(root, itemId, `/${checked ? "check" : "uncheck"}`), {});
   }
 
   const existingItem = state.items.get(itemId);
@@ -2530,7 +2567,7 @@ async function setItemCheckedWithOfflineFallback(root, state, itemId, checked) {
   }
 
   try {
-    return await postJson(`/api/v1/items/${itemId}/${checked ? "check" : "uncheck"}`, {});
+    return await postJson(itemApiUrl(root, itemId, `/${checked ? "check" : "uncheck"}`), {});
   } catch (error) {
     if (!isOfflineRequestError(error)) {
       throw error;
@@ -2548,7 +2585,7 @@ async function saveCategoryOrder(root, state) {
 
   const listId = root.dataset.listId;
   const categoryIds = getManualCategoryIds(state);
-  const response = await fetchJson(`/api/v1/lists/${listId}/category-order`, {
+  const response = await fetchJson(`${listApiUrl(root)}/category-order`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ category_ids: categoryIds }),
@@ -2631,7 +2668,7 @@ async function flushCategoryOrderSaveQueue(root, state) {
     while (tracker.queuedIds) {
       const categoryIds = [...tracker.queuedIds];
       tracker.queuedIds = null;
-      const response = await fetchJson(`/api/v1/lists/${root.dataset.listId}/category-order`, {
+      const response = await fetchJson(`${listApiUrl(root)}/category-order`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category_ids: categoryIds }),
@@ -2708,7 +2745,7 @@ async function saveDisabledCategories(root, state) {
   }
 
   const listId = root.dataset.listId;
-  const response = await fetchJson(`/api/v1/lists/${listId}/disabled-categories`, {
+  const response = await fetchJson(`${listApiUrl(root)}/disabled-categories`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ category_ids: getDisabledCategoryIds(state) }),
@@ -3968,7 +4005,7 @@ async function loadMoreCheckedItems(root, state) {
   const listId = root.dataset.listId;
   const checkedOffset = [...state.items.values()].filter((item) => item.checked).length;
   const olderItems = await fetchJson(
-    `/api/v1/lists/${listId}/items/checked?offset=${checkedOffset}&limit=${CHECKED_ITEMS_LOAD_MORE_COUNT}`,
+    `${listApiUrl(root)}/items/checked?offset=${checkedOffset}&limit=${CHECKED_ITEMS_LOAD_MORE_COUNT}`,
   );
   olderItems.forEach((item) => {
     state.items.set(item.id, item);
@@ -4055,7 +4092,7 @@ async function deleteItem(root, state, listId, itemId) {
     queueDelete();
   } else if (!isDemoList(root)) {
     try {
-      const response = await fetch(`/api/v1/items/${itemId}`, { method: "DELETE" });
+      const response = await fetch(itemApiUrl(root, itemId), { method: "DELETE" });
       if (response.status === 401) {
         navigateTo("/login");
         throw new Error(translate("common.errors.unauthorized", {}, "Unauthorized"));
@@ -4152,16 +4189,16 @@ async function loadListDetail(root, state) {
   let switchTargets = [];
 
   try {
-    groceryList = await fetchJson(`/api/v1/lists/${listId}`);
+    groceryList = await fetchJson(listApiUrl(root));
     [itemWindow, categories, categoryOrder, disabledCategories, switchTargets] = await Promise.all([
-      fetchJson(`/api/v1/lists/${listId}/items/window`),
-      fetchJson(`/api/v1/lists/${listId}/categories`),
-      fetchJson(`/api/v1/lists/${listId}/category-order`),
-      fetchJson(`/api/v1/lists/${listId}/disabled-categories`),
-      loadListSwitchTargets().catch(() => []),
+      fetchJson(`${listApiUrl(root)}/items/window`),
+      fetchJson(`${listApiUrl(root)}/categories`),
+      fetchJson(`${listApiUrl(root)}/category-order`),
+      fetchJson(`${listApiUrl(root)}/disabled-categories`),
+      isPublicList(root) ? Promise.resolve([]) : loadListSwitchTargets().catch(() => []),
     ]);
   } catch (error) {
-    const cachedState = loadOfflineListState(listId);
+    const cachedState = isPublicList(root) ? null : loadOfflineListState(listId);
     if (cachedState) {
       applyOfflineListState(root, state, cachedState);
       renderListSwitcher(root, null, []);
@@ -4180,16 +4217,24 @@ async function loadListDetail(root, state) {
   }
 
   setListName(root, state, groceryList.name);
-  renderListSwitcher(root, groceryList, switchTargets);
+  renderListSwitcher(root, groceryList, isPublicList(root) ? [] : switchTargets);
 
   state.categories = new Map(categories.map((category) => [category.id, category]));
-  state.lists = switchTargets.filter((list) => list.household_id === groceryList.household_id);
+  state.lists = isPublicList(root)
+    ? [
+        {
+          id: groceryList.id,
+          name: groceryList.name,
+          household_id: groceryList.household_id,
+        },
+      ]
+    : switchTargets.filter((list) => list.household_id === groceryList.household_id);
   state.categoryOrder = new Map(
     categoryOrder.map((entry) => [entry.category_id, entry.sort_order])
   );
   setDisabledCategoryIds(state, disabledCategories.category_ids || []);
   state.pendingMutations = [];
-  const cachedState = loadOfflineListState(listId);
+  const cachedState = isPublicList(root) ? null : loadOfflineListState(listId);
   if (cachedState?.pendingMutations?.length > 0 && Array.isArray(cachedState.items)) {
     state.pendingMutations = cachedState.pendingMutations;
     replaceItems(state, cachedState.items);
@@ -4205,7 +4250,7 @@ async function loadListDetail(root, state) {
 }
 
 function connectListSocket(root, state) {
-  if (isDemoList(root)) {
+  if (isDemoList(root) || isPublicList(root)) {
     setListSyncStatus(
       root,
       root.dataset.demoSyncText || translate("list_detail.sync_unavailable", {}, "Live updates unavailable.")
@@ -4303,6 +4348,81 @@ function connectListSocket(root, state) {
   });
 }
 
+async function createPublicListLink(root) {
+  const daysInput = root.querySelector("[data-public-list-link-days]");
+  const submitButton = root.querySelector("[data-public-list-link-submit]");
+  const output = root.querySelector("[data-public-list-link-output]");
+  const urlInput = root.querySelector("[data-public-list-link-url]");
+  const expiry = root.querySelector("[data-public-list-link-expiry]");
+  const expiresInDays = Number.parseInt(daysInput?.value || "7", 10);
+  submitButton.disabled = true;
+  try {
+    const link = await postJson(`/api/v1/lists/${root.dataset.listId}/public-links`, {
+      expires_in_days: expiresInDays,
+    });
+    urlInput.value = link.public_url;
+    expiry.textContent = translate(
+      "list_detail.public_link_expires",
+      { date: formatInviteExpiry(link.expires_at) },
+      "Link expires {date}.",
+    );
+    output.hidden = false;
+    setListMessage(
+      root,
+      "success",
+      translate(
+        "list_detail.public_link_created",
+        {},
+        "Public edit link created.",
+      ),
+    );
+    return link;
+  } catch (error) {
+    setListMessage(
+      root,
+      "error",
+      error instanceof Error
+        ? error.message
+        : translate(
+            "list_detail.public_link_create_failed",
+            {},
+            "Could not create public link.",
+          ),
+    );
+    return null;
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function copyPublicListLink(root) {
+  const input = root.querySelector("[data-public-list-link-url]");
+  if (!(input instanceof HTMLInputElement)) {
+    return false;
+  }
+  input.select();
+  try {
+    await navigator.clipboard?.writeText(input.value);
+    setListMessage(
+      root,
+      "success",
+      translate("list_detail.public_link_copied", {}, "Public link copied."),
+    );
+    return true;
+  } catch {
+    setListMessage(
+      root,
+      "error",
+      translate(
+        "list_detail.public_link_copy_failed",
+        {},
+        "Could not copy public link.",
+      ),
+    );
+    return false;
+  }
+}
+
 async function initListDetail() {
   const root = document.querySelector("[data-list-detail]");
   if (!root) {
@@ -4390,6 +4510,15 @@ async function initListDetail() {
     node.addEventListener("click", () => {
       setListSettingsOpen(root, state, false);
     });
+  });
+
+  root.querySelector("[data-public-list-link-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await createPublicListLink(root);
+  });
+
+  root.querySelector("[data-public-list-link-copy]")?.addEventListener("click", async () => {
+    await copyPublicListLink(root);
   });
 
   root.querySelector("[data-list-name-form]")?.addEventListener("submit", async (event) => {
@@ -5249,6 +5378,12 @@ export {
   loadOfflineListState,
   setListName,
   saveListName,
+  publicListToken,
+  isPublicList,
+  listApiUrl,
+  itemApiUrl,
+  createPublicListLink,
+  copyPublicListLink,
   createOfflineId,
   isBrowserOffline,
   isOfflineRequestError,

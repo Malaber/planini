@@ -33,6 +33,12 @@ import {
   restoreToggledItem,
   saveCategoryOrder,
   saveListName,
+  publicListToken,
+  isPublicList,
+  listApiUrl,
+  itemApiUrl,
+  createPublicListLink,
+  copyPublicListLink,
   setCategoryOrder,
   setDemoItemChecked,
   setLanguageSettingsOpen,
@@ -577,6 +583,7 @@ test("loadListDetail hydrates the live list switcher", async () => {
     HTMLElement: globalThis.HTMLElement,
     HTMLInputElement: globalThis.HTMLInputElement,
     HTMLSelectElement: globalThis.HTMLSelectElement,
+    window: globalThis.window,
   };
   const calls = [];
   setDomGlobals({ window });
@@ -625,6 +632,236 @@ test("loadListDetail hydrates the live list switcher", async () => {
   assert.equal(document.querySelector("[data-list-title]").textContent, "Weekly");
   assert.equal(document.querySelector("[data-list-switcher]").hidden, false);
   assert.equal(document.querySelector("[data-list-switcher-select]").value, "list-1");
+});
+
+test("public list helpers route requests by token without offline persistence", async () => {
+  const { document, root, window } = createListRoot();
+  const originalFetch = globalThis.fetch;
+  const originals = {
+    HTMLElement: globalThis.HTMLElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+    window: globalThis.window,
+  };
+  const calls = [];
+  root.dataset.publicListToken = "shared-token";
+  setDomGlobals({ window });
+  setGlobalProperty("window", window);
+  setGlobalProperty("fetch", async (url) => {
+    calls.push(url);
+    const responses = {
+      "/api/v1/public/lists/shared-token": {
+        id: "list-1",
+        household_id: "home-1",
+        name: "Shared weekly",
+      },
+      "/api/v1/public/lists/shared-token/items/window": {
+        checked_remaining_count: 0,
+        items: [],
+      },
+      "/api/v1/public/lists/shared-token/categories": [],
+      "/api/v1/public/lists/shared-token/category-order": [],
+      "/api/v1/public/lists/shared-token/disabled-categories": { category_ids: [] },
+    };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => responses[url],
+    };
+  });
+
+  const state = {
+    categoryOrder: new Map(),
+    categories: new Map(),
+    checkedRemainingCount: 0,
+    items: new Map(),
+    offlineSyncInFlight: null,
+    pendingMutations: [],
+  };
+  try {
+    assert.equal(publicListToken(null), "");
+    assert.equal(publicListToken(root), "shared-token");
+    assert.equal(isPublicList(root), true);
+    assert.equal(listApiUrl(root), "/api/v1/public/lists/shared-token");
+    assert.equal(
+      listApiUrl(root, "/items/window"),
+      "/api/v1/public/lists/shared-token/items/window",
+    );
+    assert.equal(
+      itemApiUrl(root, "item-1", "/check"),
+      "/api/v1/public/lists/shared-token/items/item-1/check",
+    );
+
+    await loadListDetail(root, state);
+    persistOfflineListState(root, state);
+    state.pendingMutations = [{ mutation_id: "pending" }];
+    assert.equal(await flushOfflineMutations(root, state), null);
+    connectListSocket(root, state);
+  } finally {
+    setGlobalProperty("fetch", originalFetch);
+    setGlobalProperty("window", originals.window);
+    restoreDomGlobals(originals);
+  }
+
+  assert.deepEqual(calls, [
+    "/api/v1/public/lists/shared-token",
+    "/api/v1/public/lists/shared-token/items/window",
+    "/api/v1/public/lists/shared-token/categories",
+    "/api/v1/public/lists/shared-token/category-order",
+    "/api/v1/public/lists/shared-token/disabled-categories",
+  ]);
+  assert.equal(document.querySelector("[data-list-title]").textContent, "Shared weekly");
+  assert.equal(document.querySelector("[data-list-switcher]").hidden, true);
+  assert.deepEqual(state.lists, [
+    { id: "list-1", household_id: "home-1", name: "Shared weekly" },
+  ]);
+  assert.equal(window.localStorage.getItem(offlineListStorageKey("list-1")), null);
+  assert.equal(
+    document.querySelector("[data-list-sync-status]").textContent,
+    "Live updates unavailable.",
+  );
+});
+
+test("public list load never falls back to private offline cache", async () => {
+  const { root, window } = createListRoot();
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  root.dataset.publicListToken = "shared-token";
+  window.localStorage.setItem(
+    offlineListStorageKey("list-1"),
+    JSON.stringify({ title: "Cached private title", items: [] }),
+  );
+  setGlobalProperty("window", window);
+  setGlobalProperty("fetch", async () => {
+    throw new TypeError("Failed to fetch");
+  });
+
+  try {
+    await assert.rejects(
+      loadListDetail(root, {
+        categoryOrder: new Map(),
+        categories: new Map(),
+        checkedRemainingCount: 0,
+        items: new Map(),
+      }),
+      /Failed to fetch/,
+    );
+  } finally {
+    setGlobalProperty("fetch", originalFetch);
+    setGlobalProperty("window", originalWindow);
+  }
+});
+
+test("public item mutations use token APIs and do not queue offline writes", async () => {
+  const { root } = createListRoot();
+  const originalFetch = globalThis.fetch;
+  root.dataset.publicListToken = "shared-token";
+  const calls = [];
+  const state = createState([
+    { id: "item-1", name: "Milk", checked: false },
+  ]);
+  setGlobalProperty("fetch", async (url, options = {}) => {
+    calls.push([url, options.method, options.body ? JSON.parse(options.body) : null]);
+    return new Response(
+      JSON.stringify({ id: "item-1", list_id: "list-1", name: "Milk" }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  });
+
+  try {
+    await createItemWithOfflineFallback(root, state, "list-1", { name: "Milk" });
+    await updateItemWithOfflineFallback(root, state, "item-1", { note: "Cold" });
+    await setItemCheckedWithOfflineFallback(root, state, "item-1", true);
+    await setItemCheckedWithOfflineFallback(root, state, "item-1", false);
+  } finally {
+    setGlobalProperty("fetch", originalFetch);
+  }
+
+  assert.deepEqual(calls, [
+    ["/api/v1/public/lists/shared-token/items", "POST", { name: "Milk" }],
+    ["/api/v1/public/lists/shared-token/items/item-1", "PATCH", { note: "Cold" }],
+    ["/api/v1/public/lists/shared-token/items/item-1/check", "POST", {}],
+    ["/api/v1/public/lists/shared-token/items/item-1/uncheck", "POST", {}],
+  ]);
+  assert.deepEqual(state.pendingMutations, []);
+});
+
+test("public link creation and copying report success and failures", async () => {
+  const { document, root, window } = createListRoot();
+  const originalFetch = globalThis.fetch;
+  const originalNavigator = globalThis.navigator;
+  const originals = {
+    HTMLElement: globalThis.HTMLElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+    window: globalThis.window,
+  };
+  root.insertAdjacentHTML(
+    "beforeend",
+    `
+      <input data-public-list-link-days value="2" />
+      <button data-public-list-link-submit></button>
+      <div data-public-list-link-output hidden></div>
+      <p data-public-list-link-expiry></p>
+      <input data-public-list-link-url />
+    `,
+  );
+  setDomGlobals({ window });
+  setGlobalProperty("window", window);
+  const copied = [];
+  setGlobalProperty("navigator", {
+    clipboard: {
+      writeText: async (value) => copied.push(value),
+    },
+    language: "en-US",
+  });
+  setGlobalProperty("fetch", async () =>
+    new Response(
+      JSON.stringify({
+        public_url: "https://example.test/public/lists/shared-token",
+        expires_at: "2026-08-01T12:00:00Z",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ),
+  );
+
+  try {
+    const link = await createPublicListLink(root);
+    assert.equal(link.public_url, "https://example.test/public/lists/shared-token");
+    assert.equal(root.querySelector("[data-public-list-link-submit]").disabled, false);
+    assert.equal(root.querySelector("[data-public-list-link-output]").hidden, false);
+    assert.match(root.querySelector("[data-public-list-link-expiry]").textContent, /Link expires/);
+    assert.equal(await copyPublicListLink(root), true);
+    assert.deepEqual(copied, ["https://example.test/public/lists/shared-token"]);
+
+    setGlobalProperty("navigator", { language: "en-US" });
+    assert.equal(await copyPublicListLink(root), true);
+
+    setGlobalProperty("navigator", {
+      clipboard: {
+        writeText: async () => {
+          throw new Error("clipboard blocked");
+        },
+      },
+      language: "en-US",
+    });
+    assert.equal(await copyPublicListLink(root), false);
+    assert.match(document.querySelector("[data-list-error]").textContent, /Could not copy/);
+
+    root.querySelector("[data-public-list-link-days]").value = "";
+    setGlobalProperty("fetch", async () => {
+      throw "request failed";
+    });
+    assert.equal(await createPublicListLink(root), null);
+    assert.match(document.querySelector("[data-list-error]").textContent, /Could not create/);
+
+    assert.equal(await copyPublicListLink(document.createElement("section")), false);
+  } finally {
+    setGlobalProperty("fetch", originalFetch);
+    setGlobalProperty("navigator", originalNavigator);
+    setGlobalProperty("window", originals.window);
+    restoreDomGlobals(originals);
+  }
 });
 
 test("renderItems only shows loaded checked items before loading more", () => {
