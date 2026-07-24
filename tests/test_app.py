@@ -546,6 +546,8 @@ def test_pwa_assets_are_exposed(client) -> None:
     )
     assert 'rel="manifest" href="/manifest.webmanifest"' in login_page.text
     assert 'name="theme-color" content="#6b4f3b"' in login_page.text
+    assert 'name="apple-itunes-app"' in login_page.text
+    assert 'content="app-id=6762043307, app-argument=http://testserver/"' in login_page.text
     assert 'rel="icon" type="image/png" href="/static/img/Favicon.png"' in login_page.text
     assert 'rel="apple-touch-icon" href="/static/img/apple-touch-icon.png"' in login_page.text
     assert 'rel="stylesheet" href="/static/app.css?v=' in login_page.text
@@ -1173,6 +1175,107 @@ def test_lists_include_open_item_count(client) -> None:
         headers=headers,
     )
     assert blank_rename.status_code == 400
+
+
+def test_list_accent_color_defaults_updates_clears_and_validates(client) -> None:
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households",
+        json={"name": "Home"},
+        headers=headers,
+    ).json()
+
+    default_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Default"},
+        headers=headers,
+    )
+    assert default_list.status_code == 200
+    assert default_list.json()["accent_color"] is None
+
+    tinted_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Tinted", "accent_color": "#3b82f6"},
+        headers=headers,
+    )
+    assert tinted_list.status_code == 200
+    tinted = tinted_list.json()
+    assert tinted["accent_color"] == "#3b82f6"
+
+    lists = client.get(
+        f"/api/v1/households/{household['id']}/lists",
+        headers=headers,
+    ).json()
+    assert {grocery_list["name"]: grocery_list["accent_color"] for grocery_list in lists} == {
+        "Default": None,
+        "Tinted": "#3b82f6",
+    }
+    detail = client.get(f"/api/v1/lists/{tinted['id']}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["accent_color"] == "#3b82f6"
+
+    recolored = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={"accent_color": "#A1b2C3"},
+        headers=headers,
+    )
+    assert recolored.status_code == 200
+    assert recolored.json()["name"] == "Tinted"
+    assert recolored.json()["accent_color"] == "#A1b2C3"
+
+    renamed = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={"name": "Renamed"},
+        headers=headers,
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "Renamed"
+    assert renamed.json()["accent_color"] == "#A1b2C3"
+
+    no_op = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={},
+        headers=headers,
+    )
+    assert no_op.status_code == 200
+    assert no_op.json()["name"] == "Renamed"
+    assert no_op.json()["accent_color"] == "#A1b2C3"
+
+    for invalid_name in (None, "   "):
+        invalid_rename = client.patch(
+            f"/api/v1/lists/{tinted['id']}",
+            json={"name": invalid_name},
+            headers=headers,
+        )
+        assert invalid_rename.status_code == 400
+
+    for invalid_color in ("3b82f6", "#3b82f", "#3b82f60", "#zzzzzz"):
+        invalid_recolor = client.patch(
+            f"/api/v1/lists/{tinted['id']}",
+            json={"accent_color": invalid_color},
+            headers=headers,
+        )
+        assert invalid_recolor.status_code == 422
+
+    invalid_create = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Invalid", "accent_color": "blue"},
+        headers=headers,
+    )
+    assert invalid_create.status_code == 422
+
+    unchanged = client.get(f"/api/v1/lists/{tinted['id']}", headers=headers).json()
+    assert unchanged["name"] == "Renamed"
+    assert unchanged["accent_color"] == "#A1b2C3"
+
+    cleared = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={"accent_color": None},
+        headers=headers,
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["name"] == "Renamed"
+    assert cleared.json()["accent_color"] is None
 
 
 def test_offline_item_sync_replays_changes_idempotently(client) -> None:
@@ -1871,9 +1974,16 @@ def test_invite_web_flow_redirects_through_login(client, monkeypatch) -> None:
     assert invite_page.status_code == 303
     assert invite_page.headers["location"] == f"/login?next=/invite/{token}"
 
+    invite_login_page = client.get(invite_page.headers["location"])
+    assert (
+        f'content="app-id=6762043307, app-argument=http://testserver/invite/{token}"'
+        in invite_login_page.text
+    )
+
     login_page = client.get("/login?next=//evil.example")
     assert login_page.status_code == 200
     assert 'data-next-url="/"' in login_page.text
+    assert 'content="app-id=6762043307, app-argument=http://testserver/"' in login_page.text
 
     _register_session_user(client, monkeypatch, f"{uuid4()}@example.com")
 
@@ -3020,7 +3130,16 @@ def test_web_pages_require_login(client) -> None:
     assert "Logout" not in response.text
     assert client.get("/", follow_redirects=False).status_code == 303
     assert client.get("/settings", follow_redirects=False).status_code == 303
-    assert client.get("/lists/abc", follow_redirects=False).status_code == 303
+    list_id = "11111111-2222-3333-4444-555555555555"
+    list_page = client.get(f"/lists/{list_id}", follow_redirects=False)
+    assert list_page.status_code == 303
+    assert list_page.headers["location"] == f"/login?next=/lists/{list_id}"
+
+    list_login_page = client.get(list_page.headers["location"])
+    assert (
+        f'content="app-id=6762043307, app-argument=http://testserver/lists/{list_id}"'
+        in list_login_page.text
+    )
 
     script = client.get("/api/v1/auth/assets/fastpasskey.js")
     assert "navigator.credentials.create" in script.text
@@ -3089,6 +3208,10 @@ def test_web_pages_render_for_logged_in_user(client, monkeypatch) -> None:
     assert "data-list-sync-status" in list_detail.text
     assert "data-list-switcher" in list_detail.text
     assert "All lists" in list_detail.text
+    assert 'name="apple-itunes-app"' in list_detail.text
+    assert (
+        'content="app-id=6762043307, app-argument=http://testserver/lists/abc"' in list_detail.text
+    )
 
     settings = client.get("/settings")
     assert settings.status_code == 200
@@ -4143,7 +4266,7 @@ def test_stale_web_session_redirects_to_login(client, monkeypatch) -> None:
 
     list_detail = client.get("/lists/abc", follow_redirects=False)
     assert list_detail.status_code == 303
-    assert list_detail.headers["location"] == "/login"
+    assert list_detail.headers["location"] == "/login?next=/lists/abc"
 
 
 def test_browser_session_slides_on_use(client, monkeypatch) -> None:

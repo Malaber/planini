@@ -76,12 +76,19 @@ class HouseholdInvitePreviewOut(BaseModel):
 
 class GroceryListCreate(BaseModel):
     name: str
+    accent_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class GroceryListUpdate(BaseModel):
+    name: str | None = None
+    accent_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class GroceryListOut(ORMModel):
     id: UUID
     household_id: UUID
     name: str
+    accent_color: str | None
     archived: bool
     open_item_count: int = 0
 

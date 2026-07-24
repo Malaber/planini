@@ -62,13 +62,22 @@ public struct GroceryListSummary: Identifiable, Equatable, Codable, Sendable {
     public let householdName: String
     public let name: String
     public let archived: Bool
+    public let accentColorHex: String?
 
-    public init(id: UUID, householdID: UUID, householdName: String, name: String, archived: Bool) {
+    public init(
+        id: UUID,
+        householdID: UUID,
+        householdName: String,
+        name: String,
+        archived: Bool,
+        accentColorHex: String? = nil
+    ) {
         self.id = id
         self.householdID = householdID
         self.householdName = householdName
         self.name = name
         self.archived = archived
+        self.accentColorHex = accentColorHex
     }
 }
 

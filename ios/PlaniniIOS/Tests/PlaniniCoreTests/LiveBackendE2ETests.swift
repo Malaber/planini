@@ -120,6 +120,49 @@ struct LiveBackendE2ETests {
         let household = try #require(households.first { $0["name"] as? String == fixture.primaryHouseholdName })
         let householdID = try #require(household["id"] as? String)
 
+        let accentListName = "iOS Accent \(UUID().uuidString.prefix(8))"
+        let createdAccentList = try await client.jsonObject(
+            path: "/api/v1/households/\(householdID)/lists",
+            method: "POST",
+            body: ["name": accentListName],
+            token: accessToken
+        )
+        let accentListID = try #require(createdAccentList["id"] as? String)
+        #expect(createdAccentList["accent_color"] is NSNull)
+
+        let tintedAccentList = try await client.jsonObject(
+            path: "/api/v1/lists/\(accentListID)",
+            method: "PATCH",
+            body: ["accent_color": "#af52de"],
+            token: accessToken
+        )
+        #expect(tintedAccentList["name"] as? String == accentListName)
+        #expect(tintedAccentList["accent_color"] as? String == "#af52de")
+
+        let renamedAccentListName = "\(accentListName) renamed"
+        let renamedAccentList = try await client.jsonObject(
+            path: "/api/v1/lists/\(accentListID)",
+            method: "PATCH",
+            body: ["name": renamedAccentListName],
+            token: accessToken
+        )
+        #expect(renamedAccentList["name"] as? String == renamedAccentListName)
+        #expect(renamedAccentList["accent_color"] as? String == "#af52de")
+
+        let clearedAccentList = try await client.jsonObject(
+            path: "/api/v1/lists/\(accentListID)",
+            method: "PATCH",
+            body: ["accent_color": NSNull()],
+            token: accessToken
+        )
+        #expect(clearedAccentList["accent_color"] is NSNull)
+        _ = try await client.jsonObject(
+            path: "/api/v1/lists/\(accentListID)",
+            method: "DELETE",
+            body: nil,
+            token: accessToken
+        )
+
         let lists = try await client.jsonArray(
             path: "/api/v1/households/\(householdID)/lists",
             token: accessToken

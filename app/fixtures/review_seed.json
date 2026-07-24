@@ -154,6 +154,7 @@
       "lists": [
         {
           "name": "Browser Test Shop",
+          "accent_color": "#3b82f6",
           "created_by_email": "planini@schaedler.rocks",
           "category_order": [
             "Konserven",
