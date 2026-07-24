@@ -475,6 +475,21 @@
       "empty_message": "Create a household and list in Settings to get started.",
       "open_settings": "Open Settings"
     },
+    "list_settings": {
+      "accent_title": "Accent color",
+      "accent_hint": "A subtle tint makes this list easier to recognize.",
+      "accent_none": "No color",
+      "accent_red": "Red",
+      "accent_orange": "Orange",
+      "accent_yellow": "Yellow",
+      "accent_green": "Green",
+      "accent_teal": "Teal",
+      "accent_blue": "Blue",
+      "accent_purple": "Purple",
+      "accent_pink": "Pink",
+      "accent_selected": "{color} accent selected",
+      "accent_selection_selected": "Selected"
+    },
     "settings": {
       "account": "Account",
       "unknown": "Unknown",
