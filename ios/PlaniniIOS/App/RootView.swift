@@ -1939,14 +1939,24 @@ private struct ListSettingsSheet: View {
                 .navigationTitle("List settings")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { dismiss() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
+                    ToolbarItem(placement: .topBarLeading) {
                         Label(saveState.title, systemImage: saveState.systemImage)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(saveState.tint)
+                            .accessibilityElement(children: .combine)
                             .accessibilityIdentifier("list-settings-save-state")
+                            .accessibilityLabel(saveState.title)
+                            .accessibilityRemoveTraits(.isButton)
+                            .allowsHitTesting(false)
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Label(l10n.t("common.done"), systemImage: "checkmark")
+                                .labelStyle(.iconOnly)
+                        }
+                        .accessibilityIdentifier("list-settings-done-button")
                     }
                 }
         }

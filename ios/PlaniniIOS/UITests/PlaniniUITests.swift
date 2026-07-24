@@ -763,6 +763,13 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["list-settings-sheet"].waitForExistence(timeout: 5))
         let settingsSaveState = app.descendants(matching: .any)["list-settings-save-state"].firstMatch
         XCTAssertTrue(settingsSaveState.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["list-settings-save-state"].exists)
+        XCTAssertFalse(settingsSaveState.isHittable)
+        let listSettingsDoneButton = app.buttons["list-settings-done-button"]
+        XCTAssertTrue(listSettingsDoneButton.waitForExistence(timeout: 3))
+        XCTAssertEqual(listSettingsDoneButton.label, "Done")
+        XCTAssertTrue(listSettingsDoneButton.isHittable)
+        XCTAssertLessThan(settingsSaveState.frame.midX, listSettingsDoneButton.frame.midX)
 
         let renamedHostingName = "Hosting errands \(UUID().uuidString.prefix(6))"
         let listNameField = app.textFields["list-name-field"]
@@ -869,7 +876,7 @@ final class PlaniniUITests: XCTestCase {
                 accessToken: session.accessToken
             )
         )
-        app.buttons["Done"].tap()
+        tapElement(listSettingsDoneButton)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, renamedHostingName)
 
@@ -904,7 +911,7 @@ final class PlaniniUITests: XCTestCase {
             "list-settings-save-state"
         ].firstMatch
         XCTAssertTrue(waitForElementLabel(reopenedSaveState, containing: "Saved", timeout: 8))
-        app.buttons["Done"].tap()
+        tapElement(app.buttons["list-settings-done-button"])
         XCTAssertTrue(tintedListDetail.waitForExistence(timeout: 5))
         XCTAssertTrue(waitForElementLabel(tintedListDetail, containing: "No color", timeout: 5))
 
