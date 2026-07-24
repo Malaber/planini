@@ -219,7 +219,8 @@ jobs:
 
   ios_marketing_screenshots:
     name: App Store marketing screenshots
-    runs-on: macos-latest
+    runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6

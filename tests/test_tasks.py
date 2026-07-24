@@ -460,6 +460,7 @@ def test_capture_watch_marketing_screenshot_launches_localized_watch_and_validat
         artifact_dir="e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
         phone_device="iPhone 17 Pro",
         watch_device="Apple Watch Ultra 3 (49mm)",
+        derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
     )
 
     screenshot_path = (
@@ -477,7 +478,8 @@ def test_capture_watch_marketing_screenshot_launches_localized_watch_and_validat
             {
                 "phone_device": "iPhone 17 Pro",
                 "watch_device": "Apple Watch Ultra 3 (49mm)",
-                "derived_data_path": "ios/PlaniniIOS/.derived-marketing-watch-de",
+                "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
+                "rebuild": False,
                 "backend_url_override": "http://localhost:8019",
                 "bootstrap_email": "planini-de@schaedler.rocks",
                 "initial_list_name": "Wocheneinkauf",
@@ -1675,7 +1677,11 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
     monkeypatch.setattr(
         tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
     )
-    monkeypatch.setattr(tasks, "run_ios_ui_e2e", lambda c, **kwargs: calls.append(("run", kwargs)))
+    monkeypatch.setattr(
+        tasks,
+        "run_ios_ui_e2e",
+        lambda c, **kwargs: calls.append(("run", kwargs)),
+    )
     monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: calls.append(("stop", kwargs)))
 
     tasks.check_ios_ui_e2e.body(
@@ -1815,6 +1821,169 @@ def test_check_ios_ui_e2e_stops_backend_after_final_failure(monkeypatch) -> None
     assert stops == [{"pid_path": tasks.DEFAULT_IOS_UI_E2E_PID_PATH}]
 
 
+def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    ensured: list[str] = []
+    resets: list[str] = []
+    summaries: list[str] = []
+    validations: list[tuple[str, tuple[int, int]]] = []
+    env_calls: list[dict] = []
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return RunResult(exited=0)
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        tasks,
+        "_ios_simulator_destination",
+        lambda name: f"platform=iOS Simulator,name={name},OS=latest,arch=arm64",
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_ensure_ios_simulator_device",
+        lambda name: ensured.append(name),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_reset_ios_ui_test_app",
+        lambda name: resets.append(name),
+    )
+
+    def ios_ui_test_env(**kwargs):
+        env_calls.append(kwargs)
+        return {"PLANINI_UI_TEST_ACCESS_TOKEN": kwargs["access_token"]}
+
+    monkeypatch.setattr(tasks, "_ios_ui_test_env", ios_ui_test_env)
+    monkeypatch.setattr(
+        tasks,
+        "_write_ios_ui_e2e_summary",
+        lambda artifact_dir: summaries.append(artifact_dir),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_validate_ios_screenshot_sizes",
+        lambda artifact_dir, expected_size: validations.append((artifact_dir, expected_size)),
+    )
+    derived_data = tmp_path / "ios" / "PlaniniIOS" / ".derived-marketing-screenshots"
+    derived_data.mkdir(parents=True)
+    (derived_data / "stale").write_text("stale", encoding="utf-8")
+
+    tasks._run_ios_marketing_ui_test(
+        Context(),
+        base_url="http://localhost:8019",
+        artifact_dir="e2e-artifacts/ios-marketing-screenshots",
+        device_name="iPhone 14 Plus",
+        ipad_device_name="iPad Pro 13-inch (M5)",
+        initial_list_name="Weekly groceries",
+        german_initial_list_name="Wocheneinkauf",
+        english_session={"access_token": "english-token", "display_name": "Alex"},
+        german_session={"access_token": "german-token", "display_name": "Alex"},
+        derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
+    )
+
+    result_bundle_path = (
+        tmp_path
+        / "e2e-artifacts"
+        / "ios-marketing-screenshots"
+        / tasks.DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
+    )
+    assert calls == [
+        (
+            "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
+            "-scheme Planini "
+            f"-derivedDataPath {derived_data} "
+            "-destination 'platform=iOS Simulator,name=iPhone 14 Plus,OS=latest,arch=arm64' "
+            "-destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=latest,arch=arm64' "
+            "-destination-timeout 120 "
+            f"-resultBundlePath {result_bundle_path} -quiet "
+            "-parallel-testing-enabled NO "
+            "-maximum-concurrent-test-simulator-destinations 2 "
+            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots test",
+            {
+                "env": {
+                    "PLANINI_UI_TEST_ACCESS_TOKEN": "english-token",
+                    "PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN": "german-token",
+                    "PLANINI_UI_TEST_MARKETING_GERMAN_DISPLAY_NAME": "Alex",
+                    "PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME": "Wocheneinkauf",
+                },
+                "pty": False,
+                "shell": "/bin/bash",
+                "warn": True,
+            },
+        )
+    ]
+    assert env_calls == [
+        {
+            "base_url": "http://localhost:8019",
+            "bootstrap_base_url": "http://localhost:8019",
+            "user_email": tasks.DEFAULT_IOS_E2E_USER_EMAIL,
+            "artifact_dir": "e2e-artifacts/ios-marketing-screenshots",
+            "initial_list_name": "Weekly groceries",
+            "language": "en",
+            "access_token": "english-token",
+            "display_name": "Alex",
+        }
+    ]
+    assert ensured == ["iPhone 14 Plus", "iPad Pro 13-inch (M5)"]
+    assert resets == ensured
+    assert summaries == ["e2e-artifacts/ios-marketing-screenshots"]
+    assert validations == [
+        ("e2e-artifacts/ios-marketing-screenshots/iphone/en-US", (1284, 2778)),
+        ("e2e-artifacts/ios-marketing-screenshots/iphone/de-DE", (1284, 2778)),
+        ("e2e-artifacts/ios-marketing-screenshots/ipad/en-US", (2064, 2752)),
+        ("e2e-artifacts/ios-marketing-screenshots/ipad/de-DE", (2064, 2752)),
+    ]
+    assert not derived_data.exists()
+
+
+def test_run_ios_marketing_ui_test_reports_xcode_failure(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    class Context:
+        def run(self, command, **kwargs):
+            return RunResult(exited=65)
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda name: None)
+    monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda name: None)
+    monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
+    monkeypatch.setattr(tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: None)
+    monkeypatch.setattr(
+        tasks,
+        "_ios_ui_e2e_failure_summaries",
+        lambda path: ["testMarketingScreenshots() [Failure]: launch failed"],
+    )
+
+    try:
+        tasks._run_ios_marketing_ui_test(
+            Context(),
+            base_url="http://localhost:8019",
+            artifact_dir="e2e-artifacts/ios-marketing-screenshots",
+            device_name="iPhone 14 Plus",
+            ipad_device_name="iPad Pro 13-inch (M5)",
+            initial_list_name="Weekly groceries",
+            german_initial_list_name="Wocheneinkauf",
+            english_session={"access_token": "english-token", "display_name": "Alex"},
+            german_session={"access_token": "german-token", "display_name": "Alex"},
+            derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
+        )
+    except tasks.Exit as exc:
+        assert "exit code 65" in str(exc)
+    else:
+        raise AssertionError("expected marketing xcode failure")
+
+    output = capsys.readouterr().out
+    assert "iOS marketing screenshot failure summary:" in output
+    assert "testMarketingScreenshots() [Failure]: launch failed" in output
+
+
 def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_size(
     monkeypatch,
     tmp_path: Path,
@@ -1847,7 +2016,11 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
     monkeypatch.setattr(
         tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
     )
-    monkeypatch.setattr(tasks, "run_ios_ui_e2e", lambda c, **kwargs: calls.append(("run", kwargs)))
+    monkeypatch.setattr(
+        tasks,
+        "_run_ios_marketing_ui_test",
+        lambda c, **kwargs: calls.append(("run", kwargs)),
+    )
     monkeypatch.setattr(
         tasks,
         "_capture_watch_marketing_screenshot",
@@ -1858,11 +2031,16 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
         "_shutdown_ios_simulators",
         lambda: calls.append(("shutdown", {})),
     )
+    monkeypatch.setattr(
+        tasks,
+        "_write_ios_ui_e2e_summary",
+        lambda artifact_dir: calls.append(("summary", {"artifact_dir": artifact_dir})),
+    )
     monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: calls.append(("stop", kwargs)))
 
     tasks.check_ios_marketing_screenshots.body(None)
 
-    run_calls = [call for call in calls if call[0] == "run"]
+    run_calls = [call[1] for call in calls if call[0] == "run"]
     assert calls[0] == (
         "reset",
         {"database_url": "sqlite+aiosqlite:///./tmp-ios-marketing-screenshots.db"},
@@ -1871,54 +2049,25 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
     assert next(call for call in calls if call[0] == "start")[1]["seed_path"] == (
         "app/fixtures/ios_marketing_seed.json"
     )
-    assert [
-        (
-            run_call[1]["user_email"],
-            run_call[1]["artifact_dir"],
-            run_call[1]["initial_list_name"],
-            run_call[1]["language"],
-        )
-        for run_call in run_calls
-    ] == [
-        (
-            "planini@schaedler.rocks",
-            "e2e-artifacts/ios-marketing-screenshots/iphone/en-US",
-            "Weekly groceries",
-            "en",
-        ),
-        (
-            "planini@schaedler.rocks",
-            "e2e-artifacts/ios-marketing-screenshots/ipad/en-US",
-            "Weekly groceries",
-            "en",
-        ),
-        (
-            "planini-de@schaedler.rocks",
-            "e2e-artifacts/ios-marketing-screenshots/iphone/de-DE",
-            "Wocheneinkauf",
-            "de",
-        ),
-        (
-            "planini-de@schaedler.rocks",
-            "e2e-artifacts/ios-marketing-screenshots/ipad/de-DE",
-            "Wocheneinkauf",
-            "de",
-        ),
+    assert run_calls == [
+        {
+            "base_url": "http://localhost:8019",
+            "artifact_dir": "e2e-artifacts/ios-marketing-screenshots",
+            "device_name": "iPhone 14 Plus",
+            "ipad_device_name": "iPad Pro 13-inch (M5)",
+            "initial_list_name": "Weekly groceries",
+            "german_initial_list_name": "Wocheneinkauf",
+            "english_session": {
+                "access_token": "planini@schaedler.rocks-token",
+                "display_name": "Alex",
+            },
+            "german_session": {
+                "access_token": "planini-de@schaedler.rocks-token",
+                "display_name": "Alex",
+            },
+            "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
+        }
     ]
-    assert [run_call[1]["device_name"] for run_call in run_calls] == [
-        "iPhone 14 Plus",
-        "iPad Pro 13-inch (M5)",
-        "iPhone 14 Plus",
-        "iPad Pro 13-inch (M5)",
-    ]
-    assert all(
-        run_call[1]["only_testing"] == "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
-        for run_call in run_calls
-    )
-    assert all(run_call[1]["attempts"] == 2 for run_call in run_calls)
-    assert [
-        (run_call[1]["expected_width"], run_call[1]["expected_height"]) for run_call in run_calls
-    ] == [(1284, 2778), (2064, 2752), (1284, 2778), (2064, 2752)]
     watch_calls = [call[1] for call in calls if call[0] == "watch"]
     assert watch_calls == [
         {
@@ -1930,6 +2079,7 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
             "artifact_dir": "e2e-artifacts/ios-marketing-screenshots/watchos/en-US",
             "phone_device": "iPhone 17 Pro",
             "watch_device": "Apple Watch Ultra 3 (49mm)",
+            "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
         },
         {
             "base_url": "http://localhost:8019",
@@ -1940,9 +2090,16 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
             "artifact_dir": "e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
             "phone_device": "iPhone 17 Pro",
             "watch_device": "Apple Watch Ultra 3 (49mm)",
+            "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
         },
     ]
-    assert len([call for call in calls if call[0] == "shutdown"]) == 6
+    assert len([call for call in calls if call[0] == "shutdown"]) == 2
+    assert [call for call in calls if call[0] == "summary"] == [
+        (
+            "summary",
+            {"artifact_dir": "e2e-artifacts/ios-marketing-screenshots"},
+        )
+    ]
     assert calls[-1] == ("stop", {"pid_path": "ios-marketing-screenshots-server.pid"})
 
 

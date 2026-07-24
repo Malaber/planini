@@ -132,6 +132,21 @@
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
+            key = "PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN"
+            value = "$(PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "PLANINI_UI_TEST_MARKETING_GERMAN_DISPLAY_NAME"
+            value = "$(PLANINI_UI_TEST_MARKETING_GERMAN_DISPLAY_NAME)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME"
+            value = "$(PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME)"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
             key = "PLANINI_UI_TEST_USER_EMAIL"
             value = "$(PLANINI_UI_TEST_USER_EMAIL)"
             isEnabled = "YES">

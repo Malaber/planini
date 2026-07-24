@@ -14,38 +14,87 @@ final class PlaniniUITests: XCTestCase {
     func testMarketingScreenshots() throws {
         try assertLocalTestBackend()
 
-        let session = if let injectedSession {
+        let primarySession = if let injectedSession {
             injectedSession
         } else {
             try bootstrapSession(email: userEmail)
         }
-        let marketingListName = configuredInitialListName
-        let app = launchedApp(session: session, initialListName: marketingListName)
+        var variants = [
+            MarketingScreenshotVariant(
+                localeDirectory: configuredLanguage == "de" ? "de-DE" : "en-US",
+                language: configuredLanguage,
+                initialListName: configuredInitialListName,
+                session: primarySession
+            )
+        ]
+        if let germanSession = injectedGermanMarketingSession,
+            let germanListName = environmentValue(
+                "PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME"
+            )
+        {
+            variants.append(
+                MarketingScreenshotVariant(
+                    localeDirectory: "de-DE",
+                    language: "de",
+                    initialListName: germanListName,
+                    session: germanSession
+                )
+            )
+        }
+
+        for variant in variants {
+            captureMarketingScreenshots(for: variant)
+        }
+    }
+
+    private func captureMarketingScreenshots(for variant: MarketingScreenshotVariant) {
+        let platformDirectory = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        let artifactDirectory = "\(platformDirectory)/\(variant.localeDirectory)"
+        let app = launchedApp(
+            session: variant.session,
+            initialListName: variant.initialListName,
+            language: variant.language
+        )
+        defer { terminateAndWait(app) }
+
         let listTitle = app.staticTexts["list-detail-title"]
         XCTAssertTrue(
-            openInitialListDetail(in: app, listTitle: listTitle, listName: marketingListName),
+            openInitialListDetail(
+                in: app,
+                listTitle: listTitle,
+                listName: variant.initialListName
+            ),
             "Expected marketing list to open."
         )
-        XCTAssertEqual(listTitle.label, marketingListName)
-        captureScreenshot(named: "app-store-iphone-02-weekly-groceries")
+        XCTAssertEqual(listTitle.label, variant.initialListName)
+        captureScreenshot(
+            named: "app-store-\(platformDirectory)-02-weekly-groceries",
+            relativeArtifactDirectory: artifactDirectory
+        )
 
         XCTAssertTrue(tapTab("Lists", in: app))
-        returnToListsRootIfNeeded(app, listName: marketingListName)
-        let marketingListRow = app.buttons["list-row-\(marketingListName)"]
+        returnToListsRootIfNeeded(app, listName: variant.initialListName)
+        let marketingListRow = app.buttons["list-row-\(variant.initialListName)"]
         XCTAssertTrue(marketingListRow.waitForExistence(timeout: 10))
-        captureScreenshot(named: "app-store-iphone-01-lists")
+        captureScreenshot(
+            named: "app-store-\(platformDirectory)-01-lists",
+            relativeArtifactDirectory: artifactDirectory
+        )
 
-        app.staticTexts[marketingListName].tap()
+        app.staticTexts[variant.initialListName].tap()
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertTrue(openAddItemSheet(in: app))
         let nameField = app.textFields["add-item-name-field"]
         XCTAssertTrue(nameField.waitForExistence(timeout: 3))
         tapElement(nameField)
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 5))
-        let itemName = configuredLanguage == "de" ? "Dunkle Schokolade" : "Dark chocolate"
+        let itemName = variant.language == "de" ? "Dunkle Schokolade" : "Dark chocolate"
         replaceText(in: nameField, with: itemName)
         XCTAssertTrue(waitForFieldValue(nameField, contains: itemName))
-        captureScreenshot(named: "app-store-iphone-03-add-item")
+        captureScreenshot(
+            named: "app-store-\(platformDirectory)-03-add-item",
+            relativeArtifactDirectory: artifactDirectory
+        )
     }
 
     func testListViewFlow() throws {
@@ -1576,6 +1625,20 @@ final class PlaniniUITests: XCTestCase {
         return UITestSession(accessToken: accessToken, displayName: displayName)
     }
 
+    private var injectedGermanMarketingSession: UITestSession? {
+        guard
+            let accessToken = environmentValue(
+                "PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN"
+            ),
+            let displayName = environmentValue(
+                "PLANINI_UI_TEST_MARKETING_GERMAN_DISPLAY_NAME"
+            )
+        else {
+            return nil
+        }
+        return UITestSession(accessToken: accessToken, displayName: displayName)
+    }
+
     private func environmentValue(_ key: String) -> String? {
         guard
             let value = ProcessInfo.processInfo.environment[key]?.trimmingCharacters(
@@ -1625,10 +1688,16 @@ final class PlaniniUITests: XCTestCase {
         session: UITestSession,
         initialListName: String? = nil,
         openedLink: URL? = nil,
+        language: String? = nil,
         extraLaunchEnvironment: [String: String] = [:]
     ) -> XCUIApplication {
         let app = XCUIApplication()
-        configureLaunchLanguage(for: app)
+        configureLaunchLanguage(
+            for: app,
+            language: language
+                ?? extraLaunchEnvironment["PLANINI_UI_TEST_LANGUAGE"]
+                ?? configuredLanguage
+        )
         app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
         app.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
         app.launchEnvironment["PLANINI_UI_TEST_ACCESS_TOKEN"] = session.accessToken
@@ -1647,8 +1716,11 @@ final class PlaniniUITests: XCTestCase {
         return app
     }
 
-    private func configureLaunchLanguage(for app: XCUIApplication) {
-        let language = configuredLanguage
+    private func configureLaunchLanguage(
+        for app: XCUIApplication,
+        language: String? = nil
+    ) {
+        let language = language ?? configuredLanguage
         let locale = language == "de" ? "de_DE" : "en_US"
         app.launchEnvironment["PLANINI_UI_TEST_LANGUAGE"] = language
         app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", locale]
@@ -3585,14 +3657,24 @@ final class PlaniniUITests: XCTestCase {
         }
     }
 
-    private func captureScreenshot(named name: String) {
+    private func captureScreenshot(
+        named name: String,
+        relativeArtifactDirectory: String? = nil
+    ) {
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = name
+        attachment.name = [relativeArtifactDirectory, name]
+            .compactMap { $0 }
+            .joined(separator: "-")
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        let directoryURL = screenshotArtifactDirectory()
+        let directoryURL = if let relativeArtifactDirectory {
+            screenshotArtifactDirectory()
+                .appending(path: relativeArtifactDirectory, directoryHint: .isDirectory)
+        } else {
+            screenshotArtifactDirectory()
+        }
         try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let fileURL = directoryURL.appending(path: "\(name).png")
         try? screenshot.pngRepresentation.write(to: fileURL)
@@ -3613,6 +3695,13 @@ final class PlaniniUITests: XCTestCase {
             .appending(path: "e2e-artifacts/ios-ui-e2e", directoryHint: .isDirectory)
     }
 
+}
+
+private struct MarketingScreenshotVariant {
+    let localeDirectory: String
+    let language: String
+    let initialListName: String
+    let session: UITestSession
 }
 
 private struct UITestSession: Decodable {
