@@ -205,15 +205,20 @@ async def _ensure_list(
     )
     grocery_list = result.scalar_one_or_none()
     if grocery_list is None:
+        accent_color = payload.get("accent_color")
         grocery_list = GroceryList(
             household_id=household.id,
             name=name,
+            accent_color=str(accent_color) if accent_color is not None else None,
             created_by=created_by.id,
         )
         db.add(grocery_list)
         await db.flush()
     else:
         grocery_list.created_by = created_by.id
+        if "accent_color" in payload:
+            accent_color = payload["accent_color"]
+            grocery_list.accent_color = str(accent_color) if accent_color is not None else None
     return grocery_list
 
 
