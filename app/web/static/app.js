@@ -1,5 +1,6 @@
 const LANGUAGE_COOKIE_NAME = "planini_locale";
 const OFFLINE_LIST_STORAGE_PREFIX = "planini:list-offline:";
+const PUBLIC_LIST_STORAGE_KEY = "planini:public-lists";
 const OFFLINE_ITEM_ID_PREFIX = "local-item-";
 const OFFLINE_MUTATION_ID_PREFIX = "local-mutation-";
 const ITEM_HIDE_DURATION_MS = 4 * 60 * 60 * 1000;
@@ -601,6 +602,103 @@ async function copyText(value) {
   document.body.removeChild(helper);
 }
 
+function normalizeRememberedPublicList(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const token = typeof entry.token === "string" ? entry.token.trim() : "";
+  const id = typeof entry.id === "string" ? entry.id.trim() : "";
+  const name = typeof entry.name === "string" ? entry.name.trim() : "";
+  const expiresAt = typeof entry.expires_at === "string" ? entry.expires_at : "";
+  if (!token || !id || !name || !Number.isFinite(Date.parse(expiresAt))) {
+    return null;
+  }
+  return { token, id, name, expires_at: expiresAt };
+}
+
+function loadRememberedPublicLists(storage = globalThis.window?.localStorage) {
+  if (!storage) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(storage.getItem(PUBLIC_LIST_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map(normalizeRememberedPublicList).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRememberedPublicLists(entries, storage = globalThis.window?.localStorage) {
+  if (!storage) {
+    return [];
+  }
+  const normalized = Array.isArray(entries)
+    ? entries.map(normalizeRememberedPublicList).filter(Boolean)
+    : [];
+  storage.setItem(PUBLIC_LIST_STORAGE_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function rememberPublicList(root, groceryList, storage = globalThis.window?.localStorage) {
+  const token = publicListToken(root);
+  const entry = normalizeRememberedPublicList({ token, ...groceryList });
+  if (!entry || !storage) {
+    return null;
+  }
+  const entries = loadRememberedPublicLists(storage).filter((candidate) => candidate.token !== token);
+  saveRememberedPublicLists([entry, ...entries], storage);
+  return entry;
+}
+
+function removeRememberedPublicList(token, storage = globalThis.window?.localStorage) {
+  const entries = loadRememberedPublicLists(storage).filter((entry) => entry.token !== token);
+  return saveRememberedPublicLists(entries, storage);
+}
+
+function renderRememberedPublicLists(root, entries = loadRememberedPublicLists(), nowMs = Date.now()) {
+  const card = root.querySelector("[data-public-lists-card]");
+  const container = root.querySelector("[data-public-lists]");
+  if (!(card instanceof HTMLElement) || !(container instanceof HTMLElement)) {
+    return;
+  }
+
+  container.innerHTML = "";
+  card.hidden = entries.length === 0;
+  entries.forEach((entry) => {
+    const expired = Date.parse(entry.expires_at) <= nowMs;
+    const item = document.createElement("li");
+    item.className = "public-list-row";
+    const link = document.createElement(expired ? "div" : "a");
+    link.className = "public-list-entry";
+    if (!expired) {
+      link.href = `/public/lists/${encodeURIComponent(entry.token)}`;
+    }
+    const name = document.createElement("strong");
+    name.textContent = entry.name;
+    const statusNode = document.createElement("small");
+    statusNode.textContent = expired
+      ? translate("dashboard.public_list_expired", {}, "Expired")
+      : translate(
+          "dashboard.public_list_expires",
+          { date: formatInviteExpiry(entry.expires_at) },
+          "Expires {date}",
+        );
+    link.append(name, statusNode);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "secondary-button public-list-remove";
+    removeButton.dataset.removePublicList = entry.token;
+    removeButton.textContent = translate("common.remove", {}, "Remove");
+    removeButton.setAttribute(
+      "aria-label",
+      translate("dashboard.remove_public_list", { name: entry.name }, "Remove {name}"),
+    );
+    item.append(link, removeButton);
+    container.appendChild(item);
+  });
+}
+
 async function loadDashboardData(root) {
   const households = await fetchJson("/api/v1/households");
   const listResponses = await Promise.all(
@@ -616,6 +714,7 @@ async function loadDashboardData(root) {
   updateHouseholdOptions(root, households);
   updateDashboardListOptions(root, households, listsByHousehold);
   renderHouseholds(root, households, listsByHousehold);
+  renderRememberedPublicLists(root);
 }
 
 async function initDashboard() {
@@ -633,6 +732,13 @@ async function initDashboard() {
   };
 
   root.addEventListener("click", async (event) => {
+    const removePublicListButton = event.target.closest("[data-remove-public-list]");
+    if (removePublicListButton) {
+      removeRememberedPublicList(removePublicListButton.dataset.removePublicList || "");
+      renderRememberedPublicLists(root);
+      return;
+    }
+
     const openInviteButton = event.target.closest("[data-open-invite-sheet]");
     if (openInviteButton) {
       const householdId = openInviteButton.getAttribute("data-open-invite-sheet");
@@ -1560,8 +1666,14 @@ function itemApiUrl(root, itemId, suffix = "") {
 
 function setListName(root, state, name) {
   state.listName = name;
-  root.querySelector("[data-list-title]").textContent = name;
-  root.querySelector("[data-list-name-input]").value = name;
+  const title = root.querySelector("[data-list-title]");
+  const input = root.querySelector("[data-list-name-input]");
+  if (title instanceof HTMLElement) {
+    title.textContent = name;
+  }
+  if (input instanceof HTMLInputElement) {
+    input.value = name;
+  }
 }
 
 async function saveListName(root, state, name) {
@@ -4217,6 +4329,9 @@ async function loadListDetail(root, state) {
   }
 
   setListName(root, state, groceryList.name);
+  if (isPublicList(root)) {
+    rememberPublicList(root, groceryList);
+  }
   renderListSwitcher(root, groceryList, isPublicList(root) ? [] : switchTargets);
 
   state.categories = new Map(categories.map((category) => [category.id, category]));
@@ -5342,6 +5457,12 @@ export {
   updateHouseholdOptions,
   updateDashboardListOptions,
   renderHouseholds,
+  normalizeRememberedPublicList,
+  loadRememberedPublicLists,
+  saveRememberedPublicLists,
+  rememberPublicList,
+  removeRememberedPublicList,
+  renderRememberedPublicLists,
   householdInvitePayload,
   loadDashboardData,
   initDashboard,

@@ -19,6 +19,7 @@
     "save_changes": "Save changes",
     "done": "Done",
     "delete": "Delete",
+    "remove": "Remove",
     "edit": "Edit",
     "undo": "Undo",
     "redo": "Redo",
@@ -86,6 +87,12 @@
     "organized_note": "If this page is empty, it usually means you have not created your first household yet.",
     "your_space": "Your space",
     "your_households": "Your households",
+    "shared_with_you": "Shared with you",
+    "public_lists": "Public lists",
+    "public_lists_hint": "Links you open are saved in this browser until you remove them.",
+    "public_list_expired": "Expired",
+    "public_list_expires": "Expires {date}",
+    "remove_public_list": "Remove {name}",
     "no_households_title": "No households yet",
     "no_households_body": "Create your first household to get started. Once it exists, you can add lists to it immediately.",
     "open_add_options": "Open add options",
@@ -486,6 +493,12 @@
       "empty_title": "No lists yet",
       "empty_message": "Create a household and list in Settings to get started.",
       "open_settings": "Open Settings"
+    },
+    "public_lists": {
+      "title": "Public lists",
+      "shared_list": "Shared public list",
+      "expired": "Expired — swipe to remove",
+      "expires": "Expires {date}"
     },
     "list_settings": {
       "accent_title": "Accent color",

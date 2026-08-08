@@ -1447,6 +1447,31 @@ async function runPublicListLinkFlow(browser, ownerPage, scenario, listUrl) {
     await publicPage.close();
     await publicContext.close();
   }
+
+  logStep("Remembering an opened public link on the signed-in dashboard");
+  await ownerPage.goto(publicUrl, { waitUntil: "networkidle" });
+  await expectVisible(
+    ownerPage.locator("[data-list-title]", { hasText: scenario.listName }),
+    "Expected signed-in owner to open the same public link",
+  );
+  await ownerPage.goto(new URL("/?dashboard=1", baseUrl).toString(), { waitUntil: "networkidle" });
+  const rememberedPublicList = ownerPage.locator("[data-public-lists] li", {
+    hasText: scenario.listName,
+  });
+  await expectVisible(
+    rememberedPublicList,
+    "Expected dashboard to remember a public list opened while signed in",
+  );
+  await rememberedPublicList.getByRole("button", { name: /remove/i }).click();
+  await expectHidden(
+    rememberedPublicList,
+    "Expected remembered public list to be easy to remove",
+  );
+  await ownerPage.goto(listUrl, { waitUntil: "networkidle" });
+  await expectVisible(
+    ownerPage.locator("[data-list-title]", { hasText: scenario.listName }),
+    "Expected public-link persistence check to return to the primary list",
+  );
 }
 
 async function runOfflineSyncFlow(page, requestContext, listId) {

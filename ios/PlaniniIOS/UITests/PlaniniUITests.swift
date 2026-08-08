@@ -1517,6 +1517,66 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertEqual(inviteeApp.staticTexts["list-detail-title"].label, initialListName)
     }
 
+    func testPublicListLinkWorksSignedOutAndRemainsRemovable() throws {
+        try assertLocalTestBackend()
+        let ownerSession = try bootstrapSession(email: seededEmail)
+        let listID = try listID(named: initialListName, accessToken: ownerSession.accessToken)
+        let publicURL = try createPublicListLink(listID: listID, accessToken: ownerSession.accessToken)
+        let itemName = "Public iOS \(UUID().uuidString.prefix(8))"
+
+        let signedInApp = launchedApp(
+            session: ownerSession,
+            initialListName: nil,
+            openedLink: publicURL
+        )
+        XCTAssertTrue(signedInApp.staticTexts["list-detail-title"].waitForExistence(timeout: 12))
+        XCTAssertEqual(signedInApp.staticTexts["list-detail-title"].label, initialListName)
+        XCTAssertTrue(openAddItemSheet(using: signedInApp.buttons["add-item-button"], in: signedInApp))
+        signedInApp.textFields["add-item-name-field"].tap()
+        signedInApp.textFields["add-item-name-field"].typeText(itemName)
+        XCTAssertTrue(saveAddItemSheet(in: signedInApp))
+        XCTAssertTrue(
+            waitForItem(named: itemName, inListNamed: initialListName, accessToken: ownerSession.accessToken)
+        )
+        let itemID = try itemID(
+            named: itemName,
+            inListNamed: initialListName,
+            accessToken: ownerSession.accessToken
+        )
+        terminateAndWait(signedInApp)
+
+        let signedOutApp = XCUIApplication()
+        configureLaunchLanguage(for: signedOutApp)
+        signedOutApp.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
+        signedOutApp.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
+        signedOutApp.launchEnvironment["PLANINI_UI_TEST_OPEN_URL"] = publicURL.absoluteString
+        signedOutApp.launch()
+        XCTAssertTrue(signedOutApp.staticTexts["list-detail-title"].waitForExistence(timeout: 12))
+        XCTAssertEqual(signedOutApp.staticTexts["list-detail-title"].label, initialListName)
+        XCTAssertTrue(
+            tapItemToggleButton(
+                itemID: itemID,
+                named: itemName,
+                checked: true,
+                in: signedOutApp,
+                inListNamed: initialListName,
+                accessToken: ownerSession.accessToken
+            )
+        )
+
+        signedOutApp.buttons["public-list-close-button"].tap()
+        XCTAssertTrue(signedOutApp.buttons["login-passkey-button"].waitForExistence(timeout: 5))
+        let rememberedRow = signedOutApp.buttons["public-list-row-\(listID.uuidString)"]
+        XCTAssertTrue(rememberedRow.waitForExistence(timeout: 5))
+        rememberedRow.swipeLeft()
+        let removeButton = signedOutApp.buttons["remove-public-list-\(listID.uuidString)"]
+        XCTAssertTrue(removeButton.waitForExistence(timeout: 3))
+        removeButton.tap()
+        XCTAssertTrue(waitForElementToDisappear(rememberedRow, timeout: 5))
+
+        try deleteItem(itemID: itemID, accessToken: ownerSession.accessToken)
+    }
+
     func testSiriIntentAddsItemsToFavoriteAndSpecificLists() throws {
         try assertLocalTestBackend()
         let session = if let injectedSession {
@@ -3289,6 +3349,27 @@ final class PlaniniUITests: XCTestCase {
         return try JSONDecoder().decode(UITestList.self, from: data)
     }
 
+    private func createPublicListLink(listID: UUID, accessToken: String) throws -> URL {
+        let request = jsonRequest(
+            path: "/api/v1/lists/\(listID.uuidString)/public-links",
+            method: "POST",
+            token: accessToken,
+            body: ["expires_in_days": 1]
+        )
+        let payload = try JSONDecoder().decode(
+            UITestPublicListLink.self,
+            from: performRequest(request)
+        )
+        guard let url = URL(string: payload.publicURL) else {
+            throw NSError(
+                domain: "PlaniniUITests",
+                code: 7,
+                userInfo: [NSLocalizedDescriptionKey: "Could not parse public list URL."]
+            )
+        }
+        return url
+    }
+
     private func fetchCategories(listID: UUID, accessToken: String) throws -> [UITestCategory] {
         let request = jsonRequest(
             path: "/api/v1/lists/\(listID.uuidString)/categories",
@@ -3737,6 +3818,14 @@ private struct UITestInvitePreview: Decodable {
         case alreadyMember = "already_member"
         case maxUses = "max_uses"
         case remainingUses = "remaining_uses"
+    }
+}
+
+private struct UITestPublicListLink: Decodable {
+    let publicURL: String
+
+    private enum CodingKeys: String, CodingKey {
+        case publicURL = "public_url"
     }
 }
 

@@ -4179,7 +4179,9 @@ def test_public_list_link_allows_anonymous_editing_without_household_membership(
     assert "Geteilte Liste" in public_page.text
     assert "data-public-list-token" in public_page.text
     assert "data-list-settings-toggle" not in public_page.text
-    assert client.get(f"/api/v1/public/lists/{token}").json()["name"] == "Weekly"
+    public_list_payload = client.get(f"/api/v1/public/lists/{token}").json()
+    assert public_list_payload["name"] == "Weekly"
+    assert datetime.fromisoformat(public_list_payload["expires_at"]) > datetime.now(UTC)
 
     admin_headers = _auth_headers(client, f"admin-{uuid4()}@example.com", is_admin=True)
     category = client.post(

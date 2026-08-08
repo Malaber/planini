@@ -26,6 +26,12 @@ struct PlaniniLinkTests {
                 allowedWebHosts: allowedHosts
             ) == .passkeyAdd(token: "add-token.123")
         )
+        #expect(
+            PlaniniLinkParser.parse(
+                "https://planini.top/public/lists/public-token_123",
+                allowedWebHosts: allowedHosts
+            ) == .publicList(token: "public-token_123")
+        )
     }
 
     @Test func rejectsUntrustedWebHostsForInviteAndListLinks() {
@@ -48,6 +54,10 @@ struct PlaniniLinkTests {
 
         #expect(PlaniniLinkParser.parse("planini://invite/token-1") == .invite(token: "token-1"))
         #expect(PlaniniLinkParser.parse("planini://lists/\(listID.uuidString)") == .list(id: listID))
+        #expect(
+            PlaniniLinkParser.parse("planini://public/lists/public-token")
+                == .publicList(token: "public-token")
+        )
     }
 
     @Test func ignoresUnsupportedPlaniniPaths() {

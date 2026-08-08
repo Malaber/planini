@@ -13,16 +13,23 @@ from app.api.v1.routes.items import (
     _validate_category_id,
 )
 from app.api.v1.routes.lists import _open_item_count, _serialize_list
-from app.api.v1.routes.public_list_links import get_valid_public_list_link
+from app.api.v1.routes.public_list_links import _as_utc, get_valid_public_list_link
 from app.core.database import get_db
-from app.models import Category, GroceryItem, GroceryList, ListCategoryOrder, ListDisabledCategory
+from app.models import (
+    Category,
+    GroceryItem,
+    GroceryList,
+    ListCategoryOrder,
+    ListDisabledCategory,
+    PublicListLink,
+)
 from app.schemas.domain import (
     CategoryOut,
     GroceryItemCreate,
     GroceryItemOut,
     GroceryItemsWindowOut,
     GroceryItemUpdate,
-    GroceryListOut,
+    PublicGroceryListOut,
     ListCategoryOrderOut,
     ListDisabledCategoriesOut,
 )
@@ -31,12 +38,19 @@ router = APIRouter(prefix="/public/lists", tags=["public-lists"])
 
 
 async def _public_list(db: AsyncSession, token: str) -> GroceryList:
+    grocery_list, _ = await _public_list_with_link(db, token)
+    return grocery_list
+
+
+async def _public_list_with_link(
+    db: AsyncSession, token: str
+) -> tuple[GroceryList, PublicListLink]:
     link = await get_valid_public_list_link(db, token)
     result = await db.execute(select(GroceryList).where(GroceryList.id == link.list_id))
     grocery_list = result.scalar_one_or_none()
     if grocery_list is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    return grocery_list
+    return grocery_list, link
 
 
 async def _public_item(
@@ -52,10 +66,11 @@ async def _public_item(
     return grocery_list, item
 
 
-@router.get("/{token}", response_model=GroceryListOut)
-async def get_public_list(token: str, db: AsyncSession = Depends(get_db)) -> GroceryListOut:
-    grocery_list = await _public_list(db, token)
-    return _serialize_list(grocery_list, await _open_item_count(db, grocery_list.id))
+@router.get("/{token}", response_model=PublicGroceryListOut)
+async def get_public_list(token: str, db: AsyncSession = Depends(get_db)) -> PublicGroceryListOut:
+    grocery_list, link = await _public_list_with_link(db, token)
+    serialized = _serialize_list(grocery_list, await _open_item_count(db, grocery_list.id))
+    return PublicGroceryListOut(**serialized.model_dump(), expires_at=_as_utc(link.expires_at))
 
 
 @router.get("/{token}/categories", response_model=list[CategoryOut])

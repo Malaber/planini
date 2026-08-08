@@ -30,6 +30,17 @@
     <div class="dashboard-household-list" data-household-list></div>
   </section>
 
+  <section class="dashboard-card dashboard-lists" data-public-lists-card hidden>
+    <div class="dashboard-section-heading">
+      <div>
+        <p class="dashboard-label">{{ t("dashboard.shared_with_you") }}</p>
+        <h2>{{ t("dashboard.public_lists") }}</h2>
+      </div>
+    </div>
+    <p class="dashboard-note">{{ t("dashboard.public_lists_hint") }}</p>
+    <ul class="list-grid public-list-grid" data-public-lists></ul>
+  </section>
+
   <aside class="dashboard-card dashboard-card-accent" data-dashboard-organized>
     <h2>{{ t("dashboard.organized_title") }}</h2>
     <ol class="dashboard-steps">

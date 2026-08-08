@@ -310,6 +310,7 @@ struct RootView: View {
     @State private var showingAccountRegistration = false
     @State private var passkeyAddLinkInput = ""
     @State private var listNavigationPath: [UUID] = []
+    @State private var presentedPublicList: PublicListReference?
 
     var body: some View {
         Group {
@@ -352,6 +353,25 @@ struct RootView: View {
                 showsPasskeyAddSection: false
             )
         }
+        .fullScreenCover(item: $presentedPublicList, onDismiss: {
+            Task { await viewModel.closePublicList() }
+        }) { reference in
+            NavigationStack {
+                ListDetailScreen(
+                    listID: reference.id,
+                    showsFavoriteButton: false,
+                    publicList: reference
+                )
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(l10n.t("common.done")) {
+                            presentedPublicList = nil
+                        }
+                        .accessibilityIdentifier("public-list-close-button")
+                    }
+                }
+            }
+        }
         .onOpenURL { url in
             handleIncomingURL(url)
         }
@@ -363,6 +383,10 @@ struct RootView: View {
             guard let request else { return }
             selectedTab = .lists
             listNavigationPath = [request.listID]
+        }
+        .onChange(of: viewModel.publicListNavigationRequest) { request in
+            guard let request else { return }
+            presentedPublicList = request.reference
         }
         .onChange(of: viewModel.errorMessage) { newValue in
             guard showingReviewerOnboarding == false, showingAccountRegistration == false else { return }
@@ -425,6 +449,16 @@ struct RootView: View {
                 .disabled(viewModel.isAuthenticating)
                 .accessibilityIdentifier("login-create-account-button")
             }
+
+            if viewModel.publicLists.isEmpty == false {
+                Section(l10n.t("ios.public_lists.title")) {
+                    RememberedPublicListRows(
+                        references: viewModel.publicLists,
+                        onOpen: openPublicList,
+                        onRemove: viewModel.removePublicList
+                    )
+                }
+            }
         }
     }
 
@@ -444,7 +478,7 @@ struct RootView: View {
             .accessibilityIdentifier("tab-favorite")
 
             NavigationStack(path: $listNavigationPath) {
-                ListsTab(selectedTab: $selectedTab)
+                ListsTab(selectedTab: $selectedTab, onOpenPublicList: openPublicList)
                     .navigationDestination(for: UUID.self) { listID in
                         ListDetailScreen(listID: listID, showsFavoriteButton: true)
                     }
@@ -494,6 +528,10 @@ struct RootView: View {
     private func openListInListsTab(_ listID: UUID) {
         selectedTab = .lists
         listNavigationPath = [listID]
+    }
+
+    private func openPublicList(_ reference: PublicListReference) {
+        Task { await viewModel.openRememberedPublicList(reference) }
     }
 }
 
@@ -755,6 +793,7 @@ private struct ListsTab: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
     @Binding var selectedTab: AppTab
+    let onOpenPublicList: (PublicListReference) -> Void
 
     private var householdSections: [(name: String, lists: [GroceryListSummary])] {
         Dictionary(grouping: viewModel.lists, by: \.householdName)
@@ -766,7 +805,7 @@ private struct ListsTab: View {
 
     var body: some View {
         List {
-            if householdSections.isEmpty {
+            if householdSections.isEmpty && viewModel.publicLists.isEmpty {
                 VStack(spacing: 0) {
                     EmptyStateView(
                         title: l10n.t("ios.lists.empty_title"),
@@ -818,6 +857,17 @@ private struct ListsTab: View {
                         }
                     }
                 }
+
+
+                if viewModel.publicLists.isEmpty == false {
+                    Section(l10n.t("ios.public_lists.title")) {
+                        RememberedPublicListRows(
+                            references: viewModel.publicLists,
+                            onOpen: onOpenPublicList,
+                            onRemove: viewModel.removePublicList
+                        )
+                    }
+                }
             }
         }
         .navigationTitle(l10n.t("ios.tabs.lists"))
@@ -828,6 +878,59 @@ private struct ListsTab: View {
             return Color(uiColor: .secondarySystemGroupedBackground)
         }
         return accentColor.opacity(0.10)
+    }
+}
+
+private struct RememberedPublicListRows: View {
+    @EnvironmentObject private var l10n: AppLocalization
+    let references: [PublicListReference]
+    let onOpen: (PublicListReference) -> Void
+    let onRemove: (PublicListReference) -> Void
+
+    var body: some View {
+        ForEach(references) { reference in
+            Button {
+                onOpen(reference)
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(reference.name)
+                            .foregroundStyle(.primary)
+                        Text(status(for: reference))
+                            .font(.caption)
+                            .foregroundStyle(reference.isExpired() ? .red : .secondary)
+                    }
+                    Spacer()
+                    if reference.isExpired() == false {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(reference.isExpired())
+            .accessibilityIdentifier("public-list-row-\(reference.id.uuidString)")
+            .swipeActions {
+                Button(role: .destructive) {
+                    onRemove(reference)
+                } label: {
+                    Label(l10n.t("common.remove"), systemImage: "trash")
+                }
+                .accessibilityIdentifier("remove-public-list-\(reference.id.uuidString)")
+            }
+        }
+    }
+
+    private func status(for reference: PublicListReference) -> String {
+        if reference.isExpired() {
+            return l10n.t("ios.public_lists.expired")
+        }
+        return l10n.t(
+            "ios.public_lists.expires",
+            ["date": reference.expiresAt.formatted(date: .abbreviated, time: .shortened)]
+        )
     }
 }
 
@@ -1779,6 +1882,7 @@ private struct ListDetailScreen: View {
     let listID: UUID
     let showsFavoriteButton: Bool
     let onListSwitch: ((UUID) -> Void)?
+    let publicList: PublicListReference?
 
     @State private var displayedListID: UUID
     @State private var editingItem: GroceryItemRecord?
@@ -1792,15 +1896,31 @@ private struct ListDetailScreen: View {
     @State private var showingListSettings = false
     @State private var targetedDropSectionID: String?
 
-    init(listID: UUID, showsFavoriteButton: Bool, onListSwitch: ((UUID) -> Void)? = nil) {
+    init(
+        listID: UUID,
+        showsFavoriteButton: Bool,
+        onListSwitch: ((UUID) -> Void)? = nil,
+        publicList: PublicListReference? = nil
+    ) {
         self.listID = listID
         self.showsFavoriteButton = showsFavoriteButton
         self.onListSwitch = onListSwitch
+        self.publicList = publicList
         _displayedListID = State(initialValue: listID)
     }
 
     private var currentList: GroceryListSummary? {
-        viewModel.lists.first { $0.id == displayedListID }
+        if let publicList {
+            return GroceryListSummary(
+                id: publicList.id,
+                householdID: publicList.householdID,
+                householdName: l10n.t("ios.public_lists.shared_list"),
+                name: publicList.name,
+                archived: false,
+                accentColorHex: publicList.accentColorHex
+            )
+        }
+        return viewModel.lists.first { $0.id == displayedListID }
     }
 
     private var listBackground: some View {
@@ -1933,7 +2053,7 @@ private struct ListDetailScreen: View {
         .navigationTitle(currentList?.name ?? l10n.t("ios.list.fallback_title"))
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            if viewModel.lists.count > 1 {
+            if publicList == nil && viewModel.lists.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         ForEach(listSwitchSections, id: \.name) { section in
@@ -1970,14 +2090,16 @@ private struct ListDetailScreen: View {
                 .accessibilityIdentifier("add-item-button")
             }
 
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingListSettings = true
-                } label: {
-                    Label("List settings", systemImage: "slider.horizontal.3")
+            if publicList == nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingListSettings = true
+                    } label: {
+                        Label("List settings", systemImage: "slider.horizontal.3")
+                    }
+                    .accessibilityIdentifier("list-settings-button")
+                    .disabled(currentList == nil)
                 }
-                .accessibilityIdentifier("list-settings-button")
-                .disabled(currentList == nil)
             }
 
             if showsFavoriteButton, let currentList {
@@ -1996,7 +2118,9 @@ private struct ListDetailScreen: View {
             }
         }
         .task(id: displayedListID) {
-            await viewModel.selectList(id: displayedListID)
+            if publicList == nil {
+                await viewModel.selectList(id: displayedListID)
+            }
         }
         .onChange(of: listID) { newValue in
             displayedListID = newValue

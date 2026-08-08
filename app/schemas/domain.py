@@ -60,6 +60,10 @@ class GroceryListOut(ORMModel):
     open_item_count: int = 0
 
 
+class PublicGroceryListOut(GroceryListOut):
+    expires_at: datetime
+
+
 class CategoryCreate(BaseModel):
     name: str
     color: str | None = None
