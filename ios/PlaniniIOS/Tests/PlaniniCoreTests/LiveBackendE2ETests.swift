@@ -90,6 +90,133 @@ struct LiveBackendE2ETests {
         #expect(list["name"] as? String == "First iOS List")
     }
 
+    @Test("Reusable passkey management completes a full lifecycle against a live backend")
+    func reusablePasskeyManagementCompletesFullLifecycle() async throws {
+        guard let config = LiveBackendE2EConfiguration.fromEnvironment() else {
+            return
+        }
+
+        let client = LiveBackendClient(baseURL: config.baseURL)
+        let uniqueSuffix = UUID().uuidString.lowercased()
+        let email = "ios-passkey-management-\(uniqueSuffix)@example.com"
+
+        let registrationOptions = try await client.jsonObject(
+            path: "/api/v1/auth/register/options",
+            method: "POST",
+            body: [
+                "email": email,
+                "display_name": "iOS Passkey Management E2E",
+            ],
+            token: nil
+        )
+        let originalPasskey = try GeneratedRegistrationFactory.makePasskey(
+            options: registrationOptions,
+            origin: config.origin,
+            fallbackRelyingPartyIdentifier: config.rpID
+        )
+        _ = try await client.jsonObject(
+            path: "/api/v1/auth/register/verify",
+            method: "POST",
+            body: ["credential": originalPasskey.registrationCredential],
+            token: nil
+        )
+
+        let loginOptions = try await client.jsonObject(
+            path: "/api/v1/auth/login/options",
+            method: "POST",
+            body: [:],
+            token: nil
+        )
+        let loginCredential = try SeededAssertionFactory.makeCredential(
+            options: loginOptions,
+            origin: config.origin,
+            fallbackRelyingPartyIdentifier: config.rpID,
+            credentialID: originalPasskey.credentialID,
+            signCount: 0,
+            privateKey: originalPasskey.privateKey,
+            userHandle: originalPasskey.userHandle
+        )
+        let tokenPayload = try await client.jsonObject(
+            path: "/api/v1/auth/login/verify",
+            method: "POST",
+            body: ["credential": loginCredential],
+            token: nil
+        )
+        let accessToken = try #require(tokenPayload["access_token"] as? String)
+
+        let credentialProvider = GeneratedPasskeyCredentialProvider(
+            origin: config.origin
+        )
+        let service = PasskeyManagementService(
+            backendURL: config.baseURL,
+            accessToken: accessToken,
+            transport: LivePasskeyManagementTransport(client: client),
+            credentialProvider: credentialProvider
+        )
+
+        let initialPasskeys = try await service.listPasskeys()
+        let originalRecord = try #require(initialPasskeys.first)
+        #expect(initialPasskeys.count == 1)
+        #expect(originalRecord.name == "Passkey 1")
+
+        let added = try await service.addPasskey(name: "iOS Backup Key")
+        #expect(added.name == "iOS Backup Key")
+        let passkeysAfterAdd = try await service.listPasskeys()
+        #expect(passkeysAfterAdd.count == 2)
+
+        let renamed = try await service.renamePasskey(
+            id: added.id,
+            name: "iOS Travel Key"
+        )
+        #expect(renamed.id == added.id)
+        #expect(renamed.name == "iOS Travel Key")
+
+        try await service.deletePasskey(id: originalRecord.id)
+
+        let finalPasskeys = try await service.listPasskeys()
+        #expect(finalPasskeys.count == 1)
+        #expect(finalPasskeys.first?.id == added.id)
+        #expect(finalPasskeys.first?.name == "iOS Travel Key")
+
+        await #expect(throws: LiveBackendE2EError.self) {
+            try await service.deletePasskey(id: added.id)
+        }
+        #expect(try await service.listPasskeys() == finalPasskeys)
+
+        let remainingLoginOptions = try await client.jsonObject(
+            path: "/api/v1/auth/login/options",
+            method: "POST",
+            body: [:],
+            token: nil
+        )
+        let remainingLoginOptionsData = try JSONSerialization.data(
+            withJSONObject: remainingLoginOptions
+        )
+        let remainingCredentialData = try await credentialProvider.authenticate(
+            optionsJSON: remainingLoginOptionsData,
+            rpID: config.rpID ?? config.baseURL.host ?? ""
+        )
+        let remainingCredential = try #require(
+            JSONSerialization.jsonObject(with: remainingCredentialData) as? [String: Any]
+        )
+        let remainingTokenPayload = try await client.jsonObject(
+            path: "/api/v1/auth/login/verify",
+            method: "POST",
+            body: ["credential": remainingCredential],
+            token: nil
+        )
+        let remainingAccessToken = try #require(
+            remainingTokenPayload["access_token"] as? String
+        )
+        let me = try await client.jsonObject(
+            path: "/api/v1/auth/me",
+            method: "GET",
+            body: nil,
+            token: remainingAccessToken
+        )
+        #expect(me["email"] as? String == email)
+    }
+
     @Test("Seeded passkey login and list CRUD against a live backend")
     func seededPasskeyLoginAndListCrud() async throws {
         guard let config = LiveBackendE2EConfiguration.fromEnvironment() else {
@@ -808,6 +935,102 @@ private final class LiveBackendClient {
         }
 
         return try JSONDecoder().decode(LiveListSocketEvent.self, from: payloadData)
+    }
+}
+
+private struct LivePasskeyManagementTransport: PasskeyManagementTransport, @unchecked Sendable {
+    let client: LiveBackendClient
+
+    func send(request: PasskeyAPIRequest) async throws -> Data {
+        let method = switch request.method {
+        case .get:
+            "GET"
+        case .post:
+            "POST"
+        }
+        let body: [String: Any]?
+        if let bodyData = request.body {
+            guard let decodedBody = try JSONSerialization.jsonObject(with: bodyData) as? [String: Any] else {
+                throw LiveBackendE2EError("Expected passkey request body to be a JSON object.")
+            }
+            body = decodedBody
+        } else {
+            body = nil
+        }
+        return try await client.data(
+            path: request.path,
+            method: method,
+            body: body,
+            token: request.accessToken
+        )
+    }
+}
+
+private actor GeneratedPasskeyCredentialProvider: PasskeyCredentialProvider {
+    private struct StoredCredential {
+        let passkey: GeneratedPasskey
+        var signCount: Int
+    }
+
+    private let origin: String
+    private var credentials: [String: StoredCredential] = [:]
+
+    init(origin: String) {
+        self.origin = origin
+    }
+
+    func register(optionsJSON: Data, rpID: String) async throws -> Data {
+        let options = try Self.jsonObject(from: optionsJSON)
+        let passkey = try GeneratedRegistrationFactory.makePasskey(
+            options: options,
+            origin: origin,
+            fallbackRelyingPartyIdentifier: rpID
+        )
+        credentials[passkey.credentialID] = StoredCredential(
+            passkey: passkey,
+            signCount: 0
+        )
+        return try JSONSerialization.data(withJSONObject: passkey.registrationCredential)
+    }
+
+    func authenticate(optionsJSON: Data, rpID: String) async throws -> Data {
+        let options = try Self.jsonObject(from: optionsJSON)
+        let publicKey = (options["publicKey"] as? [String: Any]) ?? options
+        let allowedCredentialIDs = (publicKey["allowCredentials"] as? [[String: Any]])?
+            .compactMap { $0["id"] as? String } ?? []
+        let credentialID = if allowedCredentialIDs.isEmpty {
+            credentials.keys.sorted().first
+        } else {
+            allowedCredentialIDs.first(where: { credentials[$0] != nil })
+        }
+        guard
+            let credentialID,
+            var stored = credentials[credentialID]
+        else {
+            throw LiveBackendE2EError(
+                "Passkey options did not allow a generated credential."
+            )
+        }
+
+        let credential = try SeededAssertionFactory.makeCredential(
+            options: options,
+            origin: origin,
+            fallbackRelyingPartyIdentifier: rpID,
+            credentialID: stored.passkey.credentialID,
+            signCount: stored.signCount,
+            privateKey: stored.passkey.privateKey,
+            userHandle: stored.passkey.userHandle
+        )
+        stored.signCount += 1
+        credentials[credentialID] = stored
+        return try JSONSerialization.data(withJSONObject: credential)
+    }
+
+    private static func jsonObject(from data: Data) throws -> [String: Any] {
+        guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw LiveBackendE2EError("Expected passkey options to be a JSON object.")
+        }
+        return payload
     }
 }
 
