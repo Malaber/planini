@@ -217,6 +217,48 @@ jobs:
             cat "${{ matrix.artifact_dir }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  ios_marketing_screenshots:
+    name: App Store marketing screenshots
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - name: Restore marketing Xcode cache
+        uses: actions/cache@v6
+        with:
+          path: ios/PlaniniIOS/.derived-marketing-screenshots
+          key: ios-marketing-${{ runner.os }}-${{ runner.arch }}-xcode26-${{ hashFiles('ios/PlaniniIOS/Package.resolved') }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Invoke
+        run: python -m pip install invoke
+      - name: Install native image dependencies
+        run: brew install cairo
+      - name: Expose native image library path
+        run: echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix cairo)/lib:/opt/homebrew/lib:/usr/local/lib" >> "$GITHUB_ENV"
+      - name: Bootstrap backend dependencies
+        run: python -m invoke bootstrap-ci
+      - name: Install XcodeGen
+        run: python -m invoke install-xcodegen
+      - name: Capture App Store screenshots
+        run: python -m invoke check-ios-marketing-screenshots --preserve-derived-data
+      - name: Upload marketing screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ios-marketing-screenshots
+          retention-days: 7
+          path: |
+            e2e-artifacts/ios-marketing-screenshots/**/*.png
+            e2e-artifacts/ios-marketing-screenshots/summary.md
+            ios-marketing-screenshots-server.log
+      - name: Add artifact link
+        if: always()
+        run: |
+          echo "### App Store marketing screenshots" >> "$GITHUB_STEP_SUMMARY"
+          echo "[Download artifact from this workflow run](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> "$GITHUB_STEP_SUMMARY"
+
   version:
     if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest

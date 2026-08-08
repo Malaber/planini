@@ -11,6 +11,122 @@ final class PlaniniUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testMarketingScreenshots() throws {
+        try assertLocalTestBackend()
+
+        let primarySession = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        var variants = [
+            MarketingScreenshotVariant(
+                localeDirectory: "en-US",
+                language: "en",
+                initialListName: configuredInitialListName,
+                session: primarySession
+            )
+        ]
+        if let germanSession = injectedGermanMarketingSession,
+            let germanListName = environmentValue(
+                "PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME"
+            )
+        {
+            variants.append(
+                MarketingScreenshotVariant(
+                    localeDirectory: "de-DE",
+                    language: "de",
+                    initialListName: germanListName,
+                    session: germanSession
+                )
+            )
+        }
+
+        for variant in variants {
+            captureMarketingScreenshots(for: variant)
+        }
+    }
+
+    private func captureMarketingScreenshots(for variant: MarketingScreenshotVariant) {
+        let platformDirectory = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        let artifactDirectory = "\(platformDirectory)/\(variant.localeDirectory)"
+        let app = launchedApp(
+            session: variant.session,
+            initialListName: variant.initialListName,
+            language: variant.language
+        )
+        defer { terminateAndWait(app) }
+
+        let listTitle = app.staticTexts["list-detail-title"]
+        XCTAssertTrue(
+            openInitialListDetail(
+                in: app,
+                listTitle: listTitle,
+                listName: variant.initialListName
+            ),
+            "Expected marketing list to open."
+        )
+        XCTAssertEqual(listTitle.label, variant.initialListName)
+        captureScreenshot(
+            named: "app-store-\(platformDirectory)-02-weekly-groceries",
+            relativeArtifactDirectory: artifactDirectory
+        )
+
+        XCTAssertTrue(
+            openMarketingListsRoot(in: app, listName: variant.initialListName),
+            "Expected marketing lists overview to open."
+        )
+        let marketingListRow = app.buttons["list-row-\(variant.initialListName)"]
+        XCTAssertTrue(marketingListRow.waitForExistence(timeout: 10))
+        captureScreenshot(
+            named: "app-store-\(platformDirectory)-01-lists",
+            relativeArtifactDirectory: artifactDirectory
+        )
+
+        app.staticTexts[variant.initialListName].tap()
+        XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
+        XCTAssertTrue(openAddItemSheet(in: app))
+        let nameField = app.textFields["add-item-name-field"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        tapElement(nameField)
+        XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 5))
+        let itemName = variant.language == "de" ? "Dunkle Schokolade" : "Dark chocolate"
+        replaceText(in: nameField, with: itemName)
+        XCTAssertTrue(waitForFieldValue(nameField, contains: itemName))
+        captureScreenshot(
+            named: "app-store-\(platformDirectory)-03-add-item",
+            relativeArtifactDirectory: artifactDirectory
+        )
+    }
+
+    private func openMarketingListsRoot(in app: XCUIApplication, listName: String) -> Bool {
+        let listRow = app.buttons["list-row-\(listName)"]
+        let listsLabels = ["Lists", "Listen"]
+        var candidates = [
+            app.tabBars.buttons.matching(identifier: "tab-lists-button").firstMatch,
+            app.buttons.matching(identifier: "tab-lists-button").firstMatch,
+        ]
+        candidates += listsLabels.flatMap { label in
+            [
+                app.tabBars.buttons.matching(
+                    NSPredicate(format: "label == %@", label)
+                ).firstMatch,
+                app.buttons.matching(
+                    NSPredicate(format: "label == %@", label)
+                ).firstMatch,
+            ]
+        }
+
+        for candidate in candidates where candidate.exists {
+            tapElement(candidate)
+            returnToListsRootIfNeeded(app, listName: listName)
+            if listRow.waitForExistence(timeout: 3) {
+                return true
+            }
+        }
+        return listRow.exists
+    }
+
     func testListViewFlow() throws {
         try assertLocalTestBackend()
         let loginApp = XCUIApplication()
@@ -1716,10 +1832,28 @@ final class PlaniniUITests: XCTestCase {
         return configuredEmail
     }
 
+    private var configuredInitialListName: String {
+        environmentValue("PLANINI_UI_TEST_INITIAL_LIST_NAME") ?? initialListName
+    }
+
     private var injectedSession: UITestSession? {
         guard
             let accessToken = environmentValue("PLANINI_UI_TEST_ACCESS_TOKEN"),
             let displayName = environmentValue("PLANINI_UI_TEST_DISPLAY_NAME")
+        else {
+            return nil
+        }
+        return UITestSession(accessToken: accessToken, displayName: displayName)
+    }
+
+    private var injectedGermanMarketingSession: UITestSession? {
+        guard
+            let accessToken = environmentValue(
+                "PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN"
+            ),
+            let displayName = environmentValue(
+                "PLANINI_UI_TEST_MARKETING_GERMAN_DISPLAY_NAME"
+            )
         else {
             return nil
         }
@@ -1775,10 +1909,11 @@ final class PlaniniUITests: XCTestCase {
         session: UITestSession,
         initialListName: String? = nil,
         openedLink: URL? = nil,
+        language: String? = nil,
         extraLaunchEnvironment: [String: String] = [:]
     ) -> XCUIApplication {
         let app = XCUIApplication()
-        configureLaunchLanguage(for: app)
+        configureLaunchLanguage(for: app, language: language)
         app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
         app.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
         app.launchEnvironment["PLANINI_UI_TEST_ACCESS_TOKEN"] = session.accessToken
@@ -1797,9 +1932,14 @@ final class PlaniniUITests: XCTestCase {
         return app
     }
 
-    private func configureLaunchLanguage(for app: XCUIApplication) {
-        app.launchEnvironment["PLANINI_UI_TEST_LANGUAGE"] = "en"
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+    private func configureLaunchLanguage(
+        for app: XCUIApplication,
+        language: String? = nil
+    ) {
+        let language = language ?? "en"
+        let locale = language == "de" ? "de_DE" : "en_US"
+        app.launchEnvironment["PLANINI_UI_TEST_LANGUAGE"] = language
+        app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", locale]
     }
 
     private func tapItemToggleButton(
@@ -2717,25 +2857,27 @@ final class PlaniniUITests: XCTestCase {
     private func openInitialListDetail(
         in app: XCUIApplication,
         listTitle: XCUIElement,
+        listName: String? = nil,
         timeout: TimeInterval = 45
     ) -> Bool {
+        let expectedListName = listName ?? initialListName
         guard app.wait(for: .runningForeground, timeout: min(timeout, 15)) else {
             return false
         }
 
         let deadline = Date().addingTimeInterval(timeout)
-        let initialListRow = app.buttons["list-row-\(initialListName)"]
+        let initialListRow = app.buttons["list-row-\(expectedListName)"]
 
         while Date() < deadline {
-            if listTitle.exists && listTitle.label == initialListName {
+            if listTitle.exists && listTitle.label == expectedListName {
                 return true
             }
 
             if tapTab("Lists", in: app, timeout: 1) {
-                returnToListsRootIfNeeded(app)
+                returnToListsRootIfNeeded(app, listName: expectedListName)
                 if initialListRow.waitForExistence(timeout: 2) {
                     initialListRow.tap()
-                    if listTitle.waitForExistence(timeout: 5), listTitle.label == initialListName {
+                    if listTitle.waitForExistence(timeout: 5), listTitle.label == expectedListName {
                         return true
                     }
                 }
@@ -2744,7 +2886,7 @@ final class PlaniniUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
 
-        return listTitle.exists && listTitle.label == initialListName
+        return listTitle.exists && listTitle.label == expectedListName
     }
 
     private func tapTab(_ label: String, in app: XCUIApplication, timeout: TimeInterval = 5) -> Bool {
@@ -3717,14 +3859,21 @@ final class PlaniniUITests: XCTestCase {
         ].contains(nsError.code)
     }
 
-    private func returnToListsRootIfNeeded(_ app: XCUIApplication) {
-        if app.buttons["list-row-\(initialListName)"].waitForExistence(timeout: 1) {
+    private func returnToListsRootIfNeeded(_ app: XCUIApplication, listName: String? = nil) {
+        let expectedListName = listName ?? initialListName
+        if app.buttons["list-row-\(expectedListName)"].waitForExistence(timeout: 1) {
             return
         }
 
-        let backButton = app.navigationBars.buttons.firstMatch
+        let backButton = firstExistingElement(
+            [
+                app.navigationBars.buttons["Lists"],
+                app.navigationBars.buttons["Listen"],
+            ],
+            timeout: 1
+        )
         if backButton.exists {
-            backButton.tap()
+            tapElement(backButton)
         }
     }
 
@@ -3735,14 +3884,24 @@ final class PlaniniUITests: XCTestCase {
         }
     }
 
-    private func captureScreenshot(named name: String) {
+    private func captureScreenshot(
+        named name: String,
+        relativeArtifactDirectory: String? = nil
+    ) {
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = name
+        attachment.name = [relativeArtifactDirectory, name]
+            .compactMap { $0 }
+            .joined(separator: "-")
         attachment.lifetime = .keepAlways
         add(attachment)
 
-        let directoryURL = screenshotArtifactDirectory()
+        let directoryURL = if let relativeArtifactDirectory {
+            screenshotArtifactDirectory()
+                .appending(path: relativeArtifactDirectory, directoryHint: .isDirectory)
+        } else {
+            screenshotArtifactDirectory()
+        }
         try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let fileURL = directoryURL.appending(path: "\(name).png")
         try? screenshot.pngRepresentation.write(to: fileURL)
@@ -3763,6 +3922,13 @@ final class PlaniniUITests: XCTestCase {
             .appending(path: "e2e-artifacts/ios-ui-e2e", directoryHint: .isDirectory)
     }
 
+}
+
+private struct MarketingScreenshotVariant {
+    let localeDirectory: String
+    let language: String
+    let initialListName: String
+    let session: UITestSession
 }
 
 private struct UITestSession: Decodable {
