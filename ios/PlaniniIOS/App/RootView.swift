@@ -1016,11 +1016,15 @@ private struct HouseholdManagementRow: View {
         )
     }
 
+    private var roleText: String {
+        l10n.t("ios.households.role_\(household.role.rawValue)")
+    }
+
     var body: some View {
         Label {
             VStack(alignment: .leading, spacing: 4) {
                 Text(household.name)
-                Text(listCountText)
+                Text("\(listCountText) · \(roleText)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1046,6 +1050,14 @@ private struct HouseholdDetailManagementScreen: View {
         viewModel.lists
             .filter { $0.householdID == householdID }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var householdMembers: [HouseholdMemberSummary] {
+        viewModel.membersByHousehold[householdID] ?? []
+    }
+
+    private var canManage: Bool {
+        viewModel.canManage(householdID: householdID)
     }
 
     var body: some View {
@@ -1080,21 +1092,81 @@ private struct HouseholdDetailManagementScreen: View {
                     }
                 }
 
-                Button {
-                    showingNewList = true
-                } label: {
-                    Label(l10n.t("ios.households.new_list"), systemImage: "plus")
+                if canManage {
+                    Button {
+                        showingNewList = true
+                    } label: {
+                        Label(l10n.t("ios.households.new_list"), systemImage: "plus")
+                    }
+                    .accessibilityIdentifier("new-household-list-button")
                 }
-                .accessibilityIdentifier("new-household-list-button")
             }
 
-            Section(l10n.t("ios.households.invites_section")) {
-                Button {
-                    showingInviteSheet = true
-                } label: {
-                    Label(l10n.t("ios.households.create_invite_link"), systemImage: "link.badge.plus")
+            Section(l10n.t("ios.households.members_section")) {
+                ForEach(householdMembers) { member in
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(member.displayName)
+                            Text(member.email)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if canManage, member.role != .owner {
+                            Picker(
+                                l10n.t("ios.households.member_role"),
+                                selection: Binding(
+                                    get: { member.role },
+                                    set: { role in
+                                        Task {
+                                            await viewModel.updateHouseholdMemberRole(
+                                                householdID: householdID,
+                                                userID: member.userID,
+                                                role: role
+                                            )
+                                        }
+                                    }
+                                )
+                            ) {
+                                Text(l10n.t("ios.households.role_editor"))
+                                    .tag(HouseholdRole.editor)
+                                Text(l10n.t("ios.households.role_viewer"))
+                                    .tag(HouseholdRole.viewer)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .accessibilityIdentifier("member-role-\(member.userID.uuidString)")
+
+                            Button(role: .destructive) {
+                                Task {
+                                    await viewModel.removeHouseholdMember(
+                                        householdID: householdID,
+                                        userID: member.userID
+                                    )
+                                }
+                            } label: {
+                                Image(systemName: "person.badge.minus")
+                            }
+                            .accessibilityIdentifier("remove-member-\(member.userID.uuidString)")
+                        } else {
+                            Text(l10n.t("ios.households.role_\(member.role.rawValue)"))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("household-member-\(member.userID.uuidString)")
                 }
-                .accessibilityIdentifier("open-household-invite-sheet-button")
+            }
+
+            if canManage {
+                Section(l10n.t("ios.households.invites_section")) {
+                    Button {
+                        showingInviteSheet = true
+                    } label: {
+                        Label(l10n.t("ios.households.create_invite_link"), systemImage: "link.badge.plus")
+                    }
+                    .accessibilityIdentifier("open-household-invite-sheet-button")
+                }
             }
         }
         .navigationTitle(household?.name ?? l10n.t("ios.households.fallback_title"))
@@ -1111,6 +1183,9 @@ private struct HouseholdDetailManagementScreen: View {
         }
         .sheet(isPresented: $showingInviteSheet) {
             HouseholdInviteSheet(householdID: householdID)
+        }
+        .task {
+            await viewModel.loadHouseholdMembers(householdID: householdID)
         }
         .accessibilityIdentifier("household-detail-management-screen")
     }
@@ -1132,12 +1207,24 @@ private struct HouseholdInviteSheet: View {
     @State private var invite: HouseholdInviteLink?
     @State private var isCreatingInvite = false
     @State private var inviteMode = "time"
+    @State private var inviteRole = HouseholdRole.editor
     @State private var inviteHours = 24
     @State private var inviteMaxUses = 5
 
     var body: some View {
         NavigationStack {
             Form {
+                Section(l10n.t("ios.households.member_role")) {
+                    Picker(l10n.t("ios.households.member_role"), selection: $inviteRole) {
+                        Text(l10n.t("ios.households.role_editor"))
+                            .tag(HouseholdRole.editor)
+                        Text(l10n.t("ios.households.role_viewer"))
+                            .tag(HouseholdRole.viewer)
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("household-invite-role-picker")
+                }
+
                 Section {
                     Picker(l10n.t("ios.households.invite_validity"), selection: $inviteMode) {
                         Text(l10n.t("ios.households.invite_time_limited"))
@@ -1263,6 +1350,7 @@ private struct HouseholdInviteSheet: View {
         let expiresInHours = inviteMode == "uses" ? nil : inviteHours
         if let createdInvite = await viewModel.createInvite(
             householdID: householdID,
+            role: inviteRole,
             expiresInHours: expiresInHours,
             maxUses: maxUses
         ) {
@@ -1411,6 +1499,14 @@ private struct ListDetailScreen: View {
         viewModel.lists.first { $0.id == displayedListID }
     }
 
+    private var canEdit: Bool {
+        currentList.map { viewModel.canEdit(listID: $0.id) } ?? false
+    }
+
+    private var canManage: Bool {
+        currentList.map { viewModel.canManage(householdID: $0.householdID) } ?? false
+    }
+
     private var listBackground: some View {
         ZStack {
             Color(uiColor: .systemGroupedBackground)
@@ -1489,6 +1585,17 @@ private struct ListDetailScreen: View {
                 }
             }
 
+            if currentList != nil, !canEdit {
+                Section {
+                    Label(
+                        l10n.t("ios.list.viewer_read_only"),
+                        systemImage: "eye"
+                    )
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("viewer-read-only-label")
+                }
+            }
+
             if displaySections.isEmpty {
                 Section {
                     EmptyStateView(
@@ -1503,7 +1610,7 @@ private struct ListDetailScreen: View {
                         ForEach(section.rows) { row in
                             switch row {
                             case let .item(item):
-                                ItemRow(item: item) {
+                                ItemRow(item: item, isReadOnly: !canEdit) {
                                     editingItem = item
                                 } onDelete: {
                                     deleteItem(item)
@@ -1523,6 +1630,7 @@ private struct ListDetailScreen: View {
                         SectionHeader(
                             section: section,
                             title: localizedTitle(for: section),
+                            allowsEditing: canEdit,
                             targetedDropSectionID: $targetedDropSectionID
                         ) { categoryID in
                             addItemPresentation = AddItemPresentation(categoryID: categoryID)
@@ -1569,23 +1677,27 @@ private struct ListDetailScreen: View {
                 }
             }
 
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    addItemPresentation = AddItemPresentation(categoryID: nil)
-                } label: {
-                    Label(l10n.t("ios.item.add_title"), systemImage: "plus")
+            if canEdit {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        addItemPresentation = AddItemPresentation(categoryID: nil)
+                    } label: {
+                        Label(l10n.t("ios.item.add_title"), systemImage: "plus")
+                    }
+                    .accessibilityIdentifier("add-item-button")
                 }
-                .accessibilityIdentifier("add-item-button")
             }
 
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingListSettings = true
-                } label: {
-                    Label("List settings", systemImage: "slider.horizontal.3")
+            if canManage {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingListSettings = true
+                    } label: {
+                        Label("List settings", systemImage: "slider.horizontal.3")
+                    }
+                    .accessibilityIdentifier("list-settings-button")
+                    .disabled(currentList == nil)
                 }
-                .accessibilityIdentifier("list-settings-button")
-                .disabled(currentList == nil)
             }
 
             if showsFavoriteButton, let currentList {
@@ -2462,11 +2574,13 @@ private struct SectionHeader: View {
     @EnvironmentObject private var l10n: AppLocalization
     let section: ListDisplaySection
     let title: String
+    let allowsEditing: Bool
     @Binding var targetedDropSectionID: String?
     let onQuickAdd: (UUID?) -> Void
     let onDropItem: (String, UUID?) -> Void
 
     private var allowsQuickAdd: Bool {
+        guard allowsEditing else { return false }
         switch section.kind {
         case .hidden, .checked:
             return false
@@ -2569,6 +2683,7 @@ private struct ItemRow: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
     let item: GroceryItemRecord
+    let isReadOnly: Bool
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onUndoableAction: (String, @escaping ListUndoAction) -> Void
@@ -2660,6 +2775,7 @@ private struct ItemRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(isReadOnly)
             .accessibilityIdentifier("toggle-item-\(item.id.uuidString)")
             .accessibilityLabel(toggleAccessibilityLabel)
 
@@ -2688,6 +2804,7 @@ private struct ItemRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(isReadOnly)
             .accessibilityIdentifier("edit-item-row-\(item.id.uuidString)")
         }
         .contentShape(Rectangle())
@@ -2705,7 +2822,7 @@ private struct ItemRow: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if isHiddenForLater {
+            if !isReadOnly, isHiddenForLater {
                 Button {
                     Task {
                         await restoreHiddenItem(previousHiddenUntil: item.hiddenUntil)
@@ -2715,7 +2832,7 @@ private struct ItemRow: View {
                 }
                 .tint(.orange)
                 .accessibilityIdentifier("unhide-item-\(item.id.uuidString)")
-            } else if item.checked == false {
+            } else if !isReadOnly, item.checked == false {
                 Button {
                     Task {
                         await hideForLater()
@@ -2728,20 +2845,22 @@ private struct ItemRow: View {
             }
         }
         .swipeActions {
-            Button(role: .destructive) {
-                onDelete()
-            } label: {
-                Label(l10n.t("common.delete"), systemImage: "trash")
-            }
-            .accessibilityIdentifier("delete-item-\(item.id.uuidString)")
+            if !isReadOnly {
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label(l10n.t("common.delete"), systemImage: "trash")
+                }
+                .accessibilityIdentifier("delete-item-\(item.id.uuidString)")
 
-            Button {
-                onEdit()
-            } label: {
-                Label(l10n.t("common.edit"), systemImage: "pencil")
+                Button {
+                    onEdit()
+                } label: {
+                    Label(l10n.t("common.edit"), systemImage: "pencil")
+                }
+                .tint(.blue)
+                .accessibilityIdentifier("edit-item-\(item.id.uuidString)")
             }
-            .tint(.blue)
-            .accessibilityIdentifier("edit-item-\(item.id.uuidString)")
         }
     }
 }

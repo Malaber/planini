@@ -541,6 +541,69 @@ main {
   gap: 1rem;
 }
 
+.household-card-actions,
+.household-member-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.household-members-panel {
+  gap: 1rem;
+}
+
+.household-member-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.household-member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.household-member-row:last-child {
+  border-bottom: 0;
+}
+
+.household-member-row strong,
+.household-member-row small {
+  display: block;
+}
+
+.household-member-row small,
+.household-member-role {
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+}
+
+.household-member-actions select {
+  min-height: 2.6rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  padding: 0.45rem 0.65rem;
+  font: inherit;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .household-card h3,
 .dashboard-card h2,
 .dashboard-empty h3 {
@@ -574,6 +637,12 @@ main {
   color: var(--text-muted);
   cursor: not-allowed;
   opacity: 1;
+}
+
+.floating-add-button[hidden],
+.list-settings-button[hidden],
+.dashboard-action-card[hidden] {
+  display: none;
 }
 
 .primary-button,

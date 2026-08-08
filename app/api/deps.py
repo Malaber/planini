@@ -62,15 +62,49 @@ async def require_non_admin_user(user: User = Depends(get_current_user)) -> User
     return user
 
 
-async def ensure_household_member(db: AsyncSession, household_id: UUID, user_id: UUID) -> None:
+async def get_household_membership(
+    db: AsyncSession, household_id: UUID, user_id: UUID
+) -> HouseholdMember:
     result = await db.execute(
         select(HouseholdMember).where(
             HouseholdMember.household_id == household_id,
             HouseholdMember.user_id == user_id,
         )
     )
-    if result.scalar_one_or_none() is None:
+    membership = result.scalar_one_or_none()
+    if membership is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    return membership
+
+
+async def ensure_household_member(
+    db: AsyncSession, household_id: UUID, user_id: UUID
+) -> HouseholdMember:
+    return await get_household_membership(db, household_id, user_id)
+
+
+async def ensure_household_editor(
+    db: AsyncSession, household_id: UUID, user_id: UUID
+) -> HouseholdMember:
+    membership = await get_household_membership(db, household_id, user_id)
+    if membership.role not in {"owner", "editor"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires editor access.",
+        )
+    return membership
+
+
+async def ensure_household_owner(
+    db: AsyncSession, household_id: UUID, user_id: UUID
+) -> HouseholdMember:
+    membership = await get_household_membership(db, household_id, user_id)
+    if membership.role != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the household owner can perform this action.",
+        )
+    return membership
 
 
 async def get_list_for_user(db: AsyncSession, list_id: UUID, user_id: UUID) -> GroceryList:
@@ -79,4 +113,16 @@ async def get_list_for_user(db: AsyncSession, list_id: UUID, user_id: UUID) -> G
     if grocery_list is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     await ensure_household_member(db, grocery_list.household_id, user_id)
+    return grocery_list
+
+
+async def get_list_for_editor(db: AsyncSession, list_id: UUID, user_id: UUID) -> GroceryList:
+    grocery_list = await get_list_for_user(db, list_id, user_id)
+    await ensure_household_editor(db, grocery_list.household_id, user_id)
+    return grocery_list
+
+
+async def get_list_for_owner(db: AsyncSession, list_id: UUID, user_id: UUID) -> GroceryList:
+    grocery_list = await get_list_for_user(db, list_id, user_id)
+    await ensure_household_owner(db, grocery_list.household_id, user_id)
     return grocery_list

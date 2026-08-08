@@ -10,10 +10,14 @@ struct ListPresentationTests {
             json: [
                 "id": householdID.uuidString,
                 "name": "Home",
+                "role": "owner",
             ]
         )
 
-        #expect(household == HouseholdSummary(id: householdID, name: "Home"))
+        #expect(household == HouseholdSummary(id: householdID, name: "Home", role: .owner))
+        #expect(household?.role.canEditItems == true)
+        #expect(household?.role.canManageHousehold == true)
+        #expect(HouseholdRole.viewer.canEditItems == false)
     }
 
     @Test func householdSummaryRejectsInvalidJSON() {
@@ -34,12 +38,14 @@ struct ListPresentationTests {
                 "invite_url": "https://planini.top/invite/token",
                 "expires_at": "2026-05-18T12:00:00.123Z",
                 "max_uses": 5,
+                "role": "viewer",
             ]
         )
 
         #expect(invite?.inviteURL == "https://planini.top/invite/token")
         #expect(invite?.expiresAt != nil)
         #expect(invite?.maxUses == 5)
+        #expect(invite?.role == .viewer)
     }
 
     @Test func householdInviteLinkParsesJSONWithoutValidExpiration() {
@@ -55,6 +61,29 @@ struct ListPresentationTests {
         #expect(HouseholdInviteLink(json: [:]) == nil)
     }
 
+    @Test func householdMemberSummaryParsesJSON() {
+        let userID = UUID()
+        let member = HouseholdMemberSummary(
+            json: [
+                "user_id": userID.uuidString,
+                "display_name": "Alex",
+                "email": "alex@example.com",
+                "role": "editor",
+            ]
+        )
+
+        #expect(
+            member
+                == HouseholdMemberSummary(
+                    userID: userID,
+                    displayName: "Alex",
+                    email: "alex@example.com",
+                    role: .editor
+                )
+        )
+        #expect(HouseholdMemberSummary(json: [:]) == nil)
+    }
+
     @Test func groceryListSummaryStoresInitializerArguments() {
         let listID = UUID()
         let householdID = UUID()
@@ -65,7 +94,8 @@ struct ListPresentationTests {
             householdName: "Home",
             name: "Weekly shop",
             archived: true,
-            accentColorHex: "#007aff"
+            accentColorHex: "#007aff",
+            accessRole: .viewer
         )
 
         #expect(summary.id == listID)
@@ -74,6 +104,7 @@ struct ListPresentationTests {
         #expect(summary.name == "Weekly shop")
         #expect(summary.archived == true)
         #expect(summary.accentColorHex == "#007aff")
+        #expect(summary.accessRole == .viewer)
     }
 
     @Test func groceryListSummaryDecodesLegacyPayloadWithoutAccentColor() throws {
@@ -92,6 +123,7 @@ struct ListPresentationTests {
         let summary = try JSONDecoder().decode(GroceryListSummary.self, from: Data(payload.utf8))
 
         #expect(summary.accentColorHex == nil)
+        #expect(summary.accessRole == .editor)
     }
 
     @Test func groceryCategorySummaryParsesJSON() {

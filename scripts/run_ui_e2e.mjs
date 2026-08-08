@@ -1438,6 +1438,7 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
   await ownerHouseholdCard.getByRole("button", { name: "Create invite link" }).click();
   const invitePanel = ownerPage.locator("[data-dashboard-invite-panel]");
   await expectVisible(invitePanel, "Expected invite share sheet");
+  await invitePanel.getByLabel("Role").selectOption("viewer");
   await invitePanel.getByLabel("Limit").selectOption("uses");
   await invitePanel.locator("[data-invite-max-uses]").fill("2");
   await invitePanel.getByRole("button", { name: "Create invite link" }).click();
@@ -1453,6 +1454,7 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
   );
   assert.equal(invitePreview.max_uses, 2, "Expected limited-use invite");
   assert.equal(invitePreview.remaining_uses, 2, "Expected unused invite to show both uses");
+  assert.equal(invitePreview.role, "viewer", "Expected viewer invite role");
 
   const inviteeContext = await browser.newContext(contextOptions());
   const inviteePage = await inviteeContext.newPage();
@@ -1503,12 +1505,83 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
       "Invitee should see the seeded list after accepting the invite",
     );
     await expectVisible(
+      acceptedHouseholdCard.getByText("Viewer", { exact: false }),
+      "Invitee should see viewer role on the household",
+    );
+    assert.equal(
+      await acceptedHouseholdCard.getByRole("button", { name: "Create invite link" }).count(),
+      0,
+      "Viewer should not see invite management",
+    );
+    await expectVisible(
       acceptedHouseholdCard
         .locator(`a[href="/lists/${scenario.listId}"]`)
         .filter({ hasText: expectedOpenItemLabel }),
       "Invitee should see the seeded list open item count after accepting the invite",
     );
     await screenshot(inviteePage, "invite-accepted");
+
+    await acceptedHouseholdCard.locator(`a[href="/lists/${scenario.listId}"]`).click();
+    await expectVisible(
+      inviteePage.getByText("Viewer access: this list is read-only."),
+      "Viewer should see read-only list status",
+    );
+    await expectHidden(
+      inviteePage.getByRole("button", { name: "Add item" }).first(),
+      "Viewer should not see item creation",
+    );
+    await expectHidden(
+      inviteePage.getByRole("button", { name: "Open list settings" }),
+      "Viewer should not see list settings",
+    );
+
+    await ownerPage.goto(new URL("/?dashboard=1", baseUrl).toString(), {
+      waitUntil: "networkidle",
+    });
+    const refreshedOwnerHouseholdCard = ownerPage
+      .locator(".household-card", { hasText: scenario.householdName })
+      .first();
+    await refreshedOwnerHouseholdCard.getByRole("button", { name: "Members" }).click();
+    const memberPanel = ownerPage.locator("[data-dashboard-members-panel]");
+    await expectVisible(memberPanel, "Owner should open household members");
+    const inviteeMemberRow = memberPanel
+      .locator(".household-member-row", { hasText: invitee.email })
+      .first();
+    await expectVisible(inviteeMemberRow, "Owner should see accepted invitee");
+    await inviteeMemberRow.getByLabel("Role").selectOption("editor");
+    await expectVisible(
+      ownerPage.locator("[data-dashboard-success]", { hasText: "Member role updated." }),
+      "Owner should update invitee to editor",
+    );
+
+    await inviteePage.reload({ waitUntil: "networkidle" });
+    await expectHidden(
+      inviteePage.getByText("Viewer access: this list is read-only."),
+      "Editor should no longer see viewer status",
+    );
+    await expectVisible(
+      inviteePage.getByRole("button", { name: "Add item" }).first(),
+      "Editor should see item creation",
+    );
+    await expectHidden(
+      inviteePage.getByRole("button", { name: "Open list settings" }),
+      "Editor should not see owner list settings",
+    );
+
+    await inviteeMemberRow.getByRole("button", { name: "Remove" }).click();
+    await expectVisible(
+      ownerPage.locator("[data-dashboard-success]", { hasText: "Member removed." }),
+      "Owner should remove invitee",
+    );
+    await inviteePage.goto(new URL("/?dashboard=1", baseUrl).toString(), {
+      waitUntil: "networkidle",
+    });
+    assert.equal(
+      await inviteePage.locator(".household-card", { hasText: scenario.householdName }).count(),
+      0,
+      "Removed member should lose household access",
+    );
+    await screenshot(inviteePage, "member-removed");
   } finally {
     await inviteeContext.close();
   }

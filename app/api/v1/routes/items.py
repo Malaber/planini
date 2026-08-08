@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_list_for_user
+from app.api.deps import get_current_user, get_list_for_editor, get_list_for_user
 from app.core.database import get_db
 from app.models import Category, GroceryItem, GroceryList, ListDisabledCategory, User
 from app.schemas.domain import (
@@ -161,7 +161,7 @@ async def create_item(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GroceryItem:
-    grocery_list = await get_list_for_user(db, list_id, user.id)
+    grocery_list = await get_list_for_editor(db, list_id, user.id)
     await _validate_category_id(db, grocery_list, payload.category_id)
     item = GroceryItem(
         list_id=list_id,
@@ -230,11 +230,11 @@ async def update_item(
 ) -> GroceryItem:
     result = await db.execute(select(GroceryItem).where(GroceryItem.id == item_id))
     item = result.scalar_one()
-    source_list = await get_list_for_user(db, item.list_id, user.id)
+    source_list = await get_list_for_editor(db, item.list_id, user.id)
     target_list = source_list
     is_moving_lists = payload.list_id is not None and payload.list_id != item.list_id
     if is_moving_lists:
-        target_list = await get_list_for_user(db, payload.list_id, user.id)
+        target_list = await get_list_for_editor(db, payload.list_id, user.id)
         if target_list.household_id != source_list.household_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -265,7 +265,7 @@ async def check_item(
 ) -> GroceryItem:
     result = await db.execute(select(GroceryItem).where(GroceryItem.id == item_id))
     item = result.scalar_one()
-    await get_list_for_user(db, item.list_id, user.id)
+    await get_list_for_editor(db, item.list_id, user.id)
     item.checked = True
     recorded_at = datetime.now(UTC)
     item.checked_at = recorded_at
@@ -285,7 +285,7 @@ async def uncheck_item(
 ) -> GroceryItem:
     result = await db.execute(select(GroceryItem).where(GroceryItem.id == item_id))
     item = result.scalar_one()
-    await get_list_for_user(db, item.list_id, user.id)
+    await get_list_for_editor(db, item.list_id, user.id)
     item.checked = False
     item.checked_at = None
     item.checked_state_recorded_at = datetime.now(UTC)
@@ -305,7 +305,7 @@ async def sync_offline_items(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GroceryItemOfflineSyncOut:
-    grocery_list = await get_list_for_user(db, list_id, user.id)
+    grocery_list = await get_list_for_editor(db, list_id, user.id)
     client_item_ids: dict[str, UUID] = {}
     changed_items: dict[UUID, GroceryItem] = {}
     deleted_item_ids: list[str] = []
@@ -437,7 +437,7 @@ async def delete_item(
 ) -> dict[str, str]:
     result = await db.execute(select(GroceryItem).where(GroceryItem.id == item_id))
     item = result.scalar_one()
-    await get_list_for_user(db, item.list_id, user.id)
+    await get_list_for_editor(db, item.list_id, user.id)
     await db.delete(item)
     await db.commit()
     await _broadcast_deleted(item.list_id, user.id, item.id)

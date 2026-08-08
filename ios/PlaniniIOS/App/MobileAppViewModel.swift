@@ -160,6 +160,7 @@ final class MobileAppViewModel: ObservableObject {
     @Published private(set) var authToken: String?
     @Published private(set) var displayName: String?
     @Published private(set) var households: [HouseholdSummary] = []
+    @Published private(set) var membersByHousehold: [UUID: [HouseholdMemberSummary]] = [:]
     @Published private(set) var lists: [GroceryListSummary] = []
     @Published private(set) var items: [GroceryItemRecord] = []
     @Published private(set) var categories: [GroceryCategorySummary] = []
@@ -281,6 +282,21 @@ final class MobileAppViewModel: ObservableObject {
 
     var sortedHouseholdsForManagement: [HouseholdSummary] {
         households.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func role(for householdID: UUID) -> HouseholdRole {
+        households.first { $0.id == householdID }?.role ?? .viewer
+    }
+
+    func canEdit(listID: UUID) -> Bool {
+        guard let list = lists.first(where: { $0.id == listID }) else {
+            return false
+        }
+        return list.accessRole.canEditItems
+    }
+
+    func canManage(householdID: UUID) -> Bool {
+        role(for: householdID).canManageHousehold
     }
 
     var availableCategories: [GroceryCategorySummary] {
@@ -710,6 +726,7 @@ final class MobileAppViewModel: ObservableObject {
         authToken = nil
         displayName = nil
         households = []
+        membersByHousehold = [:]
         lists = []
         items = []
         categories = []
@@ -826,7 +843,12 @@ final class MobileAppViewModel: ObservableObject {
                             householdName: householdName,
                             name: name,
                             archived: (listJSON["archived"] as? Bool) ?? false,
-                            accentColorHex: listJSON["accent_color"] as? String
+                            accentColorHex: listJSON["accent_color"] as? String,
+                            accessRole: (listJSON["access_role"] as? String)
+                                .flatMap(HouseholdRole.init(rawValue:))
+                                ?? (household["role"] as? String)
+                                    .flatMap(HouseholdRole.init(rawValue:))
+                                ?? .editor
                         )
                     }
                 )
@@ -936,7 +958,12 @@ final class MobileAppViewModel: ObservableObject {
         }
     }
 
-    func createInvite(householdID: UUID, expiresInHours: Int? = 24, maxUses: Int? = nil) async -> HouseholdInviteLink? {
+    func createInvite(
+        householdID: UUID,
+        role: HouseholdRole = .editor,
+        expiresInHours: Int? = 24,
+        maxUses: Int? = nil
+    ) async -> HouseholdInviteLink? {
         guard let backendURL, let authToken else { return nil }
 
         var inviteBody: [String: Any] = [:]
@@ -948,6 +975,7 @@ final class MobileAppViewModel: ObservableObject {
         if let maxUses {
             inviteBody["max_uses"] = maxUses
         }
+        inviteBody["role"] = role.rawValue
 
         do {
             let payload = try await requestJSON(
@@ -965,6 +993,63 @@ final class MobileAppViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             return nil
+        }
+    }
+
+    func loadHouseholdMembers(householdID: UUID) async {
+        guard let backendURL, let authToken else { return }
+        do {
+            let payload = try await requestArray(
+                backendURL: backendURL,
+                path: "/api/v1/households/\(householdID.uuidString)/members",
+                token: authToken
+            )
+            membersByHousehold[householdID] = payload.compactMap(HouseholdMemberSummary.init(json:))
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @discardableResult
+    func updateHouseholdMemberRole(
+        householdID: UUID,
+        userID: UUID,
+        role: HouseholdRole
+    ) async -> Bool {
+        guard let backendURL, let authToken, role != .owner else { return false }
+        do {
+            _ = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/households/\(householdID.uuidString)/members/\(userID.uuidString)",
+                method: "PATCH",
+                body: ["role": role.rawValue],
+                token: authToken
+            )
+            await loadHouseholdMembers(householdID: householdID)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult
+    func removeHouseholdMember(householdID: UUID, userID: UUID) async -> Bool {
+        guard let backendURL, let authToken else { return false }
+        do {
+            _ = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/households/\(householdID.uuidString)/members/\(userID.uuidString)",
+                method: "DELETE",
+                body: nil,
+                token: authToken
+            )
+            await loadHouseholdMembers(householdID: householdID)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -1491,7 +1576,8 @@ final class MobileAppViewModel: ObservableObject {
                 accentColorHex: resolvedAccentColorHex(
                     from: payload,
                     fallback: previous.accentColorHex
-                )
+                ),
+                accessRole: previous.accessRole
             )
             lists = sortedLists(lists)
             cacheLists(lists)
@@ -1527,7 +1613,8 @@ final class MobileAppViewModel: ObservableObject {
                 householdName: previous.householdName,
                 name: (payload["name"] as? String) ?? previous.name,
                 archived: (payload["archived"] as? Bool) ?? previous.archived,
-                accentColorHex: resolvedAccentColorHex(from: payload, fallback: accentColorHex)
+                accentColorHex: resolvedAccentColorHex(from: payload, fallback: accentColorHex),
+                accessRole: previous.accessRole
             )
             lists = sortedLists(lists)
             cacheLists(lists)
@@ -1949,7 +2036,11 @@ final class MobileAppViewModel: ObservableObject {
             by: \.householdID
         ).compactMap { householdID, lists -> HouseholdSummary? in
             guard let householdName = lists.first?.householdName else { return nil }
-            return HouseholdSummary(id: householdID, name: householdName)
+            return HouseholdSummary(
+                id: householdID,
+                name: householdName,
+                role: lists.first?.accessRole ?? .editor
+            )
         }
         return uniqueHouseholds
     }

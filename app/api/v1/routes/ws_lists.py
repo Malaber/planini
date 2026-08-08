@@ -55,7 +55,7 @@ async def ws_list(websocket: WebSocket, list_id: UUID) -> None:
         user = await get_current_user(websocket, db, websocket.query_params.get("token"))
         ensure_non_admin_user(user)
         await get_list_for_user(db, list_id, user.id)
-        await hub.connect(list_id, websocket)
+        await hub.connect(list_id, websocket, user.id)
         snapshot, checked_remaining_count = await _snapshot_items(db, list_id)
         category_order_result = await db.execute(
             select(ListCategoryOrder)
