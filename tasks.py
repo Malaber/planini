@@ -2218,9 +2218,6 @@ def _run_ios_marketing_ui_test(
     derived_data = ROOT / derived_data_path
     if clean_derived_data:
         shutil.rmtree(derived_data, ignore_errors=True)
-    for simulator_name in (device_name, ipad_device_name):
-        _ensure_ios_simulator_device(simulator_name)
-        _reset_ios_ui_test_app(simulator_name)
 
     env = _ios_ui_test_env(
         base_url=base_url,
@@ -2266,6 +2263,9 @@ def _run_ios_marketing_ui_test(
         )
 
     for simulator_name in (device_name, ipad_device_name):
+        _shutdown_ios_simulators()
+        _ensure_ios_simulator_device(simulator_name)
+        _reset_ios_ui_test_app(simulator_name)
         shutil.rmtree(result_bundle_path, ignore_errors=True)
         test_command = " ".join(
             [

@@ -250,7 +250,8 @@ jobs:
           name: ios-marketing-screenshots
           retention-days: 7
           path: |
-            e2e-artifacts/ios-marketing-screenshots
+            e2e-artifacts/ios-marketing-screenshots/**/*.png
+            e2e-artifacts/ios-marketing-screenshots/summary.md
             ios-marketing-screenshots-server.log
       - name: Add artifact link
         if: always()

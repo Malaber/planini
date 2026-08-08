@@ -891,6 +891,8 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
     assert "--skip-filter=listWebsocketEmitsItemLifecycleEvents" in ci_workflow
     assert "--test-filter=listWebsocketEmitsItemLifecycleEvents" in ci_workflow
     assert ci_workflow.count("check-ios-ui-e2e") == 1
+    assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in ci_workflow
+    assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in ci_workflow
     assert "check-ios-e2e" not in testflight_workflow
     assert "check-ios-ui-e2e" not in testflight_workflow
     assert "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}" in testflight_workflow
@@ -1798,8 +1800,7 @@ def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
     tmp_path: Path,
 ) -> None:
     calls: list[tuple[str, dict]] = []
-    ensured: list[str] = []
-    resets: list[str] = []
+    simulator_lifecycle: list[tuple[str, str | None]] = []
     summaries: list[str] = []
     validations: list[tuple[str, tuple[int, int]]] = []
     env_calls: list[dict] = []
@@ -1818,12 +1819,17 @@ def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
     monkeypatch.setattr(
         tasks,
         "_ensure_ios_simulator_device",
-        lambda name: ensured.append(name),
+        lambda name: simulator_lifecycle.append(("ensure", name)),
     )
     monkeypatch.setattr(
         tasks,
         "_reset_ios_ui_test_app",
-        lambda name: resets.append(name),
+        lambda name: simulator_lifecycle.append(("reset", name)),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_shutdown_ios_simulators",
+        lambda: simulator_lifecycle.append(("shutdown", None)),
     )
 
     def ios_ui_test_env(**kwargs):
@@ -1925,8 +1931,14 @@ def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
             "display_name": "Alex",
         }
     ]
-    assert ensured == ["iPhone 14 Plus", "iPad Pro 13-inch (M5)"]
-    assert resets == ensured
+    assert simulator_lifecycle == [
+        ("shutdown", None),
+        ("ensure", "iPhone 14 Plus"),
+        ("reset", "iPhone 14 Plus"),
+        ("shutdown", None),
+        ("ensure", "iPad Pro 13-inch (M5)"),
+        ("reset", "iPad Pro 13-inch (M5)"),
+    ]
     assert summaries == []
     assert validations == [
         ("e2e-artifacts/ios-marketing-screenshots/iphone/en-US", (1284, 2778)),
@@ -1946,6 +1958,7 @@ def test_run_ios_marketing_ui_test_reports_build_failure(monkeypatch, tmp_path: 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda name: None)
     monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda name: None)
+    monkeypatch.setattr(tasks, "_shutdown_ios_simulators", lambda: None)
     monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
     derived_data = tmp_path / "ios" / "PlaniniIOS" / ".derived-marketing-screenshots"
     derived_data.mkdir(parents=True)
@@ -1988,6 +2001,7 @@ def test_run_ios_marketing_ui_test_reports_xcode_failure(
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda name: None)
     monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda name: None)
+    monkeypatch.setattr(tasks, "_shutdown_ios_simulators", lambda: None)
     monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
     monkeypatch.setattr(tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: None)
     monkeypatch.setattr(
