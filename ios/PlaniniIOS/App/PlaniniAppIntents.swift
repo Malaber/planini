@@ -159,6 +159,10 @@ struct PlaniniIntentBackendClient {
         var request = URLRequest(url: backendURL.appending(path: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(
+            Locale.preferredLanguages.first ?? "en",
+            forHTTPHeaderField: "Accept-Language"
+        )
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

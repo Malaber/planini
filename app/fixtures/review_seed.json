@@ -55,35 +55,50 @@
   ],
   "categories": [
     {
-      "name": "Konserven",
+      "name": "Canned Goods",
+      "translations": {
+        "de": "Konserven"
+      },
       "color": "#94a3b8",
       "aliases": [
         "Dose"
       ]
     },
     {
-      "name": "Milch & Eier",
+      "name": "Dairy & Eggs",
+      "translations": {
+        "de": "Milch & Eier"
+      },
       "color": "#d8b4e2",
       "aliases": [
         "Molkerei"
       ]
     },
     {
-      "name": "Nudeln",
+      "name": "Pasta",
+      "translations": {
+        "de": "Nudeln"
+      },
       "color": "#d6b08b",
       "aliases": [
         "Pasta"
       ]
     },
     {
-      "name": "Reinigung",
+      "name": "Cleaning",
+      "translations": {
+        "de": "Reinigung"
+      },
       "color": "#c026a3",
       "aliases": [
         "Putzen"
       ]
     },
     {
-      "name": "Tiefkuehlkost",
+      "name": "Frozen Foods",
+      "translations": {
+        "de": "Tiefkühlkost"
+      },
       "color": "#4dd0e1",
       "aliases": [
         "TK"
@@ -91,13 +106,19 @@
     },
     {
       "name": "Vegan",
+      "translations": {
+        "de": "Vegan"
+      },
       "color": "#00b512",
       "aliases": [
         "Plant based"
       ]
     },
     {
-      "name": "Backwaren",
+      "name": "Bakery",
+      "translations": {
+        "de": "Backwaren"
+      },
       "color": "#fb923c",
       "aliases": [
         "Brot",
@@ -106,35 +127,50 @@
       ]
     },
     {
-      "name": "Backzutaten",
+      "name": "Baking Supplies",
+      "translations": {
+        "de": "Backzutaten"
+      },
       "color": "#ec4899",
       "aliases": [
         "backen"
       ]
     },
     {
-      "name": "Fleisch",
+      "name": "Meat",
+      "translations": {
+        "de": "Fleisch"
+      },
       "color": "#ef4444",
       "aliases": [
         "Metzger"
       ]
     },
     {
-      "name": "Gemuese",
+      "name": "Produce",
+      "translations": {
+        "de": "Gemüse"
+      },
       "color": "#7ed957",
       "aliases": [
         "Gruenzeug"
       ]
     },
     {
-      "name": "Haushalt",
+      "name": "Household",
+      "translations": {
+        "de": "Haushalt"
+      },
       "color": "#64748b",
       "aliases": [
         "Home"
       ]
     },
     {
-      "name": "Weekend chores",
+      "name": "Weekend Chores",
+      "translations": {
+        "de": "Wochenendaufgaben"
+      },
       "color": "#8b5cf6",
       "aliases": [
         "Cabin"
@@ -157,16 +193,16 @@
           "accent_color": "#3b82f6",
           "created_by_email": "planini@schaedler.rocks",
           "category_order": [
-            "Konserven",
-            "Milch & Eier",
-            "Nudeln",
-            "Reinigung",
-            "Tiefkuehlkost",
+            "Canned Goods",
+            "Dairy & Eggs",
+            "Pasta",
+            "Cleaning",
+            "Frozen Foods",
             "Vegan",
-            "Backwaren",
-            "Backzutaten",
-            "Fleisch",
-            "Gemuese"
+            "Bakery",
+            "Baking Supplies",
+            "Meat",
+            "Produce"
           ],
           "items": [
             {
@@ -176,13 +212,13 @@
             },
             {
               "name": "Spaghetti",
-              "category": "Nudeln",
+              "category": "Pasta",
               "quantity_text": "2 packs",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Brot",
-              "category": "Backwaren",
+              "category": "Bakery",
               "note": "Seeded checked duplicate",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
@@ -190,23 +226,23 @@
             },
             {
               "name": "Tomaten",
-              "category": "Konserven",
+              "category": "Canned Goods",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Eier",
-              "category": "Milch & Eier",
+              "category": "Dairy & Eggs",
               "quantity_text": "10",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Putzmittel",
-              "category": "Reinigung",
+              "category": "Cleaning",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Erbsen",
-              "category": "Tiefkuehlkost",
+              "category": "Frozen Foods",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
@@ -216,17 +252,17 @@
             },
             {
               "name": "Mehl",
-              "category": "Backzutaten",
+              "category": "Baking Supplies",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Hackfleisch",
-              "category": "Fleisch",
+              "category": "Meat",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Paprika",
-              "category": "Gemuese",
+              "category": "Produce",
               "created_by_email": "planini@schaedler.rocks"
             }
           ]
@@ -235,25 +271,25 @@
           "name": "Hosting errands",
           "created_by_email": "planini@schaedler.rocks",
           "category_order": [
-            "Haushalt",
-            "Backwaren"
+            "Household",
+            "Bakery"
           ],
           "items": [
             {
               "name": "Dish soap",
-              "category": "Haushalt",
+              "category": "Household",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Napkins",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Brioches",
-              "category": "Backwaren",
+              "category": "Bakery",
               "created_by_email": "planini@schaedler.rocks"
             }
           ]
@@ -278,18 +314,18 @@
           "name": "Weekend reset",
           "created_by_email": "review-neighbor@example.com",
           "category_order": [
-            "Weekend chores",
-            "Haushalt"
+            "Weekend Chores",
+            "Household"
           ],
           "items": [
             {
               "name": "Wood pellets",
-              "category": "Weekend chores",
+              "category": "Weekend Chores",
               "created_by_email": "review-neighbor@example.com"
             },
             {
               "name": "Laundry pods",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "review-neighbor@example.com",

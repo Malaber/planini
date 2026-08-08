@@ -387,17 +387,17 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(waitForFieldValue(quantityField, contains: itemQuantity))
 
         chooseCategory(
-            named: "Milch & Eier",
+            named: "Dairy & Eggs",
             using: "add-item-category-link",
             in: app,
-            searchText: "molkrei",
+            searchText: "dairy",
             sortOption: "A-Z",
             screenshotName: "ios-ui-category-picker"
         )
         XCTAssertTrue(
             waitForElementLabel(
                 app.buttons["add-item-category-link"].firstMatch,
-                containing: "Milch & Eier"
+                containing: "Dairy & Eggs"
             )
         )
 
@@ -424,7 +424,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(
             waitForItemCategory(
                 named: itemName,
-                categoryNamed: "Milch & Eier",
+                categoryNamed: "Dairy & Eggs",
                 inListNamed: initialListName,
                 accessToken: session.accessToken
             )
@@ -474,7 +474,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(
             waitForItemCategory(
                 named: itemName,
-                categoryNamed: "Milch & Eier",
+                categoryNamed: "Dairy & Eggs",
                 inListNamed: initialListName,
                 accessToken: session.accessToken
             )
@@ -523,17 +523,17 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(waitForEditSaveCompletion(app: app))
 
         chooseCategory(
-            named: "Konserven",
+            named: "Canned Goods",
             using: "edit-item-category-link",
             in: app,
-            searchText: "kon",
+            searchText: "can",
             sortOption: "most-used",
             screenshotName: "ios-ui-edit-category-picker"
         )
         XCTAssertTrue(
             waitForElementLabel(
                 app.buttons["edit-item-category-link"].firstMatch,
-                containing: "Konserven"
+                containing: "Canned Goods"
             )
         )
         XCTAssertTrue(waitForEditSaveCompletion(app: app))
@@ -559,7 +559,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(
             waitForItemCategory(
                 named: updatedName,
-                categoryNamed: "Konserven",
+                categoryNamed: "Canned Goods",
                 inListNamed: initialListName,
                 accessToken: session.accessToken
             )
@@ -578,17 +578,17 @@ final class PlaniniUITests: XCTestCase {
         )
         captureScreenshot(named: "ios-ui-checked-item")
         let haushaltCategoryID = try categoryID(
-            named: "Haushalt",
+            named: "Household",
             inListNamed: hostingListName,
             accessToken: session.accessToken
         )
         let backwarenCategoryID = try categoryID(
-            named: "Backwaren",
+            named: "Bakery",
             inListNamed: hostingListName,
             accessToken: session.accessToken
         )
         let hostingKonservenCategoryID = try categoryID(
-            named: "Konserven",
+            named: "Canned Goods",
             inListNamed: hostingListName,
             accessToken: session.accessToken
         )
@@ -673,7 +673,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(
             waitForItemCategory(
                 named: "Brot",
-                categoryNamed: "Backwaren",
+                categoryNamed: "Bakery",
                 inListNamed: initialListName,
                 accessToken: session.accessToken
             )
@@ -1257,12 +1257,12 @@ final class PlaniniUITests: XCTestCase {
             try bootstrapSession(email: userEmail)
         }
         let targetCategoryID = try categoryID(
-            named: "Konserven",
+            named: "Canned Goods",
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
         let sourceCategoryID = try categoryID(
-            named: "Milch & Eier",
+            named: "Dairy & Eggs",
             inListNamed: initialListName,
             accessToken: session.accessToken
         )
@@ -1326,7 +1326,7 @@ final class PlaniniUITests: XCTestCase {
                 named: itemName,
                 toCategoryTarget: targetHeader,
                 in: app,
-                categoryName: "Konserven",
+                categoryName: "Canned Goods",
                 listName: initialListName,
                 accessToken: session.accessToken
             ),
@@ -1338,12 +1338,12 @@ final class PlaniniUITests: XCTestCase {
         let undoMessage = app.staticTexts["list-undo-message"]
         XCTAssertTrue(undoButton.waitForExistence(timeout: 5))
         XCTAssertTrue(undoMessage.label.contains(itemName))
-        XCTAssertTrue(undoMessage.label.contains("Konserven"))
+        XCTAssertTrue(undoMessage.label.contains("Canned Goods"))
         tapElement(undoButton)
         XCTAssertTrue(
             waitForItemCategory(
                 named: itemName,
-                categoryNamed: "Milch & Eier",
+                categoryNamed: "Dairy & Eggs",
                 inListNamed: initialListName,
                 accessToken: session.accessToken,
                 timeout: 20
@@ -2598,11 +2598,11 @@ final class PlaniniUITests: XCTestCase {
     ) -> (title: String, button: XCUIElement)? {
         let candidates = [
             ("Uncategorized", "Quick add uncategorized item"),
-            ("Konserven", "Quick add to Konserven"),
-            ("Milch & Eier", "Quick add to Milch & Eier"),
-            ("Nudeln", "Quick add to Nudeln"),
-            ("Reinigung", "Quick add to Reinigung"),
-            ("Tiefkuehlkost", "Quick add to Tiefkuehlkost"),
+            ("Canned Goods", "Quick add to Canned Goods"),
+            ("Dairy & Eggs", "Quick add to Dairy & Eggs"),
+            ("Pasta", "Quick add to Pasta"),
+            ("Cleaning", "Quick add to Cleaning"),
+            ("Frozen Foods", "Quick add to Frozen Foods"),
             ("Vegan", "Quick add to Vegan"),
         ]
         let deadline = Date().addingTimeInterval(timeout)
@@ -3647,6 +3647,7 @@ final class PlaniniUITests: XCTestCase {
         var request = URLRequest(url: targetBaseURL.appending(path: path))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("en", forHTTPHeaderField: "Accept-Language")
         request.httpMethod = method
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

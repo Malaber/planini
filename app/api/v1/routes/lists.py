@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ from app.schemas.domain import (
     ListDisabledCategoriesUpdate,
     GroceryItemOut,
 )
+from app.services.category_localization import localized_category
 from app.services.websocket_hub import hub
 
 router = APIRouter(tags=["lists"])
@@ -169,8 +170,11 @@ async def get_list(
 
 @router.get("/lists/{list_id}/categories", response_model=list[CategoryOut])
 async def get_list_categories(
-    list_id: UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
-) -> list[Category]:
+    request: Request,
+    list_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[CategoryOut]:
     grocery_list = await get_list_for_user(db, list_id, user.id)
     result = await db.execute(
         select(Category)
@@ -179,7 +183,9 @@ async def get_list_categories(
         )
         .order_by(Category.name.asc())
     )
-    return list(result.scalars().all())
+    locale = getattr(request.state, "locale", "en")
+    categories = [localized_category(category, locale) for category in result.scalars().all()]
+    return sorted(categories, key=lambda category: category.name.casefold())
 
 
 @router.get("/lists/{list_id}/category-order", response_model=list[ListCategoryOrderOut])
