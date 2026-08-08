@@ -5,7 +5,7 @@ This folder contains a universal SwiftUI iPhone and iPad client for Planini plus
 ## Folder layout
 
 - `Package.swift` builds the reusable `PlaniniCore` module and its test suite
-- `Sources/PlaniniCore/` contains the backend URL persistence, passkey scaffolding, and authentication view model logic
+- `Sources/PlaniniCore/` contains backend URL persistence, reusable passkey-management workflows, and authentication view model logic
 - `App/` contains the SwiftUI application shell and the Apple passkey bridge for Xcode app targets
 - `Tests/PlaniniCoreTests/` contains high-coverage tests for the app's core behavior
 
@@ -69,6 +69,7 @@ compatibility mode.
 
 - build-time configured backend URL with `https://planini.malaber.de` as the default
 - passkey login against `/api/v1/auth/login/options` and `/api/v1/auth/login/verify`
+- authenticated passkey listing, creation, renaming, and safe deletion from Settings
 - bearer-token authenticated loading of households, lists, and list items
 - list switching plus add, remove, check/uncheck, and edit item details
 - liquid-glass inspired SwiftUI styling using material cards and gradients
@@ -87,7 +88,8 @@ compatibility mode.
    - starts the FastAPI backend with `app/fixtures/review_seed_e2e.json`
    - keeps the backend session cookie for `/auth/login/options` and `/auth/login/verify`
    - signs a real WebAuthn assertion from the seeded private key fixture
-   - verifies passkey login, list loading, add/edit/check/uncheck/delete item flows
+   - verifies passkey login and a complete reusable passkey-management lifecycle
+   - verifies list loading and add/edit/check/uncheck/delete item flows
 3. **Generate the Xcode project if you need to regenerate it (macOS):**
    ```bash
    .venv/bin/inv generate-ios-project
@@ -152,6 +154,7 @@ That derives `WEBAUTHN_RP_ID` from the configured backend host automatically.
 
 - The native app now accepts the backend's current `/api/v1/auth/login/options` response shape directly, whether the WebAuthn options are top-level or nested under `publicKey`.
 - The app relies on the `Set-Cookie` session from `/api/v1/auth/login/options` to complete `/api/v1/auth/login/verify`, so login tests should always use the same session between both requests.
+- Passkey add, rename, and delete management ceremonies also keep one session between each `/options` and `/verify` request. Deletion requires proof with a different remaining passkey.
 - For local native passkey checks, use `localhost` as the browser-facing host and RP ID. `127.0.0.1` is not valid for WebAuthn passkey UX in Apple and Chromium clients.
 - The app target now includes the Associated Domains entitlement for `webcredentials:planini.malaber.de`.
 - Production passkey login still requires a real Apple team ID and bundle identifier that match the `appID` entries served by `https://planini.malaber.de/.well-known/apple-app-site-association`.
