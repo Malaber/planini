@@ -24,7 +24,7 @@ dependencies = [
   "python-multipart>=0.0.9",
   "email-validator>=2.2.0",
   "itsdangerous>=2.2.0",
-  "webauthn>=2.7.1",
+  "fastpasskey @ https://github.com/Malaber/python-libs/releases/download/fastpasskey-v0.2.6/fastpasskey-0.2.6-py3-none-any.whl#sha256=b66a362eb0805860692e1d01bc51db16c8a832a684453a8c825bfe9788d0d19e",
 ]
 
 [project.optional-dependencies]
@@ -63,4 +63,4 @@ target-version = ["py314"]
 [tool.flake8]
 max-line-length = 100
 extend-ignore = ["E203", "W503"]
-exclude = [".venv"]
+exclude = [".venv", ".build"]

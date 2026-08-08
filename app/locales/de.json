@@ -127,7 +127,7 @@
       "one": "{count} offener Artikel",
       "other": "{count} offene Artikel"
     },
-    "invite_link_created": "Einladungslink erstellt. Er bleibt 24 Stunden gültig.",
+    "invite_link_created": "Einladungslink erstellt.",
     "invite_link_create_failed": "Der Einladungslink konnte nicht erstellt werden.",
     "invite_link_copied": "Einladungslink kopiert.",
     "invite_link_copy_failed": "Der Einladungslink konnte nicht kopiert werden.",
@@ -138,7 +138,32 @@
     "choose_household_before_list": "Erstelle oder wähle einen Haushalt, bevor du eine Liste erstellst.",
     "list_name_required": "Bitte gib einen Listennamen ein.",
     "list_create_failed": "Die Liste konnte nicht erstellt werden.",
-    "load_failed": "Deine Haushalte konnten nicht geladen werden."
+    "load_failed": "Deine Haushalte konnten nicht geladen werden.",
+    "invite_validity": "Einladungsdauer",
+    "invite_24h": "24 Stunden",
+    "invite_x_uses": "Begrenzte Nutzungen",
+    "invite_max_uses": "Nutzungen",
+    "close_invite_sheet": "Einladungslink-Dialog schließen",
+    "invite_sheet_label": "Einladungslink",
+    "invite_sheet_title": "Einladungslink erstellen",
+    "invite_sheet_helper": "Wähle, wie dieser Einladungslink für {household} gültig bleiben soll.",
+    "invite_limit_type": "Begrenzung",
+    "invite_time_limited": "Zeit begrenzen",
+    "invite_usage_limited": "Nutzungen begrenzen",
+    "invite_hours_valid": "Stunden gültig",
+    "invite_duration_hours": {
+      "one": "{count} Stunde",
+      "other": "{count} Stunden"
+    },
+    "invite_duration_days": {
+      "one": "{count} Tag",
+      "other": "{count} Tage"
+    },
+    "invite_quick_1_day": "1 Tag",
+    "invite_quick_3_days": "3 Tage",
+    "invite_quick_1_week": "1 Woche",
+    "share_invite_time_hint": "Teile diesen Link innerhalb von {duration}.",
+    "share_invite_use_hint": "Teile diesen Link. Er kann {count} Mal genutzt werden."
   },
   "settings": {
     "kicker": "Benutzereinstellungen",
@@ -202,7 +227,8 @@
     "expires_on": "Dieser Link läuft am {date} ab.",
     "unavailable": "Dieser Einladungslink ist nicht mehr verfügbar.",
     "accepted": "Du bist {household} beigetreten. Weiterleitung läuft...",
-    "accept_failed": "Die Einladung konnte nicht angenommen werden."
+    "accept_failed": "Die Einladung konnte nicht angenommen werden.",
+    "remaining_uses": "Dieser Link hat noch {count} Nutzungen."
   },
   "support": {
     "kicker": "Planini Support",
@@ -395,6 +421,10 @@
     "load_failed": "Die Liste konnte nicht geladen werden."
   },
   "ios": {
+    "siri": {
+      "add_item_phrase": "Füge mit ${applicationName} einen Artikel hinzu",
+      "add_item_to_list_phrase": "Füge mit ${applicationName} einen Artikel zu ${list} hinzu"
+    },
     "error": {
       "title": "Fehler"
     },
@@ -423,6 +453,10 @@
       "creating_account": "Konto wird erstellt...",
       "could_not_create_account": "Dieses Konto konnte nicht erstellt werden."
     },
+    "passkeys": {
+      "loading": "Passkeys werden geladen...",
+      "name_too_long": "Verwende höchstens 120 Zeichen."
+    },
     "tabs": {
       "favorite": "Favorit",
       "lists": "Listen"
@@ -440,6 +474,21 @@
       "empty_title": "Noch keine Listen",
       "empty_message": "Erstelle in den Einstellungen einen Haushalt und eine Liste, um loszulegen.",
       "open_settings": "Einstellungen öffnen"
+    },
+    "list_settings": {
+      "accent_title": "Akzentfarbe",
+      "accent_hint": "Eine dezente Tönung macht diese Liste leichter erkennbar.",
+      "accent_none": "Keine Farbe",
+      "accent_red": "Rot",
+      "accent_orange": "Orange",
+      "accent_yellow": "Gelb",
+      "accent_green": "Grün",
+      "accent_teal": "Türkis",
+      "accent_blue": "Blau",
+      "accent_purple": "Lila",
+      "accent_pink": "Pink",
+      "accent_selected": "Akzent {color} ausgewählt",
+      "accent_selection_selected": "Ausgewählt"
     },
     "settings": {
       "account": "Konto",
@@ -477,7 +526,21 @@
       "creating_invite": "Einladung wird erstellt...",
       "create_invite_link": "Einladungslink erstellen",
       "expires_at": "Läuft ab {date}",
-      "save_failed": "Konnte nicht gespeichert werden."
+      "save_failed": "Konnte nicht gespeichert werden.",
+      "invite_validity": "Einladungsdauer",
+      "invite_24h": "24 Stunden",
+      "invite_x_uses": "Begrenzte Nutzungen",
+      "invite_max_uses": "{count} Nutzungen",
+      "invite_time_limited": "Zeit begrenzen",
+      "invite_usage_limited": "Nutzungen begrenzen",
+      "invite_hours_valid": "{count} Stunden",
+      "invite_duration_hour_one": "1 Stunde",
+      "invite_duration_hours": "{count} Stunden",
+      "invite_duration_day_one": "1 Tag",
+      "invite_duration_days": "{count} Tage",
+      "invite_quick_1_day": "1 Tag",
+      "invite_quick_3_days": "3 Tage",
+      "invite_quick_1_week": "1 Woche"
     },
     "list": {
       "fallback_title": "Liste",
@@ -496,6 +559,7 @@
       "item_checked_named": "{name} wurde abgehakt.",
       "item_unchecked_named": "{name} wurde wieder geöffnet.",
       "item_deleted_named": "{name} wurde gelöscht.",
+      "item_moved_to_category_named": "{name} wurde nach {category} verschoben.",
       "item_saved_for_later_named": "{name} wurde für später gespeichert.",
       "item_shown_now_named": "{name} wird jetzt angezeigt."
     },

@@ -34,7 +34,8 @@ struct SharedAppStateTests {
                     householdID: UUID(),
                     householdName: "Home",
                     name: "Weekly shop",
-                    archived: false
+                    archived: false,
+                    accentColorHex: "#34c759"
                 )
             ],
             categories: [
@@ -47,6 +48,7 @@ struct SharedAppStateTests {
 
         #expect(state.favoriteList?.id == favoriteListID)
         #expect(state.favoriteListName == "Weekly shop")
+        #expect(state.favoriteList?.accentColorHex == "#34c759")
         #expect(state.canQuickAdd == true)
         #expect(state.categories.map(\.name) == ["Produce"])
         #expect(state.categoryOrder.map(\.categoryID) == [categoryID])
@@ -124,7 +126,8 @@ struct SharedAppStateTests {
                     householdID: UUID(),
                     householdName: "Home",
                     name: "Groceries",
-                    archived: false
+                    archived: false,
+                    accentColorHex: "#007aff"
                 )
             ],
             items: [

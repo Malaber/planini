@@ -1,7 +1,70 @@
 import PlaniniCore
 import SwiftUI
+import UniformTypeIdentifiers
 #if canImport(UIKit)
 import UIKit
+#endif
+
+#if canImport(UIKit)
+private struct ItemCategoryDropInteractionView: UIViewRepresentable {
+    let onTargetedChanged: (Bool) -> Void
+    let onDrop: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTargetedChanged: onTargetedChanged, onDrop: onDrop)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.addInteraction(UIDropInteraction(delegate: context.coordinator))
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onTargetedChanged = onTargetedChanged
+        context.coordinator.onDrop = onDrop
+    }
+
+    final class Coordinator: NSObject, UIDropInteractionDelegate {
+        var onTargetedChanged: (Bool) -> Void
+        var onDrop: (String) -> Void
+
+        init(onTargetedChanged: @escaping (Bool) -> Void, onDrop: @escaping (String) -> Void) {
+            self.onTargetedChanged = onTargetedChanged
+            self.onDrop = onDrop
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+            session.canLoadObjects(ofClass: NSString.self)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidEnter session: UIDropSession) {
+            onTargetedChanged(true)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, sessionDidExit session: UIDropSession) {
+            onTargetedChanged(false)
+        }
+
+        func dropInteraction(
+            _ interaction: UIDropInteraction,
+            sessionDidUpdate session: UIDropSession
+        ) -> UIDropProposal {
+            UIDropProposal(operation: .move)
+        }
+
+        func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+            onTargetedChanged(false)
+            session.loadObjects(ofClass: NSString.self) { [weak self] objects in
+                guard let itemID = objects.first as? String else { return }
+                Task { @MainActor in
+                    self?.onDrop(itemID)
+                }
+            }
+        }
+    }
+}
 #endif
 
 private struct AppErrorAlert: Identifiable {
@@ -13,6 +76,73 @@ private enum AppTab: Hashable {
     case favorite
     case lists
     case settings
+}
+
+private struct ListAccentColorOption: Identifiable, Equatable {
+    let id: String
+    let localizationKey: String
+    let hex: String?
+
+    static let all: [ListAccentColorOption] = [
+        ListAccentColorOption(
+            id: "none",
+            localizationKey: "ios.list_settings.accent_none",
+            hex: nil
+        ),
+        ListAccentColorOption(
+            id: "red",
+            localizationKey: "ios.list_settings.accent_red",
+            hex: "#ff3b30"
+        ),
+        ListAccentColorOption(
+            id: "orange",
+            localizationKey: "ios.list_settings.accent_orange",
+            hex: "#ff9500"
+        ),
+        ListAccentColorOption(
+            id: "yellow",
+            localizationKey: "ios.list_settings.accent_yellow",
+            hex: "#ffcc00"
+        ),
+        ListAccentColorOption(
+            id: "green",
+            localizationKey: "ios.list_settings.accent_green",
+            hex: "#34c759"
+        ),
+        ListAccentColorOption(
+            id: "teal",
+            localizationKey: "ios.list_settings.accent_teal",
+            hex: "#30b0c7"
+        ),
+        ListAccentColorOption(
+            id: "blue",
+            localizationKey: "ios.list_settings.accent_blue",
+            hex: "#007aff"
+        ),
+        ListAccentColorOption(
+            id: "purple",
+            localizationKey: "ios.list_settings.accent_purple",
+            hex: "#af52de"
+        ),
+        ListAccentColorOption(
+            id: "pink",
+            localizationKey: "ios.list_settings.accent_pink",
+            hex: "#ff2d55"
+        ),
+    ]
+
+    static func option(for hex: String?) -> ListAccentColorOption? {
+        all.first { option in
+            switch (option.hex, hex) {
+            case (nil, nil):
+                return true
+            case let (optionHex?, hex?):
+                return optionHex.caseInsensitiveCompare(hex) == .orderedSame
+            default:
+                return false
+            }
+        }
+    }
 }
 
 private struct AddItemPresentation: Identifiable {
@@ -301,7 +431,7 @@ struct RootView: View {
     private var appTabs: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                FavoriteListTab(selectedTab: $selectedTab)
+                FavoriteListTab(selectedTab: $selectedTab, onListSwitch: openListInListsTab)
             }
             .tabItem {
                 Label(
@@ -359,6 +489,11 @@ struct RootView: View {
         Task {
             await viewModel.handleIncomingPlaniniLink(url.absoluteString)
         }
+    }
+
+    private func openListInListsTab(_ listID: UUID) {
+        selectedTab = .lists
+        listNavigationPath = [listID]
     }
 }
 
@@ -565,11 +700,12 @@ private struct FavoriteListTab: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
     @Binding var selectedTab: AppTab
+    let onListSwitch: (UUID) -> Void
 
     var body: some View {
         Group {
             if let favoriteList = viewModel.favoriteList {
-                ListDetailScreen(listID: favoriteList.id, showsFavoriteButton: false)
+                ListDetailScreen(listID: favoriteList.id, showsFavoriteButton: false, onListSwitch: onListSwitch)
             } else {
                 VStack(spacing: 0) {
                     EmptyStateView(
@@ -668,6 +804,7 @@ private struct ListsTab: View {
                                 .contentShape(Rectangle())
                             }
                             .accessibilityIdentifier("list-row-\(list.name)")
+                            .listRowBackground(rowBackground(for: list))
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 Button {
                                     viewModel.setFavoriteList(id: list.id)
@@ -684,6 +821,13 @@ private struct ListsTab: View {
             }
         }
         .navigationTitle(l10n.t("ios.tabs.lists"))
+    }
+
+    private func rowBackground(for list: GroceryListSummary) -> Color {
+        guard let accentColor = Color(hex: list.accentColorHex) else {
+            return Color(uiColor: .secondarySystemGroupedBackground)
+        }
+        return accentColor.opacity(0.10)
     }
 }
 
@@ -711,6 +855,12 @@ private struct SettingsTab: View {
                 if let favoriteList = viewModel.favoriteList {
                     LabeledContent(l10n.t("ios.favorite.favorite_list"), value: favoriteList.name)
                 }
+                NavigationLink {
+                    PasskeyManagementScreen()
+                } label: {
+                    Label(l10n.t("settings.your_passkeys"), systemImage: "person.badge.key")
+                }
+                .accessibilityIdentifier("settings-passkey-management-link")
                 NavigationLink {
                     HouseholdManagementScreen()
                 } label: {
@@ -751,6 +901,392 @@ private struct SettingsTab: View {
         case .dark:
             return l10n.t("ios.settings.appearance_dark")
         }
+    }
+}
+
+private enum PasskeyManagementSheet: Identifiable {
+    case add(suggestedName: String)
+    case rename(PasskeyRecord)
+    case delete(PasskeyRecord)
+
+    var id: String {
+        switch self {
+        case .add:
+            return "add"
+        case let .rename(passkey):
+            return "rename-\(passkey.id.uuidString)"
+        case let .delete(passkey):
+            return "delete-\(passkey.id.uuidString)"
+        }
+    }
+}
+
+private struct PasskeyManagementScreen: View {
+    @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
+
+    @State private var activeSheet: PasskeyManagementSheet?
+    @State private var successMessage: String?
+
+    var body: some View {
+        List {
+            Section {
+                if viewModel.isManagingPasskeys && viewModel.passkeys.isEmpty {
+                    ProgressView(l10n.t("ios.passkeys.loading"))
+                        .accessibilityIdentifier("passkey-loading-indicator")
+                } else if viewModel.passkeys.isEmpty {
+                    EmptyStateView(
+                        title: l10n.t("settings.no_passkeys_title"),
+                        systemImage: "person.badge.key",
+                        message: l10n.t("settings.no_passkeys_body")
+                    )
+                    .accessibilityIdentifier("passkey-empty-state")
+                } else {
+                    ForEach(viewModel.passkeys) { passkey in
+                        PasskeyManagementRow(
+                            passkey: passkey,
+                            canDelete: viewModel.passkeys.count > 1,
+                            isBusy: viewModel.isManagingPasskeys,
+                            onRename: {
+                                successMessage = nil
+                                activeSheet = .rename(passkey)
+                            },
+                            onDelete: {
+                                successMessage = nil
+                                activeSheet = .delete(passkey)
+                            }
+                        )
+                    }
+                }
+            } header: {
+                Text(l10n.t("settings.security"))
+            } footer: {
+                Text(l10n.t("settings.helper"))
+            }
+
+            Section {
+                Button {
+                    successMessage = nil
+                    activeSheet = .add(
+                        suggestedName: l10n.t(
+                            "settings.suggested_name",
+                            ["number": "\(viewModel.passkeys.count + 1)"]
+                        )
+                    )
+                } label: {
+                    Label(l10n.t("settings.add_another"), systemImage: "plus")
+                }
+                .disabled(viewModel.isManagingPasskeys)
+                .accessibilityIdentifier("passkey-add-button")
+            }
+
+            if let errorMessage = viewModel.passkeyManagementErrorMessage {
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("passkey-management-error")
+                }
+            }
+
+            if let successMessage {
+                Section {
+                    Label(successMessage, systemImage: "checkmark.circle")
+                        .foregroundStyle(.green)
+                        .accessibilityIdentifier("passkey-management-success")
+                }
+            }
+        }
+        .navigationTitle(l10n.t("settings.your_passkeys"))
+        .accessibilityIdentifier("passkey-management-screen")
+        .task {
+            _ = await viewModel.loadPasskeys()
+        }
+        .refreshable {
+            _ = await viewModel.loadPasskeys()
+        }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case let .add(suggestedName):
+                PasskeyNameSheet(
+                    title: l10n.t("settings.name_this_passkey"),
+                    submitTitle: l10n.t("common.continue"),
+                    initialName: suggestedName,
+                    identifierPrefix: "passkey-add"
+                ) { name in
+                    let added = await viewModel.addPasskey(name: name)
+                    if added {
+                        successMessage = l10n.t("settings.added_success")
+                    }
+                    return added
+                }
+            case let .rename(passkey):
+                PasskeyNameSheet(
+                    title: l10n.t("settings.rename_this_passkey"),
+                    submitTitle: l10n.t("settings.save_and_verify"),
+                    initialName: passkey.name,
+                    identifierPrefix: "passkey-rename"
+                ) { name in
+                    let renamed = await viewModel.renamePasskey(passkey, name: name)
+                    if renamed {
+                        successMessage = l10n.t("settings.renamed_success")
+                    }
+                    return renamed
+                }
+            case let .delete(passkey):
+                PasskeyDeleteConfirmationSheet(passkey: passkey) {
+                    let deleted = await viewModel.deletePasskey(passkey)
+                    if deleted {
+                        successMessage = l10n.t("settings.deleted_success")
+                    }
+                    return deleted
+                }
+            }
+        }
+    }
+}
+
+private struct PasskeyManagementRow: View {
+    @EnvironmentObject private var l10n: AppLocalization
+
+    let passkey: PasskeyRecord
+    let canDelete: Bool
+    let isBusy: Bool
+    let onRename: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(passkey.name)
+                        .font(.headline)
+                        .accessibilityIdentifier(
+                            "passkey-name-\(passkey.id.uuidString.lowercased())"
+                        )
+                    Text(
+                        l10n.t(
+                            "settings.added_on",
+                            ["date": formattedDate(passkey.createdAt)]
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    Text(lastUsedText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: "key")
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Button {
+                    onRename()
+                } label: {
+                    Label(l10n.t("settings.rename"), systemImage: "pencil")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isBusy)
+                .accessibilityIdentifier("passkey-rename-\(passkey.id.uuidString.lowercased())")
+
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label(l10n.t("common.delete"), systemImage: "trash")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isBusy || canDelete == false)
+                .accessibilityIdentifier("passkey-delete-\(passkey.id.uuidString.lowercased())")
+            }
+
+            if canDelete == false {
+                Text(l10n.t("settings.delete_disabled"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("passkey-delete-disabled-help")
+            }
+        }
+    }
+
+    private var lastUsedText: String {
+        guard let lastUsedAt = passkey.lastUsedAt else {
+            return l10n.t("settings.never_used")
+        }
+        return l10n.t(
+            "settings.last_used",
+            ["date": formattedDate(lastUsedAt)]
+        )
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: l10n.effectiveLocale)
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+private struct PasskeyNameSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
+
+    let title: String
+    let submitTitle: String
+    let identifierPrefix: String
+    let onSubmit: (String) async -> Bool
+
+    @State private var name: String
+
+    init(
+        title: String,
+        submitTitle: String,
+        initialName: String,
+        identifierPrefix: String,
+        onSubmit: @escaping (String) async -> Bool
+    ) {
+        self.title = title
+        self.submitTitle = submitTitle
+        self.identifierPrefix = identifierPrefix
+        self.onSubmit = onSubmit
+        _name = State(initialValue: initialName)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField(l10n.t("settings.passkey_name_placeholder"), text: $name)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("\(identifierPrefix)-name-field")
+
+                    if isNameTooLong {
+                        Text(l10n.t("ios.passkeys.name_too_long"))
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("\(identifierPrefix)-name-error")
+                    }
+                }
+
+                if let errorMessage = viewModel.passkeyManagementErrorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("\(identifierPrefix)-error")
+                    }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(l10n.t("common.cancel")) {
+                        dismiss()
+                    }
+                    .disabled(viewModel.isManagingPasskeys)
+                    .accessibilityIdentifier("\(identifierPrefix)-cancel-button")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(submitTitle) {
+                        closeKeyboard()
+                        Task {
+                            if await onSubmit(trimmedName) {
+                                AppHaptics.confirmation()
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(
+                        viewModel.isManagingPasskeys
+                            || trimmedName.isEmpty
+                            || isNameTooLong
+                    )
+                    .accessibilityIdentifier("\(identifierPrefix)-submit-button")
+                }
+            }
+        }
+        .interactiveDismissDisabled(viewModel.isManagingPasskeys)
+        .accessibilityIdentifier("\(identifierPrefix)-name-sheet")
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isNameTooLong: Bool {
+        trimmedName.unicodeScalars.count > 120
+    }
+
+    private func closeKeyboard() {
+        #if canImport(UIKit)
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+        #endif
+    }
+}
+
+private struct PasskeyDeleteConfirmationSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
+
+    let passkey: PasskeyRecord
+    let onConfirm: () async -> Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(
+                        l10n.t(
+                            "settings.delete_help",
+                            ["name": passkey.name]
+                        )
+                    )
+                }
+
+                if let errorMessage = viewModel.passkeyManagementErrorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("passkey-delete-confirmation-error")
+                    }
+                }
+
+                Section {
+                    Button(l10n.t("settings.continue_to_verification"), role: .destructive) {
+                        Task {
+                            if await onConfirm() {
+                                AppHaptics.confirmation()
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(viewModel.isManagingPasskeys)
+                    .accessibilityIdentifier("passkey-delete-confirm-button")
+                }
+            }
+            .navigationTitle(l10n.t("settings.delete_this_passkey"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(l10n.t("common.cancel")) {
+                        dismiss()
+                    }
+                    .disabled(viewModel.isManagingPasskeys)
+                    .accessibilityIdentifier("passkey-delete-cancel-button")
+                }
+            }
+        }
+        .interactiveDismissDisabled(viewModel.isManagingPasskeys)
+        .accessibilityIdentifier("passkey-delete-confirmation-sheet")
     }
 }
 
@@ -892,8 +1428,7 @@ private struct HouseholdDetailManagementScreen: View {
     let householdID: UUID
 
     @State private var showingNewList = false
-    @State private var invite: HouseholdInviteLink?
-    @State private var isCreatingInvite = false
+    @State private var showingInviteSheet = false
 
     private var household: HouseholdSummary? {
         viewModel.households.first { $0.id == householdID }
@@ -933,6 +1468,7 @@ private struct HouseholdDetailManagementScreen: View {
                             }
                         }
                         .accessibilityIdentifier("managed-list-row-\(list.name)")
+                        .listRowBackground(rowBackground(for: list))
                     }
                 }
 
@@ -946,22 +1482,121 @@ private struct HouseholdDetailManagementScreen: View {
 
             Section(l10n.t("ios.households.invites_section")) {
                 Button {
-                    Task { await createInvite() }
+                    showingInviteSheet = true
                 } label: {
-                    if isCreatingInvite {
-                        HStack {
-                            ProgressView()
-                            Text(l10n.t("ios.households.creating_invite"))
+                    Label(l10n.t("ios.households.create_invite_link"), systemImage: "link.badge.plus")
+                }
+                .accessibilityIdentifier("open-household-invite-sheet-button")
+            }
+        }
+        .navigationTitle(household?.name ?? l10n.t("ios.households.fallback_title"))
+        .sheet(isPresented: $showingNewList) {
+            CreateNamedResourceSheet(
+                title: l10n.t("ios.households.new_list"),
+                placeholder: l10n.t("ios.households.list_name"),
+                saveTitle: l10n.t("common.create"),
+                fieldIdentifier: "new-household-list-name-field",
+                saveIdentifier: "new-household-list-save-button"
+            ) { name in
+                await viewModel.createList(householdID: householdID, name: name) != nil
+            }
+        }
+        .sheet(isPresented: $showingInviteSheet) {
+            HouseholdInviteSheet(householdID: householdID)
+        }
+        .accessibilityIdentifier("household-detail-management-screen")
+    }
+
+    private func rowBackground(for list: GroceryListSummary) -> Color {
+        guard let accentColor = Color(hex: list.accentColorHex) else {
+            return Color(uiColor: .secondarySystemGroupedBackground)
+        }
+        return accentColor.opacity(0.10)
+    }
+}
+
+private struct HouseholdInviteSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
+    let householdID: UUID
+
+    @State private var invite: HouseholdInviteLink?
+    @State private var isCreatingInvite = false
+    @State private var inviteMode = "time"
+    @State private var inviteHours = 24
+    @State private var inviteMaxUses = 5
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker(l10n.t("ios.households.invite_validity"), selection: $inviteMode) {
+                        Text(l10n.t("ios.households.invite_time_limited"))
+                            .tag("time")
+                            .accessibilityIdentifier("household-invite-mode-time")
+                        Text(l10n.t("ios.households.invite_usage_limited"))
+                            .tag("uses")
+                            .accessibilityIdentifier("household-invite-mode-uses")
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("household-invite-mode-picker")
+                }
+
+                Section {
+                    if inviteMode == "time" {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Stepper(
+                                l10n.t("ios.households.invite_hours_valid", ["count": "\(inviteHours)"]),
+                                value: $inviteHours,
+                                in: 1...720
+                            )
+                            .accessibilityIdentifier("household-invite-hours-stepper")
+
+                            Text(formattedInviteHours(inviteHours))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("household-invite-duration-label")
+
+                            HStack {
+                                Button(l10n.t("ios.households.invite_quick_1_day")) { inviteHours = 24 }
+                                    .accessibilityIdentifier("household-invite-quick-1-day-button")
+                                Button(l10n.t("ios.households.invite_quick_3_days")) { inviteHours = 72 }
+                                    .accessibilityIdentifier("household-invite-quick-3-days-button")
+                                Button(l10n.t("ios.households.invite_quick_1_week")) { inviteHours = 168 }
+                                    .accessibilityIdentifier("household-invite-quick-1-week-button")
+                            }
+                            .buttonStyle(.bordered)
                         }
                     } else {
-                        Label(l10n.t("ios.households.create_invite_link"), systemImage: "link.badge.plus")
+                        Stepper(
+                            l10n.t("ios.households.invite_max_uses", ["count": "\(inviteMaxUses)"]),
+                            value: $inviteMaxUses,
+                            in: 1...100
+                        )
+                        .accessibilityIdentifier("household-invite-max-uses-stepper")
                     }
                 }
-                .disabled(isCreatingInvite)
-                .accessibilityIdentifier("create-household-invite-button")
+
+                Section {
+                    Button {
+                        Task { await createInvite() }
+                    } label: {
+                        if isCreatingInvite {
+                            HStack {
+                                ProgressView()
+                                Text(l10n.t("ios.households.creating_invite"))
+                            }
+                        } else {
+                            Label(l10n.t("ios.households.create_invite_link"), systemImage: "link.badge.plus")
+                        }
+                    }
+                    .disabled(isCreatingInvite)
+                    .accessibilityIdentifier("create-household-invite-button")
+                }
 
                 if let invite {
-                    VStack(alignment: .leading, spacing: 8) {
+                    Section {
                         Text(invite.inviteURL)
                             .font(.footnote.monospaced())
                             .textSelection(.enabled)
@@ -969,6 +1604,11 @@ private struct HouseholdDetailManagementScreen: View {
 
                         if let expiresAtText = formattedExpiration(for: invite) {
                             Text(l10n.t("ios.households.expires_at", ["date": expiresAtText]))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("household-invite-expiration")
+                        } else if let maxUsesText = formattedMaxUses(for: invite) {
+                            Text(maxUsesText)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .accessibilityIdentifier("household-invite-expiration")
@@ -988,23 +1628,21 @@ private struct HouseholdDetailManagementScreen: View {
                             .accessibilityIdentifier("share-household-invite-button")
                         }
                     }
-                    .padding(.vertical, 4)
                 }
             }
-        }
-        .navigationTitle(household?.name ?? l10n.t("ios.households.fallback_title"))
-        .sheet(isPresented: $showingNewList) {
-            CreateNamedResourceSheet(
-                title: l10n.t("ios.households.new_list"),
-                placeholder: l10n.t("ios.households.list_name"),
-                saveTitle: l10n.t("common.create"),
-                fieldIdentifier: "new-household-list-name-field",
-                saveIdentifier: "new-household-list-save-button"
-            ) { name in
-                await viewModel.createList(householdID: householdID, name: name) != nil
+            .navigationTitle(l10n.t("ios.households.create_invite_link"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(l10n.t("common.cancel")) { dismiss() }
+                        .accessibilityIdentifier("close-household-invite-sheet-button")
+                }
             }
+            .accessibilityIdentifier("household-invite-sheet")
         }
-        .accessibilityIdentifier("household-detail-management-screen")
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(isCreatingInvite)
     }
 
     @MainActor
@@ -1013,7 +1651,13 @@ private struct HouseholdDetailManagementScreen: View {
         isCreatingInvite = true
         defer { isCreatingInvite = false }
 
-        if let createdInvite = await viewModel.createInvite(householdID: householdID) {
+        let maxUses = inviteMode == "uses" ? inviteMaxUses : nil
+        let expiresInHours = inviteMode == "uses" ? nil : inviteHours
+        if let createdInvite = await viewModel.createInvite(
+            householdID: householdID,
+            expiresInHours: expiresInHours,
+            maxUses: maxUses
+        ) {
             invite = createdInvite
             AppHaptics.confirmation()
         }
@@ -1022,6 +1666,21 @@ private struct HouseholdDetailManagementScreen: View {
     private func formattedExpiration(for invite: HouseholdInviteLink) -> String? {
         guard let expiresAt = invite.expiresAt else { return nil }
         return inviteExpirationFormatter.string(from: expiresAt)
+    }
+
+    private func formattedMaxUses(for invite: HouseholdInviteLink) -> String? {
+        guard let maxUses = invite.maxUses else { return nil }
+        return l10n.t("ios.households.invite_max_uses", ["count": "\(maxUses)"])
+    }
+
+    private func formattedInviteHours(_ hours: Int) -> String {
+        if hours % 24 == 0 {
+            let days = hours / 24
+            let key = days == 1 ? "ios.households.invite_duration_day_one" : "ios.households.invite_duration_days"
+            return l10n.t(key, ["count": "\(days)"])
+        }
+        let key = hours == 1 ? "ios.households.invite_duration_hour_one" : "ios.households.invite_duration_hours"
+        return l10n.t(key, ["count": "\(hours)"])
     }
 
     private func copyInvite(_ inviteURL: String) {
@@ -1119,6 +1778,7 @@ private struct ListDetailScreen: View {
     @EnvironmentObject private var l10n: AppLocalization
     let listID: UUID
     let showsFavoriteButton: Bool
+    let onListSwitch: ((UUID) -> Void)?
 
     @State private var displayedListID: UUID
     @State private var editingItem: GroceryItemRecord?
@@ -1130,15 +1790,39 @@ private struct ListDetailScreen: View {
     @State private var undoDismissTask: Task<Void, Never>?
     @State private var isRunningUndo = false
     @State private var showingListSettings = false
+    @State private var targetedDropSectionID: String?
 
-    init(listID: UUID, showsFavoriteButton: Bool) {
+    init(listID: UUID, showsFavoriteButton: Bool, onListSwitch: ((UUID) -> Void)? = nil) {
         self.listID = listID
         self.showsFavoriteButton = showsFavoriteButton
+        self.onListSwitch = onListSwitch
         _displayedListID = State(initialValue: listID)
     }
 
     private var currentList: GroceryListSummary? {
         viewModel.lists.first { $0.id == displayedListID }
+    }
+
+    private var listBackground: some View {
+        ZStack {
+            Color(uiColor: .systemGroupedBackground)
+            if let accentColor = Color(hex: currentList?.accentColorHex) {
+                accentColor.opacity(0.10)
+            }
+        }
+    }
+
+    private var accentColorAccessibilityValue: String {
+        guard
+            let accentColorHex = currentList?.accentColorHex,
+            let option = ListAccentColorOption.option(for: accentColorHex)
+        else {
+            return l10n.t("ios.list_settings.accent_none")
+        }
+        return l10n.t(
+            "ios.list_settings.accent_selected",
+            ["color": l10n.t(option.localizationKey)]
+        )
     }
 
     private var listSwitchSections: [(name: String, lists: [GroceryListSummary])] {
@@ -1228,14 +1912,24 @@ private struct ListDetailScreen: View {
                             }
                         }
                     } header: {
-                        SectionHeader(section: section, title: localizedTitle(for: section)) { categoryID in
+                        SectionHeader(
+                            section: section,
+                            title: localizedTitle(for: section),
+                            targetedDropSectionID: $targetedDropSectionID
+                        ) { categoryID in
                             addItemPresentation = AddItemPresentation(categoryID: categoryID)
+                        } onDropItem: { itemIDText, categoryID in
+                            moveItem(itemIDText: itemIDText, toCategory: categoryID)
                         }
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background {
+            listBackground.ignoresSafeArea()
+        }
         .navigationTitle(currentList?.name ?? l10n.t("ios.list.fallback_title"))
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -1348,6 +2042,7 @@ private struct ListDetailScreen: View {
             undoDismissTask?.cancel()
         }
         .accessibilityIdentifier("list-detail-screen")
+        .accessibilityValue(accentColorAccessibilityValue)
     }
 
     private func displaySection(for notice: ItemMoveNotice) -> ListDisplaySection {
@@ -1513,6 +2208,47 @@ private struct ListDetailScreen: View {
         }
     }
 
+    private func moveItem(itemIDText: String, toCategory categoryID: UUID?) {
+        guard
+            let itemID = UUID(uuidString: itemIDText),
+            let item = viewModel.items.first(where: { $0.id == itemID }),
+            item.categoryID != categoryID
+        else {
+            return
+        }
+
+        let previousPayload = GroceryItemEditPayload(item: item)
+        var nextPayload = previousPayload
+        nextPayload.categoryID = categoryID
+        let categoryName = categoryID.flatMap { id in
+            viewModel.categories.first { $0.id == id }?.name
+        } ?? l10n.t("ios.list.uncategorized")
+
+        Task { @MainActor in
+            let saved = await viewModel.saveEdit(item: item, payload: nextPayload)
+            guard saved else { return }
+            AppHaptics.itemDrop()
+            highlightedItemID = item.id
+            onItemMovedToCategory(item: item, categoryName: categoryName, previousPayload: previousPayload)
+        }
+    }
+
+    private func onItemMovedToCategory(
+        item: GroceryItemRecord,
+        categoryName: String,
+        previousPayload: GroceryItemEditPayload
+    ) {
+        showUndoToast(
+            message: l10n.t(
+                "ios.undo.item_moved_to_category_named",
+                ["name": item.name, "category": categoryName]
+            ),
+            action: {
+                await viewModel.saveEdit(item: item, payload: previousPayload)
+            }
+        )
+    }
+
     private func rowHighlight(for item: GroceryItemRecord) -> Color {
         item.id == highlightedItemID ? Color.accentColor.opacity(0.16) : Color.clear
     }
@@ -1548,6 +2284,10 @@ private struct ListDetailScreen: View {
 
     private func switchList(to listID: UUID) {
         guard displayedListID != listID else { return }
+        if let onListSwitch {
+            onListSwitch(listID)
+            return
+        }
         displayedListID = listID
         Task { await viewModel.selectList(id: listID) }
     }
@@ -1556,14 +2296,19 @@ private struct ListDetailScreen: View {
 private struct ListSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
     let listID: UUID
 
     @State private var name = ""
     @State private var isSavingName = false
+    @State private var selectedAccentColorHex: String?
+    @State private var isSavingAccentColor = false
     @State private var saveState: ListSettingsSaveState = .saved
     @State private var nameSaveTask: Task<Void, Never>?
     @State private var busyCategoryID: UUID?
-    @State private var isSavingCategoryOrder = false
+    @State private var draggedCategoryID: UUID?
+    @State private var categoryDragLastTargetID: UUID?
+    @State private var orderedCategories: [GroceryCategorySummary] = []
     @State private var pendingDisable: CategoryDisableConfirmation?
     @FocusState private var focusedField: ListSettingsFocusedField?
 
@@ -1586,20 +2331,40 @@ private struct ListSettingsSheet: View {
                 .navigationTitle("List settings")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { dismiss() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
+                    ToolbarItem(placement: .topBarLeading) {
                         Label(saveState.title, systemImage: saveState.systemImage)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(saveState.tint)
+                            .accessibilityElement(children: .combine)
                             .accessibilityIdentifier("list-settings-save-state")
+                            .accessibilityLabel(saveState.title)
+                            .accessibilityRemoveTraits(.isButton)
+                            .allowsHitTesting(false)
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Label(l10n.t("common.done"), systemImage: "checkmark")
+                                .labelStyle(.iconOnly)
+                        }
+                        .accessibilityIdentifier("list-settings-done-button")
                     }
                 }
         }
-        .onAppear(perform: syncName)
+        .onAppear {
+            syncName()
+            syncAccentColor()
+            syncOrderedCategories()
+            syncCategoryOrderSaveState(viewModel.categoryOrderBackgroundSaveState)
+        }
         .onChange(of: currentList?.name ?? "") { _ in syncName() }
+        .onChange(of: currentList?.accentColorHex ?? "") { _ in syncAccentColor() }
         .onChange(of: name) { _ in scheduleNameAutosave() }
+        .onChange(of: viewModel.categoriesForSettings.map(\.id)) { _ in syncOrderedCategories() }
+        .onChange(of: viewModel.categoryOrderBackgroundSaveState) { newValue in
+            syncCategoryOrderSaveState(newValue)
+        }
         .onChange(of: focusedField) { newValue in
             if newValue != .name {
                 saveNameNow()
@@ -1625,39 +2390,175 @@ private struct ListSettingsSheet: View {
     }
 
     private var settingsForm: some View {
-        Form {
-            listNameSection
-            categoriesSection
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                listNameSection
+                listAccentColorSection
+                categoriesSection
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
         }
-        .environment(\.editMode, .constant(.active))
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     private var listNameSection: some View {
-        Section("List name") {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("List name")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
             TextField("List name", text: $name)
                 .focused($focusedField, equals: .name)
                 .submitLabel(.done)
                 .onSubmit(saveNameNow)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 50)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .accessibilityIdentifier("list-name-field")
         }
     }
 
-    private var categoriesSection: some View {
-        let categories = viewModel.categoriesForSettings
-        return Section {
-            if categories.isEmpty {
-                Label("No categories available", systemImage: "tray")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(categories) { category in
-                    categoryRow(category: category)
+    private var listAccentColorSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(l10n.t("ios.list_settings.accent_title"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 44), spacing: 12)],
+                alignment: .leading,
+                spacing: 12
+            ) {
+                ForEach(ListAccentColorOption.all) { option in
+                    accentColorButton(option)
                 }
-                .onMove(perform: moveCategories)
             }
-        } header: {
+            .padding(16)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            Text(l10n.t("ios.list_settings.accent_hint"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func accentColorButton(_ option: ListAccentColorOption) -> some View {
+        let isSelected = ListAccentColorOption.option(for: selectedAccentColorHex) == option
+
+        return Button {
+            saveAccentColor(option.hex)
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(
+                        Color(hex: option.hex)
+                            ?? Color(uiColor: .tertiarySystemGroupedBackground)
+                    )
+
+                if option.hex == nil {
+                    Image(systemName: "circle.slash")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                } else if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.45), radius: 1, y: 1)
+                }
+
+                Circle()
+                    .stroke(
+                        isSelected ? Color.accentColor : Color.secondary.opacity(0.28),
+                        lineWidth: isSelected ? 3 : 1
+                    )
+            }
+            .frame(width: 40, height: 40)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isSavingAccentColor)
+        .accessibilityIdentifier("list-accent-color-\(option.id)")
+        .accessibilityLabel(l10n.t(option.localizationKey))
+        .accessibilityValue(
+            isSelected ? l10n.t("ios.list_settings.accent_selection_selected") : ""
+        )
+    }
+
+    private func syncAccentColor() {
+        guard isSavingAccentColor == false else { return }
+        selectedAccentColorHex = currentList?.accentColorHex
+    }
+
+    private func saveAccentColor(_ accentColorHex: String?) {
+        guard
+            isSavingAccentColor == false,
+            ListAccentColorOption.option(for: selectedAccentColorHex)
+                != ListAccentColorOption.option(for: accentColorHex)
+        else {
+            return
+        }
+
+        selectedAccentColorHex = accentColorHex
+        isSavingAccentColor = true
+        saveState = .saving
+        Task { @MainActor in
+            let saved = await viewModel.updateListAccentColor(
+                id: listID,
+                accentColorHex: accentColorHex
+            )
+            isSavingAccentColor = false
+            if saved {
+                syncAccentColor()
+                saveState = .saved
+            } else {
+                syncAccentColor()
+                saveState = .failed
+            }
+        }
+    }
+
+    private var categoriesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Categories")
-        } footer: {
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 0) {
+                if orderedCategories.isEmpty {
+                    Label("No categories available", systemImage: "tray")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                } else {
+                    ForEach(Array(orderedCategories.enumerated()), id: \.element.id) { index, category in
+                        categoryRow(category: category)
+                            .padding(.horizontal, 16)
+                            .contentShape(Rectangle())
+                            .onDrop(
+                                of: [.text],
+                                delegate: CategoryReorderDropDelegate(
+                                    targetCategoryID: category.id,
+                                    draggedCategoryID: $draggedCategoryID,
+                                    lastTargetCategoryID: $categoryDragLastTargetID,
+                                    orderedCategories: $orderedCategories,
+                                    onOrderChanged: saveCategoryOrder
+                                )
+                            )
+                        if index < orderedCategories.count - 1 {
+                            Divider().padding(.leading, 60)
+                        }
+                    }
+                }
+            }
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
             Text("Disabled categories stay hidden from item pickers for this list.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -1669,6 +2570,11 @@ private struct ListSettingsSheet: View {
             isBusy: busyCategoryID == category.id,
             onToggleDisabled: { disabled in
                 set(category, disabled: disabled)
+            },
+            onDrag: {
+                draggedCategoryID = category.id
+                categoryDragLastTargetID = nil
+                return NSItemProvider(object: category.id.uuidString as NSString)
             }
         )
     }
@@ -1731,16 +2637,26 @@ private struct ListSettingsSheet: View {
         }
     }
 
-    private func moveCategories(from source: IndexSet, to destination: Int) {
-        guard isSavingCategoryOrder == false else { return }
-        var categoryIDs = viewModel.categoriesForSettings.map(\.id)
-        categoryIDs.move(fromOffsets: source, toOffset: destination)
-        isSavingCategoryOrder = true
+    private func saveCategoryOrder(_ categoryIDs: [UUID]) {
         saveState = .saving
-        Task { @MainActor in
-            let saved = await viewModel.saveCategoryOrder(categoryIDs: categoryIDs)
-            isSavingCategoryOrder = false
-            saveState = saved ? .saved : .failed
+        viewModel.saveCategoryOrderInBackground(categoryIDs: categoryIDs)
+    }
+
+    private func syncOrderedCategories() {
+        let categories = viewModel.categoriesForSettings
+        if orderedCategories.map(\.id) != categories.map(\.id) {
+            orderedCategories = categories
+        }
+    }
+
+    private func syncCategoryOrderSaveState(_ state: CategoryOrderBackgroundSaveState) {
+        switch state {
+        case .saved:
+            saveState = .saved
+        case .saving:
+            saveState = .saving
+        case .failed:
+            saveState = .failed
         }
     }
 
@@ -1778,6 +2694,7 @@ private struct CategorySettingsRow: View {
     let itemCount: Int
     let isBusy: Bool
     let onToggleDisabled: (Bool) -> Void
+    let onDrag: () -> NSItemProvider
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1807,6 +2724,17 @@ private struct CategorySettingsRow: View {
             .foregroundStyle(Color.accentColor)
             .accessibilityIdentifier("category-enabled-toggle-\(category.id.uuidString)")
             .accessibilityLabel(disabled ? "Show \(category.name)" : "Hide \(category.name)")
+
+            Image(systemName: "line.3.horizontal")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color.secondary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+                .onDrag(onDrag) {
+                    dragPreview
+                }
+                .accessibilityIdentifier("category-drag-handle-\(category.id.uuidString)")
+                .accessibilityLabel("Reorder \(category.name)")
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
@@ -1816,6 +2744,74 @@ private struct CategorySettingsRow: View {
     private var metaText: String {
         let itemText = itemCount == 1 ? "1 item" : "\(itemCount) items"
         return disabled ? "Disabled for this list · \(itemText)" : "Enabled · \(itemText)"
+    }
+
+    private var dragPreview: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(Color(hex: category.colorHex) ?? Color.secondary.opacity(0.4))
+                .frame(width: 12, height: 12)
+            Text(category.name)
+                .font(.body.weight(.medium))
+                .lineLimit(1)
+            Spacer(minLength: 12)
+            Image(systemName: "line.3.horizontal")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color.secondary)
+        }
+        .padding(.horizontal, 14)
+        .frame(minWidth: 180, minHeight: 48)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .shadow(color: Color.black.opacity(0.18), radius: 8, y: 4)
+        .accessibilityIdentifier("category-drag-preview-\(category.id.uuidString)")
+    }
+}
+
+private struct CategoryReorderDropDelegate: DropDelegate {
+    let targetCategoryID: UUID
+    @Binding var draggedCategoryID: UUID?
+    @Binding var lastTargetCategoryID: UUID?
+    @Binding var orderedCategories: [GroceryCategorySummary]
+    let onOrderChanged: ([UUID]) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard
+            let draggedCategoryID,
+            draggedCategoryID != targetCategoryID,
+            lastTargetCategoryID != targetCategoryID,
+            let sourceIndex = orderedCategories.firstIndex(where: { $0.id == draggedCategoryID }),
+            let targetIndex = orderedCategories.firstIndex(where: { $0.id == targetCategoryID })
+        else {
+            return
+        }
+
+        lastTargetCategoryID = targetCategoryID
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            orderedCategories.move(
+                fromOffsets: IndexSet(integer: sourceIndex),
+                toOffset: targetIndex > sourceIndex ? targetIndex + 1 : targetIndex
+            )
+        }
+        onOrderChanged(orderedCategories.map(\.id))
+    }
+
+    func dropExited(info: DropInfo) {
+        if lastTargetCategoryID == targetCategoryID {
+            lastTargetCategoryID = nil
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedCategoryID = nil
+        lastTargetCategoryID = nil
+        return true
     }
 }
 
@@ -1868,7 +2864,9 @@ private struct SectionHeader: View {
     @EnvironmentObject private var l10n: AppLocalization
     let section: ListDisplaySection
     let title: String
+    @Binding var targetedDropSectionID: String?
     let onQuickAdd: (UUID?) -> Void
+    let onDropItem: (String, UUID?) -> Void
 
     private var allowsQuickAdd: Bool {
         switch section.kind {
@@ -1886,6 +2884,10 @@ private struct SectionHeader: View {
         case let .category(categoryID):
             return categoryID
         }
+    }
+
+    private var isDropTargeted: Bool {
+        targetedDropSectionID == section.id
     }
 
     var body: some View {
@@ -1915,8 +2917,29 @@ private struct SectionHeader: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        .padding(.horizontal, 4)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isDropTargeted ? Color.accentColor.opacity(0.14) : Color.clear)
+        }
+        .background {
+            if allowsQuickAdd {
+                ItemCategoryDropInteractionView { isTargeted in
+                    if isTargeted {
+                        targetedDropSectionID = section.id
+                    } else if targetedDropSectionID == section.id {
+                        targetedDropSectionID = nil
+                    }
+                } onDrop: { itemID in
+                    onDropItem(itemID, quickAddCategoryID)
+                }
+            }
+        }
+        .contentShape(Rectangle())
         .textCase(nil)
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("category-drop-target-\(section.id)")
     }
 }
 
@@ -1979,26 +3002,42 @@ private struct ItemRow: View {
             : l10n.t("ios.item.check", ["name": item.name])
     }
 
+    private func restoreHiddenItem(previousHiddenUntil: Date?) async {
+        let restored = await viewModel.restoreHiddenItem(item)
+        if restored {
+            AppHaptics.itemToggle()
+            onUndoableAction(
+                l10n.t("ios.undo.item_shown_now_named", ["name": item.name]),
+                {
+                    guard let previousHiddenUntil else { return false }
+                    return await viewModel.setHiddenUntil(
+                        itemID: item.id,
+                        hiddenUntil: previousHiddenUntil
+                    )
+                }
+            )
+        }
+    }
+
+    private func hideForLater() async {
+        let hidden = await viewModel.hideForLater(item)
+        if hidden {
+            AppHaptics.itemToggle()
+            onUndoableAction(
+                l10n.t("ios.undo.item_saved_for_later_named", ["name": item.name]),
+                {
+                    await viewModel.restoreHiddenItem(item)
+                }
+            )
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Button {
                 Task {
                     if isHiddenForLater {
-                        let previousHiddenUntil = item.hiddenUntil
-                        let restored = await viewModel.restoreHiddenItem(item)
-                        if restored {
-                            AppHaptics.itemToggle()
-                            onUndoableAction(
-                                l10n.t("ios.undo.item_shown_now_named", ["name": item.name]),
-                                {
-                                    guard let previousHiddenUntil else { return false }
-                                    return await viewModel.setHiddenUntil(
-                                        itemID: item.id,
-                                        hiddenUntil: previousHiddenUntil
-                                    )
-                                }
-                            )
-                        }
+                        await restoreHiddenItem(previousHiddenUntil: item.hiddenUntil)
                     } else {
                         let wasChecked = item.checked
                         let toggled = await viewModel.toggle(item)
@@ -2056,20 +3095,32 @@ private struct ItemRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("item-row-\(item.id.uuidString)")
+        .onDrag {
+            AppHaptics.dragStart()
+            return NSItemProvider(object: item.id.uuidString as NSString)
+        } preview: {
+            Text(item.name)
+                .font(.body.weight(.medium))
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            if item.checked == false && isHiddenForLater == false {
+            if isHiddenForLater {
                 Button {
                     Task {
-                        let hidden = await viewModel.hideForLater(item)
-                        if hidden {
-                            AppHaptics.itemToggle()
-                            onUndoableAction(
-                                l10n.t("ios.undo.item_saved_for_later_named", ["name": item.name]),
-                                {
-                                    await viewModel.restoreHiddenItem(item)
-                                }
-                            )
-                        }
+                        await restoreHiddenItem(previousHiddenUntil: item.hiddenUntil)
+                    }
+                } label: {
+                    Label(l10n.t("ios.item.show_hidden", ["name": item.name]), systemImage: "hourglass.circle")
+                }
+                .tint(.orange)
+                .accessibilityIdentifier("unhide-item-\(item.id.uuidString)")
+            } else if item.checked == false {
+                Button {
+                    Task {
+                        await hideForLater()
                     }
                 } label: {
                     Label(l10n.t("ios.item.hide_for_later_short"), systemImage: "hourglass")
@@ -2765,7 +3816,7 @@ private struct EditItemSheet: View {
                         flushCurrentEdit()
                         dismiss()
                     } label: {
-                        Label(l10n.t("common.done"), systemImage: "xmark")
+                        Label(l10n.t("common.done"), systemImage: "checkmark")
                             .labelStyle(.iconOnly)
                     }
                     .accessibilityIdentifier("edit-item-close-button")
@@ -2995,6 +4046,22 @@ private struct EmptyStateView: View {
 }
 
 private enum AppHaptics {
+    static func dragStart() {
+        #if canImport(UIKit)
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.prepare()
+        generator.impactOccurred(intensity: 0.42)
+        #endif
+    }
+
+    static func itemDrop() {
+        #if canImport(UIKit)
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.prepare()
+        generator.impactOccurred(intensity: 0.55)
+        #endif
+    }
+
     static func itemToggle() {
         #if canImport(UIKit)
         let generator = UIImpactFeedbackGenerator(style: .light)
