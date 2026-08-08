@@ -390,7 +390,7 @@ final class PlaniniUITests: XCTestCase {
             named: "Dairy & Eggs",
             using: "add-item-category-link",
             in: app,
-            searchText: "molkrei",
+            searchText: "dairy",
             sortOption: "A-Z",
             screenshotName: "ios-ui-category-picker"
         )
@@ -526,7 +526,7 @@ final class PlaniniUITests: XCTestCase {
             named: "Canned Goods",
             using: "edit-item-category-link",
             in: app,
-            searchText: "kon",
+            searchText: "can",
             sortOption: "most-used",
             screenshotName: "ios-ui-edit-category-picker"
         )
