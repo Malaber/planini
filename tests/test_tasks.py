@@ -875,6 +875,7 @@ def test_ios_testflight_workflow_adds_pr_build_component_and_variant_icon_colors
 def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
     workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
     ci_workflow = (workflows / "ci.yml").read_text(encoding="utf-8")
+    screenshot_workflow = (workflows / "app-store-screenshots.yml").read_text(encoding="utf-8")
     testflight_workflow = (workflows / "ios-build-and-testflight.yml").read_text(encoding="utf-8")
 
     assert (
@@ -891,20 +892,36 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
     assert "--skip-filter=listWebsocketEmitsItemLifecycleEvents" in ci_workflow
     assert "--test-filter=listWebsocketEmitsItemLifecycleEvents" in ci_workflow
     assert ci_workflow.count("check-ios-ui-e2e") == 1
-    assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in ci_workflow
-    assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in ci_workflow
+    assert "uses: ./.github/workflows/app-store-screenshots.yml" in ci_workflow
+    assert "if: github.ref != 'refs/heads/main'" in ci_workflow
+    assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in screenshot_workflow
+    assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in screenshot_workflow
     assert "check-ios-e2e" not in testflight_workflow
     assert "check-ios-ui-e2e" not in testflight_workflow
     assert "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}" in testflight_workflow
 
 
-def test_ci_skips_duplicate_main_docker_publish() -> None:
+def test_release_attaches_app_store_screenshots() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "uses: ./.github/workflows/app-store-screenshots.yml" in workflow
+    assert "- ios_marketing_screenshots" in workflow
+    assert 'archive="planini-app-store-screenshots-${GIT_TAG}.zip"' in workflow
+    assert 'gh release upload "$GIT_TAG" "$SCREENSHOT_ARCHIVE" --clobber' in workflow
+    assert "## App Store screenshots" in workflow
+    assert "docs/app-store-screenshots.md" in workflow
+
+
+def test_ci_skips_work_repeated_by_main_release() -> None:
     workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml").read_text(
         encoding="utf-8"
     )
 
     main_skip = "if: github.ref != 'refs/heads/main'"
-    assert workflow.count(main_skip) == 2
+    assert workflow.count(main_skip) == 3
+    assert f"ios_marketing_screenshots:\n    {main_skip}" in workflow
     assert f"version:\n    {main_skip}" in workflow
     assert f"docker_build_platform:\n    {main_skip}" in workflow
 
