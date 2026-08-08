@@ -2209,13 +2209,15 @@ def _run_ios_marketing_ui_test(
     english_session: dict[str, str],
     german_session: dict[str, str],
     derived_data_path: str,
+    clean_derived_data: bool = True,
 ) -> None:
     artifact_path = ROOT / artifact_dir
     artifact_path.mkdir(parents=True, exist_ok=True)
     result_bundle_path = artifact_path / DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
 
     derived_data = ROOT / derived_data_path
-    shutil.rmtree(derived_data, ignore_errors=True)
+    if clean_derived_data:
+        shutil.rmtree(derived_data, ignore_errors=True)
     for simulator_name in (device_name, ipad_device_name):
         _ensure_ios_simulator_device(simulator_name)
         _reset_ios_ui_test_app(simulator_name)
@@ -2560,6 +2562,7 @@ def check_ios_marketing_screenshots(
     port=DEFAULT_IOS_MARKETING_SCREENSHOT_PORT,
     log_path=DEFAULT_IOS_MARKETING_SCREENSHOT_LOG_PATH,
     pid_path=DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH,
+    preserve_derived_data=False,
 ) -> None:
     """Capture App Store-sized iPhone, iPad, and watchOS screenshots."""
     shutil.rmtree(ROOT / artifact_dir, ignore_errors=True)
@@ -2602,6 +2605,7 @@ def check_ios_marketing_screenshots(
                 english_session=sessions[0],
                 german_session=sessions[1],
                 derived_data_path=DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH,
+                clean_derived_data=not preserve_derived_data,
             )
         finally:
             _shutdown_ios_simulators()
@@ -2628,10 +2632,11 @@ def check_ios_marketing_screenshots(
             _shutdown_ios_simulators()
         _write_ios_ui_e2e_summary(artifact_dir)
     finally:
-        shutil.rmtree(
-            ROOT / DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH,
-            ignore_errors=True,
-        )
+        if not preserve_derived_data:
+            shutil.rmtree(
+                ROOT / DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH,
+                ignore_errors=True,
+            )
         stop_app(c, pid_path=pid_path)
 
 

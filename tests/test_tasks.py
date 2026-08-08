@@ -1947,6 +1947,10 @@ def test_run_ios_marketing_ui_test_reports_build_failure(monkeypatch, tmp_path: 
     monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda name: None)
     monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda name: None)
     monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
+    derived_data = tmp_path / "ios" / "PlaniniIOS" / ".derived-marketing-screenshots"
+    derived_data.mkdir(parents=True)
+    marker = derived_data / "cached-build"
+    marker.write_text("cached", encoding="utf-8")
 
     try:
         tasks._run_ios_marketing_ui_test(
@@ -1960,12 +1964,14 @@ def test_run_ios_marketing_ui_test_reports_build_failure(monkeypatch, tmp_path: 
             english_session={"access_token": "english-token", "display_name": "Alex"},
             german_session={"access_token": "german-token", "display_name": "Alex"},
             derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
+            clean_derived_data=False,
         )
     except tasks.Exit as exc:
         assert "marketing screenshot build" in str(exc)
         assert "exit code 65" in str(exc)
     else:
         raise AssertionError("expected marketing build to fail")
+    assert marker.read_text(encoding="utf-8") == "cached"
 
 
 def test_run_ios_marketing_ui_test_reports_xcode_failure(
@@ -2095,6 +2101,7 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
                 "display_name": "Alex",
             },
             "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
+            "clean_derived_data": True,
         }
     ]
     watch_calls = [call[1] for call in calls if call[0] == "watch"]
@@ -2130,6 +2137,37 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
         )
     ]
     assert calls[-1] == ("stop", {"pid_path": "ios-marketing-screenshots-server.pid"})
+
+
+def test_check_ios_marketing_screenshots_preserves_cached_build_on_failure(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    derived_data = tmp_path / "ios" / "PlaniniIOS" / ".derived-marketing-screenshots"
+    derived_data.mkdir(parents=True)
+    marker = derived_data / "cached-build"
+    marker.write_text("cached", encoding="utf-8")
+    stops: list[dict] = []
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "_reset_sqlite_database_file", lambda database_url: None)
+    monkeypatch.setattr(tasks, "start_app", lambda c, **kwargs: None)
+    monkeypatch.setattr(
+        tasks,
+        "wait_for_app",
+        lambda c, **kwargs: (_ for _ in ()).throw(tasks.Exit("healthcheck failed")),
+    )
+    monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: stops.append(kwargs))
+
+    try:
+        tasks.check_ios_marketing_screenshots.body(None, preserve_derived_data=True)
+    except tasks.Exit as exc:
+        assert "healthcheck failed" in str(exc)
+    else:
+        raise AssertionError("expected marketing screenshot task to fail")
+
+    assert marker.read_text(encoding="utf-8") == "cached"
+    assert stops == [{"pid_path": tasks.DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH}]
 
 
 def test_check_ios_ci_runs_only_mac_native_e2e_prerequisites() -> None:

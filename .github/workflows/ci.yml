@@ -220,9 +220,14 @@ jobs:
   ios_marketing_screenshots:
     name: App Store marketing screenshots
     runs-on: macos-26
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
+      - name: Restore marketing Xcode cache
+        uses: actions/cache@v6
+        with:
+          path: ios/PlaniniIOS/.derived-marketing-screenshots
+          key: ios-marketing-${{ runner.os }}-${{ runner.arch }}-xcode26-${{ hashFiles('ios/PlaniniIOS/Package.resolved') }}
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -237,7 +242,7 @@ jobs:
       - name: Install XcodeGen
         run: python -m invoke install-xcodegen
       - name: Capture App Store screenshots
-        run: python -m invoke check-ios-marketing-screenshots
+        run: python -m invoke check-ios-marketing-screenshots --preserve-derived-data
       - name: Upload marketing screenshots
         if: always()
         uses: actions/upload-artifact@v6
