@@ -76,50 +76,18 @@ IOS_GENERATED_CONFIG_PATH = (
     ROOT / "ios" / "PlaniniIOS" / "App" / "BuildConfiguration.generated.swift"
 )
 STABLE_TAG_PATTERN = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
-IOS_APP_ICON_BACKGROUND_PATTERN = re.compile(
-    r"(\.cls-1\s*\{\s*fill:\s*)#[0-9a-fA-F]{6}(\s*;)",
+IOS_APP_ICON_BACKGROUND_RECT_PATTERN = re.compile(
+    r'^\s*<rect id="Rechteck_1"[^>]+/>\s*$',
     re.MULTILINE,
+)
+IOS_APP_ICON_CANVAS_PATTERN = re.compile(
+    r'(<svg[^>]*\swidth=")4267("\sheight=")4267(")',
 )
 IOS_DEFAULT_APP_ICON_BACKGROUND_COLOR = "#ddddc1"
 
 IOS_APP_ICON_SOURCE_PATH = ROOT / "app" / "web" / "static" / "img" / "planini.svg"
-IOS_APP_ICONSET_PATH = ROOT / "ios" / "PlaniniIOS" / "Assets.xcassets" / "AppIcon.appiconset"
-IOS_WATCH_APP_ICONSET_PATH = (
-    ROOT / "ios" / "PlaniniIOS" / "Assets.xcassets" / "WatchAppIcon.appiconset"
-)
-IOS_APP_ICON_FILES = {
-    "Icon-20@2x.png": 40,
-    "Icon-20@3x.png": 60,
-    "Icon-29@2x.png": 58,
-    "Icon-29@3x.png": 87,
-    "Icon-40@2x.png": 80,
-    "Icon-40@3x.png": 120,
-    "Icon-60@2x.png": 120,
-    "Icon-60@3x.png": 180,
-    "Icon-iPad-20.png": 20,
-    "Icon-iPad-20@2x.png": 40,
-    "Icon-iPad-29.png": 29,
-    "Icon-iPad-29@2x.png": 58,
-    "Icon-iPad-40.png": 40,
-    "Icon-iPad-40@2x.png": 80,
-    "Icon-iPad-76.png": 76,
-    "Icon-iPad-76@2x.png": 152,
-    "Icon-iPad-83.5@2x.png": 167,
-    "Icon-1024.png": 1024,
-}
-IOS_WATCH_APP_ICON_FILES = {
-    "Icon-24@2x.png": 48,
-    "Icon-27.5@2x.png": 55,
-    "Icon-29@2x.png": 58,
-    "Icon-29@3x.png": 87,
-    "Icon-40@2x.png": 80,
-    "Icon-44@2x.png": 88,
-    "Icon-50x50@2x.png": 100,
-    "Icon-86@2x.png": 172,
-    "Icon-98@2x.png": 196,
-    "Icon-108@2x.png": 216,
-    "Icon-1024.png": 1024,
-}
+IOS_APP_ICON_DOCUMENT_PATH = ROOT / "ios" / "PlaniniIOS" / "AppIcon.icon" / "icon.json"
+IOS_APP_ICON_ARTWORK_PATH = ROOT / "ios" / "PlaniniIOS" / "AppIcon.icon" / "Assets" / "Planini.svg"
 
 
 def _tool_path(name: str) -> str:
@@ -1140,72 +1108,93 @@ def _normalize_ios_app_icon_background_color(background_color: str) -> str:
     return color
 
 
-def _ios_app_icon_svg_with_background_color(background_color: str) -> str:
-    color = _normalize_ios_app_icon_background_color(background_color)
+def _ios_app_icon_foreground_svg() -> str:
     svg = IOS_APP_ICON_SOURCE_PATH.read_text(encoding="utf-8")
-    svg, replacements = IOS_APP_ICON_BACKGROUND_PATTERN.subn(rf"\g<1>{color}\g<2>", svg, count=1)
+    svg, replacements = IOS_APP_ICON_BACKGROUND_RECT_PATTERN.subn("", svg, count=1)
     if replacements != 1:
-        raise Exit("Could not find .cls-1 fill color in iOS app icon source SVG.")
+        raise Exit("Could not find iOS app icon background rectangle in source SVG.")
+    svg, replacements = IOS_APP_ICON_CANVAS_PATTERN.subn(r"\g<1>1024\g<2>1024\g<3>", svg, count=1)
+    if replacements != 1:
+        raise Exit("Could not normalize iOS Icon Composer SVG canvas to 1024x1024.")
     return svg
+
+
+def _ios_icon_composer_color(background_color: str, brightness: float) -> str:
+    color = _normalize_ios_app_icon_background_color(background_color)
+    channels = [int(color[index : index + 2], 16) for index in (1, 3, 5)]
+    components = [channel / 255 * brightness for channel in channels]
+    return "display-p3:" + ",".join(f"{component:.5f}" for component in components) + ",1.00000"
+
+
+def _ios_icon_composer_document(background_color: str) -> dict[str, object]:
+    return {
+        "fill-specializations": [
+            {
+                "value": {
+                    "linear-gradient": [
+                        _ios_icon_composer_color(background_color, 1.0),
+                        _ios_icon_composer_color(background_color, 0.86),
+                    ]
+                }
+            },
+            {
+                "appearance": "dark",
+                "value": {
+                    "linear-gradient": [
+                        _ios_icon_composer_color(background_color, 0.42),
+                        _ios_icon_composer_color(background_color, 0.26),
+                    ]
+                },
+            },
+        ],
+        "groups": [
+            {
+                "layers": [{"image-name": "Planini.svg", "name": "Planini"}],
+                "shadow": {"kind": "neutral", "opacity": 0.4},
+                "translucency": {"enabled": True, "value": 0.2},
+            }
+        ],
+        "supported-platforms": {"circles": ["watchOS"], "squares": "shared"},
+    }
 
 
 @task(
     help={
         "background_color": (
-            "Hex color for the SVG .cls-1 app icon background fill. Defaults to "
-            "the release-candidate icon color."
+            "Hex color for the Icon Composer light background. Defaults to the "
+            "release-candidate icon color."
         ),
     }
 )
 def generate_ios_app_icons(c, background_color=IOS_DEFAULT_APP_ICON_BACKGROUND_COLOR) -> None:
-    """Generate ignored iOS AppIcon PNGs from the tracked Planini SVG."""
-
-    try:
-        import cairosvg
-    except ModuleNotFoundError as exc:
-        raise Exit("Missing cairosvg. Run `.venv/bin/inv install-deps` first.") from exc
+    """Generate the tracked Icon Composer document from the Planini SVG."""
 
     if not IOS_APP_ICON_SOURCE_PATH.exists():
         raise Exit(f"Missing app icon source SVG: {IOS_APP_ICON_SOURCE_PATH}")
 
-    svg = _ios_app_icon_svg_with_background_color(background_color)
-    iconsets = {
-        IOS_APP_ICONSET_PATH: IOS_APP_ICON_FILES,
-        IOS_WATCH_APP_ICONSET_PATH: IOS_WATCH_APP_ICON_FILES,
-    }
-
-    for iconset_path, icon_files in iconsets.items():
-        iconset_path.mkdir(parents=True, exist_ok=True)
-        for filename, size in icon_files.items():
-            output_path = iconset_path / filename
-            cairosvg.svg2png(
-                bytestring=svg.encode("utf-8"),
-                write_to=str(output_path),
-                output_width=size,
-                output_height=size,
-            )
-            print(f"Generated {output_path.relative_to(ROOT)} ({size}x{size})")
+    IOS_APP_ICON_ARTWORK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    IOS_APP_ICON_ARTWORK_PATH.write_text(_ios_app_icon_foreground_svg(), encoding="utf-8")
+    IOS_APP_ICON_DOCUMENT_PATH.write_text(
+        json.dumps(_ios_icon_composer_document(background_color), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(f"Generated {IOS_APP_ICON_DOCUMENT_PATH.parent.relative_to(ROOT)}")
 
 
 @task
 def check_ios_app_icons(c) -> None:
-    """Fail if generated iOS AppIcon PNGs are missing locally."""
+    """Fail if generated Icon Composer files are missing locally."""
 
-    iconsets = {
-        IOS_APP_ICONSET_PATH: IOS_APP_ICON_FILES,
-        IOS_WATCH_APP_ICONSET_PATH: IOS_WATCH_APP_ICON_FILES,
-    }
     missing = [
-        iconset_path / filename
-        for iconset_path, icon_files in iconsets.items()
-        for filename in icon_files
-        if not (iconset_path / filename).exists()
+        path
+        for path in (IOS_APP_ICON_DOCUMENT_PATH, IOS_APP_ICON_ARTWORK_PATH)
+        if not path.exists()
     ]
 
     if missing:
         missing_lines = "\n".join(f"- {path.relative_to(ROOT)}" for path in missing)
         raise Exit(
-            "Missing generated iOS app icon PNGs:\n"
+            "Missing generated iOS Icon Composer files:\n"
             f"{missing_lines}\n\n"
             "Run:\n"
             ".venv/bin/inv generate-ios-app-icons"

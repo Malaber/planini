@@ -15,6 +15,7 @@
 		291ACD3C50DB72E04C89694B /* WatchBackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6AB6DEC64D1F5BD03FCCF1 /* WatchBackendClient.swift */; };
 		2AA655CFC7545A958443A348 /* AppGroupSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FA6FAB5BF0777FEBF85FFD /* AppGroupSupport.swift */; };
 		30C2D2674B145101CF523E82 /* PlaniniWatchExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CA8DB980F61CE9F26FAD8E21 /* PlaniniWatchExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		495188AEDCE06D4F6912A537 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 835F29EE45FA1D48D4CAACD4 /* AppIcon.icon */; };
 		4E1F9A68D9324BA591514A9C /* PlaniniWatchWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1FEC963E9A630C6DAF6BF6E /* PlaniniWatchWidget.swift */; };
 		577D3C1135BA6D7407B8A0AA /* PlaniniWatchApp.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 37808C13EE8980C6D7EB5E3F /* PlaniniWatchApp.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		5D844E1AC4837B05434646D1 /* WatchAppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C9901FC6B3FC621A6B229A /* WatchAppViewModel.swift */; };
@@ -34,6 +35,7 @@
 		CFC80BB6E33B0D9C72BA73C5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BCE483AB7F4F77593152B5D /* RootView.swift */; };
 		D5800F3309DEA622AA24ADC4 /* ApplePasskeyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D9440F383C21A058EA39C13 /* ApplePasskeyClient.swift */; };
 		DCB27E8D3E2198AB4B77B761 /* PlaniniCore in Frameworks */ = {isa = PBXBuildFile; productRef = 22433296D233CD7AD37572E7 /* PlaniniCore */; };
+		E7125FFF5A789C74DCBFFDE6 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 835F29EE45FA1D48D4CAACD4 /* AppIcon.icon */; };
 		F3A245BA428BCA7DD2FECEEF /* BuildConfiguration.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B83DD3FDFA519C2128AC67 /* BuildConfiguration.generated.swift */; };
 /* End PBXBuildFile section */
 
@@ -112,6 +114,7 @@
 		6BC0DDEFF1265803A638BC83 /* PlaniniUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaniniUITests.swift; sourceTree = "<group>"; };
 		7D9440F383C21A058EA39C13 /* ApplePasskeyClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplePasskeyClient.swift; sourceTree = "<group>"; };
 		7DD17D440ED10778295E1855 /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
+		835F29EE45FA1D48D4CAACD4 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		905E5C36A0321D88D618675F /* Planini.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Planini.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		976E7E216506A44F10DDD3A5 /* Planini.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Planini.entitlements; sourceTree = "<group>"; };
 		9DEEA95181710CC9F8714BAF /* AppLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLocalization.swift; sourceTree = "<group>"; };
@@ -197,6 +200,7 @@
 		7D5A7F0DE7ED9CD9B8A2C944 = {
 			isa = PBXGroup;
 			children = (
+				835F29EE45FA1D48D4CAACD4 /* AppIcon.icon */,
 				560BCFBB3415FB0A326907AA /* Assets.xcassets */,
 				B4A4AD180EDFC2830FEA7FF0 /* App */,
 				593F26CA0AF54B489ECA2029 /* locales */,
@@ -294,7 +298,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 80C886823AEF477705DAD6A0 /* Build configuration list for PBXNativeTarget "Planini" */;
 			buildPhases = (
-				2CCDF5478436F262DA1D97D6 /* Check Generated App Icons */,
 				EA56E95D14F84E2E4AA8C381 /* Sources */,
 				906EB4DF839B14F4B265C7ED /* Resources */,
 				059AB0C3C9EE2A33700BC885 /* Frameworks */,
@@ -317,7 +320,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = BDD29B060D3A2C6951A859AD /* Build configuration list for PBXNativeTarget "PlaniniWatchApp" */;
 			buildPhases = (
-				2F838D9D72F5C4EC94028D5E /* Check Generated Watch App Icons */,
 				F09E2F8C027086EFC9C1247C /* Resources */,
 				70D52D9AD9D8ACBC84054593 /* Embed Foundation Extensions */,
 			);
@@ -411,6 +413,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E7125FFF5A789C74DCBFFDE6 /* AppIcon.icon in Resources */,
 				8DCFC53928E38080B5E5BD87 /* Assets.xcassets in Resources */,
 				1762001ECBF396E6038B3335 /* de.json in Resources */,
 				92C2FE7F0F7558D9F5827AEF /* en.json in Resources */,
@@ -421,54 +424,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				495188AEDCE06D4F6912A537 /* AppIcon.icon in Resources */,
 				A779CDB8931E1EA01F2246CA /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		2CCDF5478436F262DA1D97D6 /* Check Generated App Icons */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(PROJECT_DIR)/../../app/web/static/img/planini.svg",
-			);
-			name = "Check Generated App Icons";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/check-generated-app-icons.stamp",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n\nicon_dir=\"${PROJECT_DIR}/Assets.xcassets/AppIcon.appiconset\"\n\nmissing=0\nfor file in \\\n  Icon-20@2x.png \\\n  Icon-20@3x.png \\\n  Icon-29@2x.png \\\n  Icon-29@3x.png \\\n  Icon-40@2x.png \\\n  Icon-40@3x.png \\\n  Icon-60@2x.png \\\n  Icon-60@3x.png \\\n  Icon-iPad-20.png \\\n  Icon-iPad-20@2x.png \\\n  Icon-iPad-29.png \\\n  Icon-iPad-29@2x.png \\\n  Icon-iPad-40.png \\\n  Icon-iPad-40@2x.png \\\n  Icon-iPad-76.png \\\n  Icon-iPad-76@2x.png \\\n  Icon-iPad-83.5@2x.png \\\n  Icon-1024.png\ndo\n  if [ ! -f \"${icon_dir}/${file}\" ]; then\n    echo \"error: Missing generated app icon: ${icon_dir}/${file}\"\n    missing=1\n  fi\ndone\n\nif [ \"${missing}\" -ne 0 ]; then\n  echo \"error: Run from repo root: .venv/bin/inv generate-ios-app-icons\"\n  exit 1\nfi\n\ntouch \"${SCRIPT_OUTPUT_FILE_0}\"\n";
-		};
-		2F838D9D72F5C4EC94028D5E /* Check Generated Watch App Icons */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(PROJECT_DIR)/../../app/web/static/img/planini.svg",
-			);
-			name = "Check Generated Watch App Icons";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/check-generated-watch-app-icons.stamp",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\n\nicon_dir=\"${PROJECT_DIR}/Assets.xcassets/WatchAppIcon.appiconset\"\n\nmissing=0\nfor file in \\\n  Icon-24@2x.png \\\n  Icon-27.5@2x.png \\\n  Icon-29@2x.png \\\n  Icon-29@3x.png \\\n  Icon-40@2x.png \\\n  Icon-44@2x.png \\\n  Icon-50x50@2x.png \\\n  Icon-86@2x.png \\\n  Icon-98@2x.png \\\n  Icon-108@2x.png \\\n  Icon-1024.png\ndo\n  if [ ! -f \"${icon_dir}/${file}\" ]; then\n    echo \"error: Missing generated watch app icon: ${icon_dir}/${file}\"\n    missing=1\n  fi\ndone\n\nif [ \"${missing}\" -ne 0 ]; then\n  echo \"error: Run from repo root: .venv/bin/inv generate-ios-app-icons\"\n  exit 1\nfi\n\ntouch \"${SCRIPT_OUTPUT_FILE_0}\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		563179647847687140EB37D1 /* Sources */ = {
@@ -699,7 +660,7 @@
 		8ABA39EF496DB222046FCF4C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = WatchAppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = VWKG94374J;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -832,7 +793,7 @@
 		DB3F2CED30F825E5C58F8273 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = WatchAppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = VWKG94374J;
 				GENERATE_INFOPLIST_FILE = NO;
