@@ -217,6 +217,10 @@ jobs:
             cat "${{ matrix.artifact_dir }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  ios_marketing_screenshots:
+    if: github.ref != 'refs/heads/main'
+    uses: ./.github/workflows/app-store-screenshots.yml
+
   version:
     if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest

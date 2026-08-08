@@ -313,7 +313,7 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if viewModel.authToken == nil {
+            if viewModel.authToken == nil, viewModel.isLocalMode == false {
                 NavigationStack {
                     loginPane
                         .navigationTitle("Planini")
@@ -363,6 +363,10 @@ struct RootView: View {
             guard let request else { return }
             selectedTab = .lists
             listNavigationPath = [request.listID]
+        }
+        .onChange(of: viewModel.localModeUpgradeRequestID) { requestID in
+            guard requestID != nil else { return }
+            showingAccountRegistration = true
         }
         .onChange(of: viewModel.errorMessage) { newValue in
             guard showingReviewerOnboarding == false, showingAccountRegistration == false else { return }
@@ -425,6 +429,17 @@ struct RootView: View {
                 .disabled(viewModel.isAuthenticating)
                 .accessibilityIdentifier("login-create-account-button")
             }
+
+            Section {
+                NavigationLink {
+                    PlaniniPromotionScreen(allowsLocalDemo: true)
+                } label: {
+                    Label(l10n.t("ios.promo.explore"), systemImage: "sparkles")
+                }
+                .accessibilityIdentifier("login-promo-link")
+            } footer: {
+                Text(l10n.t("ios.promo.login_hint"))
+            }
         }
     }
 
@@ -471,7 +486,16 @@ struct RootView: View {
 
     private var authenticatedApp: some View {
         VStack(spacing: 0) {
-            if let offlineStatusMessage = viewModel.offlineStatusMessage {
+            if viewModel.isLocalMode {
+                Button {
+                    showingAccountRegistration = true
+                } label: {
+                    LocalModeStatusBanner()
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("local-mode-banner")
+                .transition(.move(edge: .top).combined(with: .opacity))
+            } else if let offlineStatusMessage = viewModel.offlineStatusMessage {
                 OfflineStatusBanner(message: offlineStatusMessage)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -497,6 +521,33 @@ struct RootView: View {
     }
 }
 
+private struct LocalModeStatusBanner: View {
+    @EnvironmentObject private var l10n: AppLocalization
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "iphone")
+                .imageScale(.medium)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(l10n.t("ios.local_mode.banner"))
+                    .font(.footnote.weight(.semibold))
+                Text(l10n.t("ios.local_mode.banner_action"))
+                    .font(.caption2)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.yellow.opacity(0.22))
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct OfflineStatusBanner: View {
     let message: String
 
@@ -515,6 +566,103 @@ private struct OfflineStatusBanner: View {
         .background(.yellow.opacity(0.22))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("offline-status-banner")
+    }
+}
+
+private struct PlaniniPromotionScreen: View {
+    @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
+
+    let allowsLocalDemo: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Image(systemName: "checklist")
+                        .font(.system(size: 42, weight: .semibold))
+                        .foregroundStyle(.tint)
+                    Text(l10n.t("ios.promo.title"))
+                        .font(.largeTitle.bold())
+                    Text(l10n.t("ios.promo.subtitle"))
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+
+                VStack(spacing: 12) {
+                    PromotionFeatureRow(
+                        systemImage: "person.2.fill",
+                        title: l10n.t("ios.promo.households_title"),
+                        message: l10n.t("ios.promo.households_message")
+                    )
+                    PromotionFeatureRow(
+                        systemImage: "bolt.fill",
+                        title: l10n.t("ios.promo.fast_title"),
+                        message: l10n.t("ios.promo.fast_message")
+                    )
+                    PromotionFeatureRow(
+                        systemImage: "wifi.slash",
+                        title: l10n.t("ios.promo.offline_title"),
+                        message: l10n.t("ios.promo.offline_message")
+                    )
+                    PromotionFeatureRow(
+                        systemImage: "arrow.triangle.2.circlepath.icloud.fill",
+                        title: l10n.t("ios.promo.sync_title"),
+                        message: l10n.t("ios.promo.sync_message")
+                    )
+                }
+
+                if allowsLocalDemo {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button {
+                            viewModel.startLocalDemo()
+                        } label: {
+                            Label(l10n.t("ios.promo.start_demo"), systemImage: "play.fill")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 7)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("promo-start-local-demo-button")
+
+                        Text(l10n.t("ios.promo.demo_privacy"))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .navigationTitle(l10n.t("ios.promo.navigation_title"))
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("planini-promo-screen")
+    }
+}
+
+private struct PromotionFeatureRow: View {
+    let systemImage: String
+    let title: String
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(.tint)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -594,8 +742,19 @@ private struct ReviewerOnboardingSheet: View {
                 }
 
                 Section(l10n.t("ios.onboarding.create_account")) {
+                    if viewModel.isLocalMode {
+                        Label(
+                            l10n.t("ios.local_mode.sync_explainer"),
+                            systemImage: "arrow.triangle.2.circlepath.icloud"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("local-mode-sync-explainer")
+                    }
+
                     TextField(l10n.t("ios.item.name"), text: $registrationDisplayName)
                         .textContentType(.name)
+                        .disabled(canRetryLocalSync)
                         .accessibilityIdentifier("registration-display-name-field")
 
                     TextField(l10n.t("ios.onboarding.email"), text: $registrationEmail)
@@ -603,6 +762,7 @@ private struct ReviewerOnboardingSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .textContentType(.emailAddress)
+                        .disabled(canRetryLocalSync)
                         .accessibilityIdentifier("registration-email-field")
 
                     Button {
@@ -632,10 +792,22 @@ private struct ReviewerOnboardingSheet: View {
                                 Text(l10n.t("ios.onboarding.creating_account"))
                             }
                         } else {
-                            Label(l10n.t("ios.onboarding.create_account"), systemImage: "person.crop.circle.badge.plus")
+                            Label(
+                                l10n.t(
+                                    canRetryLocalSync
+                                        ? "ios.local_mode.retry_sync"
+                                        : viewModel.isLocalMode
+                                            ? "ios.local_mode.create_and_sync"
+                                            : "ios.onboarding.create_account"
+                                ),
+                                systemImage: "person.crop.circle.badge.plus"
+                            )
                         }
                     }
-                    .disabled(busyAction != nil || trimmedName.isEmpty || trimmedEmail.isEmpty)
+                    .disabled(
+                        busyAction != nil
+                            || (canRetryLocalSync == false && (trimmedName.isEmpty || trimmedEmail.isEmpty))
+                    )
                     .accessibilityIdentifier("registration-submit-button")
 
                     if let registrationErrorMessage, registrationErrorMessage.isEmpty == false {
@@ -682,6 +854,10 @@ private struct ReviewerOnboardingSheet: View {
 
     private var trimmedEmail: String {
         registrationEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canRetryLocalSync: Bool {
+        viewModel.isLocalMode && viewModel.authToken?.isEmpty == false
     }
 
     private func closeKeyboard() {
@@ -850,6 +1026,15 @@ private struct SettingsTab: View {
                 .accessibilityIdentifier("settings-appearance-picker")
             }
 
+            Section {
+                NavigationLink {
+                    PlaniniPromotionScreen(allowsLocalDemo: false)
+                } label: {
+                    Label(l10n.t("ios.promo.explore"), systemImage: "sparkles")
+                }
+                .accessibilityIdentifier("settings-promo-link")
+            }
+
             Section(l10n.t("ios.settings.account")) {
                 LabeledContent(l10n.t("settings.signed_in_as"), value: viewModel.displayName ?? l10n.t("ios.settings.unknown"))
                 if let favoriteList = viewModel.favoriteList {
@@ -867,7 +1052,10 @@ private struct SettingsTab: View {
                     Label(l10n.t("ios.households.settings_row"), systemImage: "house")
                 }
                 .accessibilityIdentifier("settings-household-management-link")
-                Button(l10n.t("ios.settings.sign_out"), role: .destructive) {
+                Button(
+                    l10n.t(viewModel.isLocalMode ? "ios.local_mode.exit" : "ios.settings.sign_out"),
+                    role: .destructive
+                ) {
                     viewModel.signOut()
                 }
                 .accessibilityIdentifier("settings-sign-out-button")
@@ -883,7 +1071,12 @@ private struct SettingsTab: View {
             }
 
             Section(l10n.t("ios.settings.app")) {
-                LabeledContent(l10n.t("ios.settings.backend"), value: viewModel.backendDisplayName)
+                LabeledContent(
+                    l10n.t("ios.settings.backend"),
+                    value: viewModel.isLocalMode
+                        ? l10n.t("ios.local_mode.storage")
+                        : viewModel.backendDisplayName
+                )
                 LabeledContent(l10n.t("ios.settings.available_lists"), value: "\(viewModel.lists.count)")
                 LabeledContent(l10n.t("ios.settings.visible_categories"), value: "\(viewModel.categories.count)")
             }
@@ -1553,7 +1746,11 @@ private struct HouseholdDetailManagementScreen: View {
             if canManage {
                 Section(l10n.t("ios.households.invites_section")) {
                     Button {
-                        showingInviteSheet = true
+                        if viewModel.isLocalMode {
+                            viewModel.requestLocalModeAccountCreation()
+                        } else {
+                            showingInviteSheet = true
+                        }
                     } label: {
                         Label(l10n.t("ios.households.create_invite_link"), systemImage: "link.badge.plus")
                     }

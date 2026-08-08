@@ -348,26 +348,45 @@ def test_full_flow(client) -> None:
     admin_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
     category = client.post(
         "/api/v1/categories",
-        json={"name": "Produce", "color": "green", "aliases": ["Veg", "Fruit & veg"]},
+        json={
+            "name": "Produce",
+            "color": "green",
+            "aliases": ["Veg", "Fruit & veg"],
+            "translations": {"de": "Gemüse"},
+        },
         headers=admin_headers,
     ).json()
     assert category["aliases"] == ["Veg", "Fruit & veg"]
+    assert category["translations"] == {"de": "Gemüse"}
 
     assert client.get("/api/v1/categories", headers=admin_headers).status_code == 200
 
     updated_category = client.patch(
         f"/api/v1/categories/{category['id']}",
-        json={"name": "Dairy", "color": "blue", "aliases": ["Milk", "Cheese"]},
+        json={
+            "name": "Dairy",
+            "color": "blue",
+            "aliases": ["Milk", "Cheese"],
+            "translations": {"de": "Milchprodukte"},
+        },
         headers=admin_headers,
     ).json()
     assert updated_category["name"] == "Dairy"
     assert updated_category["aliases"] == ["Milk", "Cheese"]
+    assert updated_category["translations"] == {"de": "Milchprodukte"}
 
     bakery_category = client.post(
         "/api/v1/categories",
         json={"name": "Bakery", "color": "orange"},
         headers=admin_headers,
     ).json()
+    localized_categories = client.get(
+        f"/api/v1/lists/{list_id}/categories",
+        headers={**headers, "Accept-Language": "de-DE,de;q=0.9"},
+    ).json()
+    localized_by_id = {entry["id"]: entry for entry in localized_categories}
+    assert localized_by_id[category["id"]]["name"] == "Milchprodukte"
+    assert localized_by_id[bakery_category["id"]]["name"] == "Bakery"
 
     category_order = client.put(
         f"/api/v1/lists/{list_id}/category-order",
@@ -645,6 +664,12 @@ def test_capabilities_live_demo_page_uses_real_list_ui(client) -> None:
     assert "#1db8d9" in page.text
     assert "#f59e0b" in page.text
     assert 'href="/capabilities"' in page.text
+
+    german_page = client.get("/capabilities/live-demo?lang=de")
+    german_body = unescape(german_page.text)
+    assert "Obst und Gem\\u00fcse" in german_body
+    assert "K\\u00fchlschrank" in german_body
+    assert "Vorrat" in german_body
 
 
 def test_auth_and_access_error_paths(client) -> None:
@@ -3818,6 +3843,65 @@ def test_admin_list_sorts_and_carries_page_size_between_models(client, monkeypat
     assert "sortBy=name&sort=asc&page=1" in category_body
     assert "sortBy=color&sort=asc&page=1" in category_body
     assert "sortBy=aliases_text&sort=asc&page=1" in category_body
+
+
+def test_admin_category_form_edits_all_available_translations(client, monkeypatch) -> None:
+    _register_admin_session(client, monkeypatch)
+
+    create_page = client.get("/admin/category/create")
+    assert create_page.status_code == 200
+    assert 'name="name"' in create_page.text
+    assert "English (en)" in create_page.text
+    assert 'name="translation_de"' in create_page.text
+    assert "German (de)" in create_page.text
+    assert "Used when a requested translation is empty." in create_page.text
+
+    invalid = client.post(
+        "/admin/category/create",
+        data={"name": "", "translation_de": "Saison", "color": "#8b5cf6"},
+    )
+    assert invalid.status_code == 400
+    assert "This field is required." in invalid.text
+
+    created = client.post(
+        "/admin/category/create",
+        data={
+            "name": "Seasonal",
+            "translation_de": "Saison",
+            "color": "#8b5cf6",
+            "aliases_text": "Limited\nSpecial",
+            "save": "Save",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 302
+    categories = client.get("/api/v1/categories").json()
+    category = next(entry for entry in categories if entry["name"] == "Seasonal")
+    assert category["translations"] == {"de": "Saison"}
+    assert category["aliases"] == ["Limited", "Special"]
+
+    edit_page = client.get(f"/admin/category/edit/{category['id']}")
+    assert edit_page.status_code == 200
+    assert 'name="translation_de"' in edit_page.text
+    assert 'value="Saison"' in edit_page.text
+
+    updated = client.post(
+        f"/admin/category/edit/{category['id']}",
+        data={
+            "name": "Seasonal",
+            "translation_de": "",
+            "color": "#8b5cf6",
+            "aliases_text": "",
+            "save": "Save",
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 302
+    category = next(
+        entry for entry in client.get("/api/v1/categories").json() if entry["name"] == "Seasonal"
+    )
+    assert category["translations"] == {}
+    assert category["aliases"] == []
 
 
 def test_passkey_add_link_adds_passkey_and_clears_token(client, monkeypatch) -> None:

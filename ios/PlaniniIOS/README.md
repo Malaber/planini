@@ -23,6 +23,7 @@ Useful native iOS Invoke targets:
 - `.venv/bin/inv check-ios-package`
 - `.venv/bin/inv run-ios-e2e`
 - `.venv/bin/inv check-ios-e2e`
+- `.venv/bin/inv check-ios-marketing-screenshots`
 - `.venv/bin/inv generate-ios-project`
 - `.venv/bin/inv build-ios-simulator`
 - `.venv/bin/inv run-ios-simulators-fresh`
@@ -109,7 +110,14 @@ compatibility mode.
    - installs the iPhone app and watch app
    - launches the iPhone app with the local backend/bootstrap env vars
    - launches the watch app after the iPhone app starts
-6. Launch from Xcode and verify:
+6. **Capture repeatable App Store screenshots (macOS):**
+   ```bash
+   .venv/bin/inv check-ios-marketing-screenshots
+   ```
+   This uses a fresh polished fixture to capture matching English and German sets
+   under `iphone/`, `ipad/`, and `watchos/`. It verifies the App Store-ready sizes:
+   iPhone 14 Plus `1284x2778`, 13-inch iPad `2064x2752`, and 49mm Watch `422x514`.
+7. Launch from Xcode and verify:
    - the configured backend matches the build settings you generated the app with
    - passkey login succeeds for the selected backend
    - list switching works
@@ -229,8 +237,8 @@ for only the individual `pr-<PR>` app host to serve the AASA response.
 - The universal iPhone/iPad app uses the existing App ID, bundle identifier, signing certificate,
   provisioning profile, associated domains, App Group, and watch App IDs. No new Apple Developer
   group or capability is required solely for iPad support.
-- App Store Connect requires iPad screenshots for a version that supports iPad. Capture and upload
-  the required current iPad display-size screenshots before submitting the next version.
+- App Store Connect requires iPad screenshots for a version that supports iPad. The
+  `check-ios-marketing-screenshots` task captures the required 13-inch iPad set.
 - Ad-hoc installation on a physical iPad requires registering that iPad UDID and regenerating the
   ad-hoc provisioning profile, exactly like adding another physical iPhone test device.
 - Test passkeys, keyboard behavior, rotation, split view, and Stage Manager on a physical iPad

@@ -78,9 +78,10 @@ class GroceryListOut(ORMModel):
 
 
 class CategoryCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=120)
     color: str | None = None
     aliases: list[str] = Field(default_factory=list)
+    translations: dict[str, str] = Field(default_factory=dict)
 
 
 class CategoryOut(ORMModel):
@@ -89,6 +90,7 @@ class CategoryOut(ORMModel):
     name: str
     color: str | None
     aliases: list[str]
+    translations: dict[str, str]
 
 
 class ListCategoryOrderUpdate(BaseModel):

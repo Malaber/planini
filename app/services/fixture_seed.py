@@ -186,6 +186,9 @@ async def _ensure_category(
         category.color = payload.get("color") and str(payload["color"])
 
     category.aliases = [str(alias) for alias in payload.get("aliases", [])]
+    category.translations = {
+        str(locale): str(value) for locale, value in dict(payload.get("translations", {})).items()
+    }
     await db.flush()
     return category
 
