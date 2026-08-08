@@ -927,6 +927,110 @@ final class PlaniniUITests: XCTestCase {
         assertLanguageSettings(in: app)
     }
 
+    func testLocalDemoPersistsAndSyncsIntoAccount() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let localItemName = "Local demo \(UUID().uuidString.prefix(8))"
+
+        let app = XCUIApplication()
+        configureLaunchLanguage(for: app)
+        app.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
+        app.launch()
+
+        let promoLink = app.buttons["login-promo-link"]
+        XCTAssertTrue(promoLink.waitForExistence(timeout: 10))
+        promoLink.tap()
+        let startDemoButton = app.buttons["promo-start-local-demo-button"]
+        XCTAssertTrue(startDemoButton.waitForExistence(timeout: 5))
+        scrollToHittable(startDemoButton, in: app)
+        startDemoButton.tap()
+
+        let localModeBanner = app.buttons["local-mode-banner"]
+        XCTAssertTrue(localModeBanner.waitForExistence(timeout: 10))
+        XCTAssertTrue(localModeBanner.label.contains("Using in local mode"))
+        XCTAssertTrue(app.staticTexts["list-detail-title"].waitForExistence(timeout: 5))
+
+        XCTAssertTrue(openAddItemSheet(in: app))
+        let nameField = app.textFields["add-item-name-field"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        nameField.tap()
+        nameField.typeText(localItemName)
+        XCTAssertTrue(tapAddItemSaveAndWaitForDismissal(in: app))
+
+        XCTAssertTrue(tapTab("Settings", in: app))
+        let householdManagementLink = app.buttons["settings-household-management-link"]
+        XCTAssertTrue(householdManagementLink.waitForExistence(timeout: 5))
+        householdManagementLink.tap()
+        let demoHouseholdRow = app.buttons["household-row-Demo household"]
+        XCTAssertTrue(demoHouseholdRow.waitForExistence(timeout: 5))
+        demoHouseholdRow.tap()
+        let inviteButton = app.buttons["open-household-invite-sheet-button"]
+        XCTAssertTrue(inviteButton.waitForExistence(timeout: 5))
+        inviteButton.tap()
+        XCTAssertTrue(app.otherElements["account-registration-sheet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["local-mode-sync-explainer"].waitForExistence(timeout: 3)
+        )
+        app.buttons["reviewer-onboarding-cancel-button"].tap()
+        XCTAssertTrue(waitForElementToDisappear(app.otherElements["account-registration-sheet"], timeout: 5))
+        terminateAndWait(app)
+
+        let syncApp = XCUIApplication()
+        configureLaunchLanguage(for: syncApp)
+        syncApp.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
+        syncApp.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
+        syncApp.launchEnvironment["PLANINI_UI_TEST_RESTORE_LOCAL_MODE"] = "1"
+        syncApp.launchEnvironment["PLANINI_UI_TEST_RESTORE_STORED_SESSION"] = "1"
+        syncApp.launchEnvironment["PLANINI_UI_TEST_STORED_ACCESS_TOKEN_OVERRIDE"] = session.accessToken
+        syncApp.launchEnvironment["PLANINI_UI_TEST_STORED_DISPLAY_NAME_OVERRIDE"] = session.displayName
+        syncApp.launch()
+
+        let restoredBanner = syncApp.buttons["local-mode-banner"]
+        XCTAssertTrue(restoredBanner.waitForExistence(timeout: 10))
+        restoredBanner.tap()
+
+        XCTAssertTrue(syncApp.otherElements["account-registration-sheet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            syncApp.descendants(matching: .any)["local-mode-sync-explainer"].waitForExistence(timeout: 3)
+        )
+        let syncButton = syncApp.buttons["registration-submit-button"]
+        XCTAssertTrue(syncButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(syncButton.isEnabled)
+        syncButton.tap()
+
+        XCTAssertTrue(waitForElementToDisappear(restoredBanner, timeout: 30))
+        XCTAssertTrue(
+            waitForItem(
+                named: localItemName,
+                inListNamed: "Weekly groceries",
+                accessToken: session.accessToken,
+                timeout: 30
+            )
+        )
+
+        XCTAssertTrue(tapTab("Settings", in: syncApp))
+        let settingsPromoLink = syncApp.buttons["settings-promo-link"]
+        XCTAssertTrue(settingsPromoLink.waitForExistence(timeout: 5))
+        settingsPromoLink.tap()
+        XCTAssertTrue(syncApp.navigationBars["Discover Planini"].waitForExistence(timeout: 5))
+        XCTAssertFalse(syncApp.buttons["promo-start-local-demo-button"].exists)
+        syncApp.navigationBars.buttons.firstMatch.tap()
+
+        let signOutButton = syncApp.buttons["settings-sign-out-button"]
+        XCTAssertTrue(signOutButton.waitForExistence(timeout: 5))
+        signOutButton.tap()
+        XCTAssertTrue(syncApp.buttons["login-passkey-button"].waitForExistence(timeout: 10))
+        terminateAndWait(syncApp)
+
+        let syncedListID = try listID(named: "Weekly groceries", accessToken: session.accessToken)
+        try deleteList(listID: syncedListID, accessToken: session.accessToken)
+    }
+
     func testForceClosedAppRestoresSavedSession() throws {
         try assertLocalTestBackend()
         let session = if let injectedSession {
@@ -3345,6 +3449,15 @@ final class PlaniniUITests: XCTestCase {
     private func deleteItem(itemID: UUID, accessToken: String) throws {
         let request = jsonRequest(
             path: "/api/v1/items/\(itemID.uuidString)",
+            method: "DELETE",
+            token: accessToken
+        )
+        _ = try performRequest(request)
+    }
+
+    private func deleteList(listID: UUID, accessToken: String) throws {
+        let request = jsonRequest(
+            path: "/api/v1/lists/\(listID.uuidString)",
             method: "DELETE",
             token: accessToken
         )
