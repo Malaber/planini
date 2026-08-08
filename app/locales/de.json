@@ -453,6 +453,10 @@
       "creating_account": "Konto wird erstellt...",
       "could_not_create_account": "Dieses Konto konnte nicht erstellt werden."
     },
+    "passkeys": {
+      "loading": "Passkeys werden geladen...",
+      "name_too_long": "Verwende höchstens 120 Zeichen."
+    },
     "tabs": {
       "favorite": "Favorit",
       "lists": "Listen"

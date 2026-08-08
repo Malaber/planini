@@ -856,6 +856,12 @@ private struct SettingsTab: View {
                     LabeledContent(l10n.t("ios.favorite.favorite_list"), value: favoriteList.name)
                 }
                 NavigationLink {
+                    PasskeyManagementScreen()
+                } label: {
+                    Label(l10n.t("settings.your_passkeys"), systemImage: "person.badge.key")
+                }
+                .accessibilityIdentifier("settings-passkey-management-link")
+                NavigationLink {
                     HouseholdManagementScreen()
                 } label: {
                     Label(l10n.t("ios.households.settings_row"), systemImage: "house")
@@ -895,6 +901,392 @@ private struct SettingsTab: View {
         case .dark:
             return l10n.t("ios.settings.appearance_dark")
         }
+    }
+}
+
+private enum PasskeyManagementSheet: Identifiable {
+    case add(suggestedName: String)
+    case rename(PasskeyRecord)
+    case delete(PasskeyRecord)
+
+    var id: String {
+        switch self {
+        case .add:
+            return "add"
+        case let .rename(passkey):
+            return "rename-\(passkey.id.uuidString)"
+        case let .delete(passkey):
+            return "delete-\(passkey.id.uuidString)"
+        }
+    }
+}
+
+private struct PasskeyManagementScreen: View {
+    @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
+
+    @State private var activeSheet: PasskeyManagementSheet?
+    @State private var successMessage: String?
+
+    var body: some View {
+        List {
+            Section {
+                if viewModel.isManagingPasskeys && viewModel.passkeys.isEmpty {
+                    ProgressView(l10n.t("ios.passkeys.loading"))
+                        .accessibilityIdentifier("passkey-loading-indicator")
+                } else if viewModel.passkeys.isEmpty {
+                    EmptyStateView(
+                        title: l10n.t("settings.no_passkeys_title"),
+                        systemImage: "person.badge.key",
+                        message: l10n.t("settings.no_passkeys_body")
+                    )
+                    .accessibilityIdentifier("passkey-empty-state")
+                } else {
+                    ForEach(viewModel.passkeys) { passkey in
+                        PasskeyManagementRow(
+                            passkey: passkey,
+                            canDelete: viewModel.passkeys.count > 1,
+                            isBusy: viewModel.isManagingPasskeys,
+                            onRename: {
+                                successMessage = nil
+                                activeSheet = .rename(passkey)
+                            },
+                            onDelete: {
+                                successMessage = nil
+                                activeSheet = .delete(passkey)
+                            }
+                        )
+                    }
+                }
+            } header: {
+                Text(l10n.t("settings.security"))
+            } footer: {
+                Text(l10n.t("settings.helper"))
+            }
+
+            Section {
+                Button {
+                    successMessage = nil
+                    activeSheet = .add(
+                        suggestedName: l10n.t(
+                            "settings.suggested_name",
+                            ["number": "\(viewModel.passkeys.count + 1)"]
+                        )
+                    )
+                } label: {
+                    Label(l10n.t("settings.add_another"), systemImage: "plus")
+                }
+                .disabled(viewModel.isManagingPasskeys)
+                .accessibilityIdentifier("passkey-add-button")
+            }
+
+            if let errorMessage = viewModel.passkeyManagementErrorMessage {
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("passkey-management-error")
+                }
+            }
+
+            if let successMessage {
+                Section {
+                    Label(successMessage, systemImage: "checkmark.circle")
+                        .foregroundStyle(.green)
+                        .accessibilityIdentifier("passkey-management-success")
+                }
+            }
+        }
+        .navigationTitle(l10n.t("settings.your_passkeys"))
+        .accessibilityIdentifier("passkey-management-screen")
+        .task {
+            _ = await viewModel.loadPasskeys()
+        }
+        .refreshable {
+            _ = await viewModel.loadPasskeys()
+        }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case let .add(suggestedName):
+                PasskeyNameSheet(
+                    title: l10n.t("settings.name_this_passkey"),
+                    submitTitle: l10n.t("common.continue"),
+                    initialName: suggestedName,
+                    identifierPrefix: "passkey-add"
+                ) { name in
+                    let added = await viewModel.addPasskey(name: name)
+                    if added {
+                        successMessage = l10n.t("settings.added_success")
+                    }
+                    return added
+                }
+            case let .rename(passkey):
+                PasskeyNameSheet(
+                    title: l10n.t("settings.rename_this_passkey"),
+                    submitTitle: l10n.t("settings.save_and_verify"),
+                    initialName: passkey.name,
+                    identifierPrefix: "passkey-rename"
+                ) { name in
+                    let renamed = await viewModel.renamePasskey(passkey, name: name)
+                    if renamed {
+                        successMessage = l10n.t("settings.renamed_success")
+                    }
+                    return renamed
+                }
+            case let .delete(passkey):
+                PasskeyDeleteConfirmationSheet(passkey: passkey) {
+                    let deleted = await viewModel.deletePasskey(passkey)
+                    if deleted {
+                        successMessage = l10n.t("settings.deleted_success")
+                    }
+                    return deleted
+                }
+            }
+        }
+    }
+}
+
+private struct PasskeyManagementRow: View {
+    @EnvironmentObject private var l10n: AppLocalization
+
+    let passkey: PasskeyRecord
+    let canDelete: Bool
+    let isBusy: Bool
+    let onRename: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(passkey.name)
+                        .font(.headline)
+                        .accessibilityIdentifier(
+                            "passkey-name-\(passkey.id.uuidString.lowercased())"
+                        )
+                    Text(
+                        l10n.t(
+                            "settings.added_on",
+                            ["date": formattedDate(passkey.createdAt)]
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    Text(lastUsedText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: "key")
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Button {
+                    onRename()
+                } label: {
+                    Label(l10n.t("settings.rename"), systemImage: "pencil")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isBusy)
+                .accessibilityIdentifier("passkey-rename-\(passkey.id.uuidString.lowercased())")
+
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label(l10n.t("common.delete"), systemImage: "trash")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isBusy || canDelete == false)
+                .accessibilityIdentifier("passkey-delete-\(passkey.id.uuidString.lowercased())")
+            }
+
+            if canDelete == false {
+                Text(l10n.t("settings.delete_disabled"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("passkey-delete-disabled-help")
+            }
+        }
+    }
+
+    private var lastUsedText: String {
+        guard let lastUsedAt = passkey.lastUsedAt else {
+            return l10n.t("settings.never_used")
+        }
+        return l10n.t(
+            "settings.last_used",
+            ["date": formattedDate(lastUsedAt)]
+        )
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: l10n.effectiveLocale)
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+}
+
+private struct PasskeyNameSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
+
+    let title: String
+    let submitTitle: String
+    let identifierPrefix: String
+    let onSubmit: (String) async -> Bool
+
+    @State private var name: String
+
+    init(
+        title: String,
+        submitTitle: String,
+        initialName: String,
+        identifierPrefix: String,
+        onSubmit: @escaping (String) async -> Bool
+    ) {
+        self.title = title
+        self.submitTitle = submitTitle
+        self.identifierPrefix = identifierPrefix
+        self.onSubmit = onSubmit
+        _name = State(initialValue: initialName)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField(l10n.t("settings.passkey_name_placeholder"), text: $name)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("\(identifierPrefix)-name-field")
+
+                    if isNameTooLong {
+                        Text(l10n.t("ios.passkeys.name_too_long"))
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("\(identifierPrefix)-name-error")
+                    }
+                }
+
+                if let errorMessage = viewModel.passkeyManagementErrorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("\(identifierPrefix)-error")
+                    }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(l10n.t("common.cancel")) {
+                        dismiss()
+                    }
+                    .disabled(viewModel.isManagingPasskeys)
+                    .accessibilityIdentifier("\(identifierPrefix)-cancel-button")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(submitTitle) {
+                        closeKeyboard()
+                        Task {
+                            if await onSubmit(trimmedName) {
+                                AppHaptics.confirmation()
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(
+                        viewModel.isManagingPasskeys
+                            || trimmedName.isEmpty
+                            || isNameTooLong
+                    )
+                    .accessibilityIdentifier("\(identifierPrefix)-submit-button")
+                }
+            }
+        }
+        .interactiveDismissDisabled(viewModel.isManagingPasskeys)
+        .accessibilityIdentifier("\(identifierPrefix)-name-sheet")
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isNameTooLong: Bool {
+        trimmedName.unicodeScalars.count > 120
+    }
+
+    private func closeKeyboard() {
+        #if canImport(UIKit)
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+        #endif
+    }
+}
+
+private struct PasskeyDeleteConfirmationSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var viewModel: MobileAppViewModel
+    @EnvironmentObject private var l10n: AppLocalization
+
+    let passkey: PasskeyRecord
+    let onConfirm: () async -> Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(
+                        l10n.t(
+                            "settings.delete_help",
+                            ["name": passkey.name]
+                        )
+                    )
+                }
+
+                if let errorMessage = viewModel.passkeyManagementErrorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("passkey-delete-confirmation-error")
+                    }
+                }
+
+                Section {
+                    Button(l10n.t("settings.continue_to_verification"), role: .destructive) {
+                        Task {
+                            if await onConfirm() {
+                                AppHaptics.confirmation()
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(viewModel.isManagingPasskeys)
+                    .accessibilityIdentifier("passkey-delete-confirm-button")
+                }
+            }
+            .navigationTitle(l10n.t("settings.delete_this_passkey"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(l10n.t("common.cancel")) {
+                        dismiss()
+                    }
+                    .disabled(viewModel.isManagingPasskeys)
+                    .accessibilityIdentifier("passkey-delete-cancel-button")
+                }
+            }
+        }
+        .interactiveDismissDisabled(viewModel.isManagingPasskeys)
+        .accessibilityIdentifier("passkey-delete-confirmation-sheet")
     }
 }
 
@@ -1979,14 +2371,24 @@ private struct ListSettingsSheet: View {
                 .navigationTitle("List settings")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { dismiss() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
+                    ToolbarItem(placement: .topBarLeading) {
                         Label(saveState.title, systemImage: saveState.systemImage)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(saveState.tint)
+                            .accessibilityElement(children: .combine)
                             .accessibilityIdentifier("list-settings-save-state")
+                            .accessibilityLabel(saveState.title)
+                            .accessibilityRemoveTraits(.isButton)
+                            .allowsHitTesting(false)
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Label(l10n.t("common.done"), systemImage: "checkmark")
+                                .labelStyle(.iconOnly)
+                        }
+                        .accessibilityIdentifier("list-settings-done-button")
                     }
                 }
         }
@@ -3408,7 +3810,7 @@ private struct EditItemSheet: View {
                         flushCurrentEdit()
                         dismiss()
                     } label: {
-                        Label(l10n.t("common.done"), systemImage: "xmark")
+                        Label(l10n.t("common.done"), systemImage: "checkmark")
                             .labelStyle(.iconOnly)
                     }
                     .accessibilityIdentifier("edit-item-close-button")
