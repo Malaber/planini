@@ -12,9 +12,13 @@ from sqladmin.authentication import AuthenticationBackend
 from sqladmin.authentication import login_required
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from wtforms import Form, StringField, TextAreaField
+from wtforms.validators import DataRequired, Length, Optional
+from wtforms.widgets import ColorInput
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, engine
+from app.i18n import DEFAULT_LOCALE, available_locales
 from app.models import Category, PasskeyAddLink, User
 from app.services.backups import (
     BackupError,
@@ -33,6 +37,10 @@ from app.web.routes import _get_session_user
 PASSKEY_ADD_LINK_DEFAULT_HOURS = 24
 PASSKEY_ADD_LINK_MIN_HOURS = 1
 PASSKEY_ADD_LINK_MAX_HOURS = 720
+LOCALE_DISPLAY_NAMES = {
+    "de": "German",
+    "en": "English",
+}
 
 
 def _passkey_add_link_duration_hours(raw_value: object) -> int:
@@ -46,6 +54,46 @@ def _passkey_add_link_duration_hours(raw_value: object) -> int:
             f"and {PASSKEY_ADD_LINK_MAX_HOURS} hours."
         )
     return duration_hours
+
+
+def _category_translation_field(locale: str) -> str:
+    return f"translation_{locale.replace('-', '_')}"
+
+
+def _category_admin_form() -> type[Form]:
+    fields: dict[str, object] = {
+        "name": StringField(
+            f"{LOCALE_DISPLAY_NAMES.get(DEFAULT_LOCALE, DEFAULT_LOCALE)} ({DEFAULT_LOCALE})",
+            validators=[DataRequired(), Length(max=120)],
+            description="Required. Used when a requested translation is empty.",
+        ),
+        "color": StringField("Color", validators=[Optional()], widget=ColorInput()),
+        "aliases_text": TextAreaField(
+            "Aliases",
+            validators=[Optional()],
+            render_kw={
+                "placeholder": "One alias per line, for example:\nBread\nRolls",
+                "rows": 4,
+            },
+        ),
+    }
+    for locale in available_locales():
+        if locale == DEFAULT_LOCALE:
+            continue
+        fields[_category_translation_field(locale)] = StringField(
+            f"{LOCALE_DISPLAY_NAMES.get(locale, locale)} ({locale})",
+            validators=[Optional(), Length(max=120)],
+        )
+    return type("CategoryAdminForm", (Form,), fields)
+
+
+for _locale in available_locales():
+    if _locale != DEFAULT_LOCALE:
+        setattr(
+            Category,
+            _category_translation_field(_locale),
+            property(lambda category, locale=_locale: category.translations.get(locale, "")),
+        )
 
 
 class SessionAdminAuth(AuthenticationBackend):
@@ -211,17 +259,13 @@ class CategoryAdmin(ModelView, model=Category):
     icon = "fa-solid fa-tag"
     column_list = [Category.name, Category.color, Category.aliases_text]
     column_sortable_list = column_list
-    form_columns = [Category.name, Category.color, Category.aliases_text]
-    column_labels = {Category.aliases_text: "Aliases"}
+    column_labels = {
+        Category.name: "English",
+        Category.aliases_text: "Aliases",
+    }
+    form = _category_admin_form()
     page_size = 50
     page_size_options = [50, 100, 200]
-    form_widget_args = {
-        "color": {"type": "color"},
-        "aliases_text": {
-            "placeholder": "One alias per line, for example:\nBrot\nBroetchen",
-            "rows": 4,
-        },
-    }
     column_formatters = {
         Category.color: lambda model, attr: (
             Markup(
@@ -234,6 +278,15 @@ class CategoryAdmin(ModelView, model=Category):
         ),
         Category.aliases_text: lambda model, attr: ", ".join(model.aliases),
     }
+
+    async def on_model_change(
+        self, data: dict[str, object], model: Category, is_created: bool, request: Request
+    ) -> None:
+        model.translations = {
+            locale: str(data.pop(_category_translation_field(locale), "") or "")
+            for locale in available_locales()
+            if locale != DEFAULT_LOCALE
+        }
 
 
 class BackupAdmin(BaseView):

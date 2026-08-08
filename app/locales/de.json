@@ -461,6 +461,32 @@
       "signing_in": "Anmeldung läuft...",
       "continue_with_passkey": "Mit Passkey fortfahren"
     },
+    "promo": {
+      "navigation_title": "Planini entdecken",
+      "explore": "Planini entdecken",
+      "login_hint": "Sieh dir Planini an oder probiere es ohne Anmeldung aus.",
+      "title": "Einkaufs- und Haushaltslisten, die synchron bleiben",
+      "subtitle": "Plant gemeinsam, fügt Dinge schnell hinzu und nutzt jede Liste auch ohne Verbindung.",
+      "households_title": "Für Haushalte gemacht",
+      "households_message": "Organisiere gemeinsame Listen und lade Menschen ein, mit denen du planst.",
+      "fast_title": "Schnell von der Idee zur Liste",
+      "fast_message": "Schnelles Hinzufügen, Kategorien, Siri und Favoriten halten Wichtiges griffbereit.",
+      "offline_title": "Zuverlässig offline",
+      "offline_message": "Arbeite ohne Verbindung weiter. Planini speichert Änderungen und synchronisiert sie später.",
+      "sync_title": "Auf jedem Gerät bereit",
+      "sync_message": "Erstelle ein Konto für sichere Backups, Einladungen und nahtlose Synchronisierung.",
+      "start_demo": "Lokale Demo ausprobieren",
+      "demo_privacy": "Kein Konto nötig. Demodaten und alle Änderungen bleiben auf diesem iPhone, bis du synchronisieren möchtest."
+    },
+    "local_mode": {
+      "banner": "Lokaler Modus aktiv",
+      "banner_action": "Tippen, um ein Konto zu erstellen und zu synchronisieren",
+      "sync_explainer": "Deine Haushalte, Listen, Einträge und Listeneinstellungen werden in dein neues Planini-Konto kopiert.",
+      "create_and_sync": "Konto erstellen und synchronisieren",
+      "retry_sync": "Lokale Daten erneut synchronisieren",
+      "exit": "Lokalen Modus verlassen",
+      "storage": "Auf diesem iPhone"
+    },
     "onboarding": {
       "sign_in_help": "Anmeldehilfe",
       "add_passkey": "Passkey hinzufügen",

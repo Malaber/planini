@@ -1,3 +1,4 @@
+import Foundation
 import PlaniniCore
 import SwiftUI
 
@@ -57,8 +58,14 @@ struct WatchRootView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            LabeledContent("iPhone app installed", value: viewModel.isCompanionAppInstalled ? "Yes" : "No")
-            LabeledContent("iPhone reachable", value: viewModel.isPhoneReachable ? "Yes" : "No")
+            LabeledContent(
+                "iPhone app installed",
+                value: NSLocalizedString(viewModel.isCompanionAppInstalled ? "Yes" : "No", comment: "")
+            )
+            LabeledContent(
+                "iPhone reachable",
+                value: NSLocalizedString(viewModel.isPhoneReachable ? "Yes" : "No", comment: "")
+            )
 
             Button(viewModel.setupButtonTitle) {
                 Task { await viewModel.refresh() }

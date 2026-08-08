@@ -1,7 +1,7 @@
 """add public list links
 
-Revision ID: 0018_add_public_list_links
-Revises: 0017_add_list_accent_color
+Revision ID: 0019_add_public_list_links
+Revises: 0018_add_category_translations
 Create Date: 2026-06-27 00:00:00.000000
 """
 
@@ -10,8 +10,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0018_add_public_list_links"
-down_revision: str | Sequence[str] | None = "0017_add_list_accent_color"
+revision: str = "0019_add_public_list_links"
+down_revision: str | Sequence[str] | None = "0018_add_category_translations"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

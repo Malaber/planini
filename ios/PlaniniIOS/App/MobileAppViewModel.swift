@@ -14,6 +14,7 @@ private enum AppBuildConfiguration {
     static let uiTestPendingItemCreateNameKey = "PLANINI_UI_TEST_PENDING_ITEM_CREATE_NAME"
     static let uiTestSiriAddItemNameKey = "PLANINI_UI_TEST_SIRI_ADD_ITEM_NAME"
     static let uiTestSiriAddItemListNameKey = "PLANINI_UI_TEST_SIRI_ADD_ITEM_LIST_NAME"
+    static let uiTestRestoreLocalModeKey = "PLANINI_UI_TEST_RESTORE_LOCAL_MODE"
 
     static var backendURL: URL? {
         if let overriddenURL = validatedURL(from: ProcessInfo.processInfo.environment[backendURLOverrideKey]) {
@@ -41,39 +42,7 @@ private enum AppBuildConfiguration {
     }
 }
 
-private struct MobileListData: Codable {
-    let items: [GroceryItemRecord]
-    let categories: [GroceryCategorySummary]
-    let categoryOrder: [ListCategoryOrderEntry]
-    let disabledCategoryIDs: [UUID]
-
-    init(
-        items: [GroceryItemRecord],
-        categories: [GroceryCategorySummary],
-        categoryOrder: [ListCategoryOrderEntry],
-        disabledCategoryIDs: [UUID] = []
-    ) {
-        self.items = items
-        self.categories = categories
-        self.categoryOrder = categoryOrder
-        self.disabledCategoryIDs = disabledCategoryIDs
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case items
-        case categories
-        case categoryOrder
-        case disabledCategoryIDs
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        items = try container.decode([GroceryItemRecord].self, forKey: .items)
-        categories = try container.decode([GroceryCategorySummary].self, forKey: .categories)
-        categoryOrder = try container.decode([ListCategoryOrderEntry].self, forKey: .categoryOrder)
-        disabledCategoryIDs = try container.decodeIfPresent([UUID].self, forKey: .disabledCategoryIDs) ?? []
-    }
-}
+private typealias MobileListData = LocalDemoListData
 
 private struct PendingItemEdit: Codable, Equatable {
     let listID: UUID
@@ -153,6 +122,7 @@ final class MobileAppViewModel: ObservableObject {
     private static let cachedListsKey = "planini.cachedLists"
     private static let cachedListDataPrefix = "planini.cachedListData."
     private static let publicListsKey = "planini.publicLists"
+    private static let localModeEnabledKey = "planini.localModeEnabled"
     private static let passkeyTokenAllowedCharacters = CharacterSet.alphanumerics
         .union(CharacterSet(charactersIn: "-._~"))
     private static let offlineMutationDateFormatter: ISO8601DateFormatter = {
@@ -162,6 +132,7 @@ final class MobileAppViewModel: ObservableObject {
     }()
 
     @Published private(set) var backendURL: URL?
+    @Published private(set) var isLocalMode = false
     @Published private(set) var isAuthenticating = false
     @Published private(set) var authToken: String?
     @Published private(set) var displayName: String?
@@ -181,6 +152,7 @@ final class MobileAppViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var offlineStatusMessage: String?
     @Published var reviewerOnboardingMessage: String?
+    @Published private(set) var localModeUpgradeRequestID: UUID?
     @Published private(set) var linkedListNavigationRequest: LinkedListNavigationRequest?
     @Published private(set) var publicLists: [PublicListReference] = []
     @Published private(set) var selectedPublicList: PublicListReference?
@@ -192,6 +164,7 @@ final class MobileAppViewModel: ObservableObject {
     private let watchSyncCoordinator: WatchSyncCoordinator
     private let sharedStateStore: SharedAppStateStore
     private let liveUpdates: MobileListLiveUpdateClient
+    private let localDemoStore: LocalDemoStore
     private let isSimulatorBuild: Bool
     private var didAttemptLaunchBootstrap = false
     private var itemReloadGeneration = 0
@@ -206,6 +179,7 @@ final class MobileAppViewModel: ObservableObject {
     private var pendingCategoryOrderSaveListIDs: [UUID] = []
     private var categoryOrderSaveTask: Task<Void, Never>?
     private var optimisticCategoryOrders: [UUID: [ListCategoryOrderEntry]] = [:]
+    private var localDemoSnapshot: LocalDemoSnapshot?
 
     init(
         passkeyClient: ApplePasskeyClient = ApplePasskeyClient(),
@@ -219,6 +193,8 @@ final class MobileAppViewModel: ObservableObject {
         self.processInfo = processInfo
         self.watchSyncCoordinator = watchSyncCoordinator
         self.liveUpdates = liveUpdates
+        let localDemoStore = LocalDemoStore(userDefaults: userDefaults)
+        self.localDemoStore = localDemoStore
         self.sharedStateStore = SharedAppStateStore(
             userDefaults: UserDefaults(suiteName: PlaniniSharedConstants.watchAppGroupID) ?? .standard
         )
@@ -230,6 +206,13 @@ final class MobileAppViewModel: ObservableObject {
         backendURL = AppBuildConfiguration.backendURL
         let shouldLoadStoredSession = processInfo.environment["PLANINI_UI_TEST_MODE"] != "1"
             || processInfo.environment[AppBuildConfiguration.uiTestRestoreStoredSessionKey] == "1"
+        let shouldLoadLocalMode = processInfo.environment["PLANINI_UI_TEST_MODE"] != "1"
+            || processInfo.environment[AppBuildConfiguration.uiTestRestoreLocalModeKey] == "1"
+        let loadsLocalMode = shouldLoadLocalMode && userDefaults.bool(forKey: Self.localModeEnabledKey)
+        isLocalMode = loadsLocalMode
+        if loadsLocalMode {
+            localDemoSnapshot = localDemoStore.loadOrSeed()
+        }
         if shouldLoadStoredSession {
             favoriteListID = userDefaults.string(forKey: Self.favoriteListKey).flatMap(UUID.init(uuidString:))
             authToken = userDefaults.string(forKey: Self.authTokenKey)
@@ -281,7 +264,10 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     var backendDisplayName: String {
-        backendURL?.host ?? backendURL?.absoluteString ?? "Not configured"
+        if selectedPublicList == nil, isLocalMode {
+            return "On this iPhone"
+        }
+        return backendURL?.host ?? backendURL?.absoluteString ?? "Not configured"
     }
 
     var selectedList: GroceryListSummary? {
@@ -319,6 +305,85 @@ final class MobileAppViewModel: ObservableObject {
         processInfo.environment["PLANINI_UI_TEST_MODE"] == "1"
     }
 
+    func startLocalDemo() {
+        liveUpdates.disconnect()
+        isLocalMode = true
+        userDefaults.set(true, forKey: Self.localModeEnabledKey)
+        let snapshot = localDemoStore.loadOrSeed()
+        localDemoSnapshot = snapshot
+        applyLocalDemoSnapshot(snapshot)
+        errorMessage = nil
+        reviewerOnboardingMessage = nil
+        watchSyncCoordinator.publishCurrentState()
+    }
+
+    func requestLocalModeAccountCreation() {
+        guard isLocalMode else { return }
+        localModeUpgradeRequestID = UUID()
+    }
+
+    private func applyLocalDemoSnapshot(_ snapshot: LocalDemoSnapshot) {
+        households = sortedHouseholds(snapshot.households)
+        lists = sortedLists(snapshot.lists)
+        favoriteListID = snapshot.favoriteListID
+        selectedListID = snapshot.selectedListID.flatMap { selectedID in
+            lists.contains(where: { $0.id == selectedID }) ? selectedID : nil
+        } ?? favoriteListID ?? lists.first?.id
+        displayName = "Local demo"
+        if
+            let selectedListID,
+            let selectedData = snapshot.listData[selectedListID]
+        {
+            applyLocalDemoListData(selectedData)
+        } else {
+            items = []
+            categories = []
+            categoryOrder = []
+            disabledCategoryIDs = []
+        }
+    }
+
+    private func persistLocalDemoState() {
+        guard isLocalMode, var snapshot = localDemoSnapshot else { return }
+        snapshot.households = households
+        snapshot.lists = lists
+        snapshot.favoriteListID = favoriteListID
+        snapshot.selectedListID = selectedListID
+        if let selectedListID {
+            snapshot.listData[selectedListID] = MobileListData(
+                items: items,
+                categories: categories,
+                categoryOrder: categoryOrder,
+                disabledCategoryIDs: Array(disabledCategoryIDs)
+            )
+        }
+        saveLocalDemoSnapshot(snapshot)
+    }
+
+    private func saveLocalDemoSnapshot(_ snapshot: LocalDemoSnapshot) {
+        localDemoSnapshot = snapshot
+        localDemoStore.save(snapshot)
+    }
+
+    private func localDemoTemplateData() -> MobileListData {
+        if let data = localDemoSnapshot?.listData.values.first {
+            return MobileListData(
+                items: [],
+                categories: data.categories,
+                categoryOrder: data.categoryOrder,
+                disabledCategoryIDs: []
+            )
+        }
+        let seeded = LocalDemoSnapshot.seeded()
+        let data = seeded.listData.values.first!
+        return MobileListData(
+            items: [],
+            categories: data.categories,
+            categoryOrder: data.categoryOrder,
+            disabledCategoryIDs: []
+        )
+    }
+
     nonisolated static func passkeyAddToken(from rawValue: String) -> String? {
         PlaniniLinkParser.passkeyAddToken(from: rawValue)
     }
@@ -326,6 +391,18 @@ final class MobileAppViewModel: ObservableObject {
     func handleIncomingPlaniniLink(_ rawValue: String) async {
         guard let link = PlaniniLinkParser.parse(rawValue, allowedWebHosts: allowedPlaniniLinkHosts) else {
             return
+        }
+
+        if isLocalMode {
+            switch link {
+            case .passkeyAdd:
+                break
+            case .invite, .list:
+                requestLocalModeAccountCreation()
+                return
+            case .publicList:
+                break
+            }
         }
 
         switch link {
@@ -434,6 +511,9 @@ final class MobileAppViewModel: ObservableObject {
             errorMessage = "This build is missing a backend URL configuration."
             return false
         }
+        if isLocalMode, authToken?.isEmpty == false {
+            return await syncLocalDemoDataToAuthenticatedAccount()
+        }
 
         let displayName = rawDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let email = rawEmail.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -479,7 +559,13 @@ final class MobileAppViewModel: ObservableObject {
             )
 
             reviewerOnboardingMessage = "Account created. Signing in…"
-            try await performPasskeyLogin(backendURL: backendURL)
+            try await performPasskeyLogin(backendURL: backendURL, reloadData: isLocalMode == false)
+            if isLocalMode {
+                reviewerOnboardingMessage = "Account created. Syncing local data…"
+                guard await syncLocalDemoDataToAuthenticatedAccount() else {
+                    return false
+                }
+            }
             reviewerOnboardingMessage = nil
             return true
         } catch {
@@ -571,7 +657,7 @@ final class MobileAppViewModel: ObservableObject {
         }
     }
 
-    private func performPasskeyLogin(backendURL: URL) async throws {
+    private func performPasskeyLogin(backendURL: URL, reloadData: Bool = true) async throws {
         try await ensureBackendReady(backendURL: backendURL)
         let options = try await requestJSON(
             backendURL: backendURL,
@@ -618,7 +704,9 @@ final class MobileAppViewModel: ObservableObject {
         )
         displayName = me["display_name"] as? String
         userDefaults.set(displayName, forKey: Self.displayNameKey)
-        try await reloadAllData()
+        if reloadData {
+            try await reloadAllData()
+        }
         errorMessage = nil
         await processPendingPlaniniLinkIfPossible()
         watchSyncCoordinator.publishCurrentState()
@@ -630,6 +718,13 @@ final class MobileAppViewModel: ObservableObject {
 
         let environment = processInfo.environment
         do {
+            if isLocalMode {
+                let snapshot = localDemoSnapshot ?? localDemoStore.loadOrSeed()
+                localDemoSnapshot = snapshot
+                applyLocalDemoSnapshot(snapshot)
+                return
+            }
+
             if
                 environment["PLANINI_UI_TEST_MODE"] == "1",
                 let accessToken = environment["PLANINI_UI_TEST_ACCESS_TOKEN"],
@@ -799,6 +894,7 @@ final class MobileAppViewModel: ObservableObject {
 
     func signOut() {
         liveUpdates.disconnect()
+        isLocalMode = false
         authToken = nil
         displayName = nil
         passkeys = []
@@ -819,6 +915,8 @@ final class MobileAppViewModel: ObservableObject {
         errorMessage = nil
         offlineStatusMessage = nil
         reviewerOnboardingMessage = nil
+        localModeUpgradeRequestID = nil
+        userDefaults.removeObject(forKey: Self.localModeEnabledKey)
         userDefaults.removeObject(forKey: Self.authTokenKey)
         userDefaults.removeObject(forKey: Self.displayNameKey)
         watchSyncCoordinator.publishCurrentState()
@@ -838,12 +936,14 @@ final class MobileAppViewModel: ObservableObject {
             favoriteListID = id
             userDefaults.set(id.uuidString, forKey: Self.favoriteListKey)
         }
+        persistLocalDemoState()
         watchSyncCoordinator.publishCurrentState()
     }
 
     func setFavoriteList(id: UUID) {
         favoriteListID = id
         userDefaults.set(id.uuidString, forKey: Self.favoriteListKey)
+        persistLocalDemoState()
         watchSyncCoordinator.publishCurrentState()
     }
 
@@ -877,6 +977,13 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     func reloadAllData() async throws {
+        if isLocalMode {
+            persistLocalDemoState()
+            if let snapshot = localDemoSnapshot {
+                applyLocalDemoSnapshot(snapshot)
+            }
+            return
+        }
         guard let backendURL, let authToken else { return }
 
         do {
@@ -969,12 +1076,19 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func createHousehold(name rawName: String) async -> HouseholdSummary? {
-        guard let backendURL, let authToken else { return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard name.isEmpty == false else {
             errorMessage = "Enter a household name."
             return nil
         }
+        if isLocalMode {
+            let household = HouseholdSummary(id: UUID(), name: name)
+            households.append(household)
+            households = sortedHouseholds(households)
+            persistLocalDemoState()
+            return household
+        }
+        guard let backendURL, let authToken else { return nil }
 
         do {
             let payload = try await requestJSON(
@@ -997,12 +1111,39 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func createList(householdID: UUID, name rawName: String) async -> GroceryListSummary? {
-        guard let backendURL, let authToken else { return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard name.isEmpty == false else {
             errorMessage = "Enter a list name."
             return nil
         }
+        if isLocalMode {
+            guard
+                let household = households.first(where: { $0.id == householdID }),
+                var snapshot = localDemoSnapshot
+            else {
+                return nil
+            }
+            persistLocalDemoState()
+            snapshot = localDemoSnapshot ?? snapshot
+            let list = GroceryListSummary(
+                id: UUID(),
+                householdID: householdID,
+                householdName: household.name,
+                name: name,
+                archived: false
+            )
+            lists.append(list)
+            lists = sortedLists(lists)
+            snapshot.lists = lists
+            snapshot.listData[list.id] = localDemoTemplateData()
+            snapshot.selectedListID = list.id
+            selectedListID = list.id
+            saveLocalDemoSnapshot(snapshot)
+            applyLocalDemoListData(snapshot.listData[list.id]!)
+            watchSyncCoordinator.publishCurrentState()
+            return list
+        }
+        guard let backendURL, let authToken else { return nil }
 
         do {
             let payload = try await requestJSON(
@@ -1032,6 +1173,10 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     func createInvite(householdID: UUID, expiresInHours: Int? = 24, maxUses: Int? = nil) async -> HouseholdInviteLink? {
+        if isLocalMode {
+            requestLocalModeAccountCreation()
+            return nil
+        }
         guard let backendURL, let authToken else { return nil }
 
         var inviteBody: [String: Any] = [:]
@@ -1065,6 +1210,17 @@ final class MobileAppViewModel: ObservableObject {
 
     func selectList(id: UUID) async {
         selectedPublicList = nil
+        if isLocalMode {
+            guard lists.contains(where: { $0.id == id }) else { return }
+            persistLocalDemoState()
+            selectedListID = id
+            if let data = localDemoSnapshot?.listData[id] {
+                applyLocalDemoListData(data)
+            }
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return
+        }
         guard selectedListID != id else {
             updateLiveUpdatesConnection()
             return
@@ -1155,6 +1311,10 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     private func openListFromLink(id: UUID) async {
+        if isLocalMode {
+            requestLocalModeAccountCreation()
+            return
+        }
         guard authToken != nil else {
             pendingPlaniniLink = .list(id: id)
             errorMessage = "Sign in to open that list."
@@ -1177,6 +1337,10 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     private func acceptInviteFromLink(token: String) async {
+        if isLocalMode {
+            requestLocalModeAccountCreation()
+            return
+        }
         guard let backendURL, let authToken else {
             pendingPlaniniLink = .invite(token: token)
             errorMessage = "Sign in to accept this invite."
@@ -1209,18 +1373,17 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     func reloadItems() async throws {
-        guard let backendURL, let selectedListID else {
-            itemReloadGeneration += 1
-            items = []
-            categories = []
-            categoryOrder = []
-            disabledCategoryIDs = []
-            updateLiveUpdatesConnection()
-            watchSyncCoordinator.publishCurrentState()
-            return
-        }
-
         if let selectedPublicList {
+            guard let backendURL, let selectedListID else {
+                itemReloadGeneration += 1
+                items = []
+                categories = []
+                categoryOrder = []
+                disabledCategoryIDs = []
+                updateLiveUpdatesConnection()
+                watchSyncCoordinator.publishCurrentState()
+                return
+            }
             itemReloadGeneration += 1
             let generation = itemReloadGeneration
             let listData = try await loadPublicListData(
@@ -1242,7 +1405,22 @@ final class MobileAppViewModel: ObservableObject {
             return
         }
 
-        guard let authToken else {
+        if isLocalMode {
+            guard
+                let selectedListID,
+                let data = localDemoSnapshot?.listData[selectedListID]
+            else {
+                items = []
+                categories = []
+                categoryOrder = []
+                disabledCategoryIDs = []
+                return
+            }
+            applyLocalDemoListData(data)
+            watchSyncCoordinator.publishCurrentState()
+            return
+        }
+        guard let backendURL, let authToken, let selectedListID else {
             itemReloadGeneration += 1
             items = []
             categories = []
@@ -1306,6 +1484,24 @@ final class MobileAppViewModel: ObservableObject {
         defersUITestPendingItemSyncUntilMutation = false
         let quantityText = quantity.isEmpty ? nil : quantity
         let noteText = note.isEmpty ? nil : note
+
+        if selectedPublicList == nil, isLocalMode {
+            let item = GroceryItemRecord(
+                id: UUID(),
+                listID: selectedListID,
+                name: trimmed,
+                quantityText: quantityText,
+                note: noteText,
+                categoryID: categoryID,
+                checked: false,
+                checkedAt: nil,
+                sortOrder: (items.map(\.sortOrder).max() ?? -1) + 1
+            )
+            upsertLocalItem(item)
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        }
 
         func queueOfflineCreate() {
             queuePendingItemCreate(
@@ -1408,6 +1604,13 @@ final class MobileAppViewModel: ObservableObject {
         guard let item = items.first(where: { $0.id == itemID }) else { return false }
         let recordedAt = Date()
 
+        if selectedPublicList == nil, isLocalMode {
+            applyLocalToggle(itemID: itemID, checked: checked, recordedAt: recordedAt)
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        }
+
         func queueOfflineToggle() {
             queuePendingItemToggle(listID: item.listID, itemID: itemID, checked: checked, recordedAt: recordedAt)
             showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
@@ -1496,6 +1699,29 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func setHiddenUntil(itemID: UUID, hiddenUntil: Date?) async -> Bool {
+        if selectedPublicList == nil, isLocalMode {
+            guard
+                let index = items.firstIndex(where: { $0.id == itemID })
+            else {
+                return false
+            }
+            let item = items[index]
+            items[index] = GroceryItemRecord(
+                id: item.id,
+                listID: item.listID,
+                name: item.name,
+                quantityText: item.quantityText,
+                note: item.note,
+                categoryID: item.categoryID,
+                checked: item.checked,
+                checkedAt: item.checkedAt,
+                hiddenUntil: hiddenUntil,
+                sortOrder: item.sortOrder
+            )
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        }
         guard let backendURL else { return false }
         let requestPath: String
         let requestToken: String?
@@ -1561,6 +1787,12 @@ final class MobileAppViewModel: ObservableObject {
         let revision = (itemEditSaveRevisions[item.id] ?? 0) + 1
         itemEditSaveRevisions[item.id] = revision
         applyLocalEdit(itemID: item.id, payload: payload)
+
+        if selectedPublicList == nil, isLocalMode {
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        }
 
         guard let backendURL else {
             if selectedPublicList != nil {
@@ -1634,6 +1866,34 @@ final class MobileAppViewModel: ObservableObject {
         guard selectedPublicList == nil else { return nil }
         guard payload.isValid else { return nil }
         guard targetListID != item.listID else { return item }
+        if isLocalMode {
+            guard
+                var snapshot = localDemoSnapshot,
+                let targetData = snapshot.listData[targetListID]
+            else {
+                return nil
+            }
+            let movedItem = item.applyingEditPayload(payload).moving(to: targetListID)
+            items.removeAll { $0.id == item.id }
+            snapshot.listData[item.listID] = MobileListData(
+                items: items,
+                categories: categories,
+                categoryOrder: categoryOrder,
+                disabledCategoryIDs: Array(disabledCategoryIDs)
+            )
+            var targetItems = targetData.items
+            targetItems.removeAll { $0.id == movedItem.id }
+            targetItems.append(movedItem)
+            snapshot.listData[targetListID] = MobileListData(
+                items: targetItems,
+                categories: targetData.categories,
+                categoryOrder: targetData.categoryOrder,
+                disabledCategoryIDs: targetData.disabledCategoryIDs
+            )
+            saveLocalDemoSnapshot(snapshot)
+            watchSyncCoordinator.publishCurrentState()
+            return movedItem
+        }
         guard let backendURL, let authToken else {
             errorMessage = "Move items while online so both lists stay in sync."
             return nil
@@ -1669,6 +1929,12 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func delete(item: GroceryItemRecord) async -> Bool {
+        if selectedPublicList == nil, isLocalMode {
+            items.removeAll { $0.id == item.id }
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        }
         guard let backendURL else { return false }
         let requestPath: String
         let requestToken: String?
@@ -1704,6 +1970,12 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func restoreDeleted(item: GroceryItemRecord) async -> Bool {
+        if selectedPublicList == nil, isLocalMode {
+            upsertLocalItem(item)
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        }
         guard let backendURL else { return false }
         let createPath: String
         let requestToken: String?
@@ -1761,8 +2033,24 @@ final class MobileAppViewModel: ObservableObject {
     @discardableResult
     func renameList(id listID: UUID, name rawName: String) async -> Bool {
         let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty == false, let backendURL, let authToken else { return false }
+        guard trimmed.isEmpty == false else { return false }
         guard let listIndex = lists.firstIndex(where: { $0.id == listID }) else { return false }
+        if isLocalMode {
+            let previous = lists[listIndex]
+            lists[listIndex] = GroceryListSummary(
+                id: previous.id,
+                householdID: previous.householdID,
+                householdName: previous.householdName,
+                name: trimmed,
+                archived: previous.archived,
+                accentColorHex: previous.accentColorHex
+            )
+            lists = sortedLists(lists)
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        }
+        guard let backendURL, let authToken else { return false }
 
         do {
             let payload = try await requestJSON(
@@ -1798,8 +2086,23 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func updateListAccentColor(id listID: UUID, accentColorHex: String?) async -> Bool {
-        guard let backendURL, let authToken else { return false }
         guard let listIndex = lists.firstIndex(where: { $0.id == listID }) else { return false }
+        if isLocalMode {
+            let previous = lists[listIndex]
+            lists[listIndex] = GroceryListSummary(
+                id: previous.id,
+                householdID: previous.householdID,
+                householdName: previous.householdName,
+                name: previous.name,
+                archived: previous.archived,
+                accentColorHex: accentColorHex
+            )
+            lists = sortedLists(lists)
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        }
+        guard let backendURL, let authToken else { return false }
 
         var body: [String: Any] = [:]
         body["accent_color"] = accentColorHex ?? NSNull()
@@ -1860,13 +2163,38 @@ final class MobileAppViewModel: ObservableObject {
     func setCategory(id categoryID: UUID, disabled: Bool) async -> Bool {
         guard categories.contains(where: { $0.id == categoryID }) else { return false }
         guard disabledCategoryIDs.contains(categoryID) != disabled else { return true }
-        guard let backendURL, let authToken, let selectedListID else { return false }
 
         let previousDisabledCategoryIDs = disabledCategoryIDs
         if disabled {
             disabledCategoryIDs.insert(categoryID)
         } else {
             disabledCategoryIDs.remove(categoryID)
+        }
+        if isLocalMode {
+            if disabled {
+                items = items.map { item in
+                    guard item.categoryID == categoryID else { return item }
+                    return GroceryItemRecord(
+                        id: item.id,
+                        listID: item.listID,
+                        name: item.name,
+                        quantityText: item.quantityText,
+                        note: item.note,
+                        categoryID: nil,
+                        checked: item.checked,
+                        checkedAt: item.checkedAt,
+                        hiddenUntil: item.hiddenUntil,
+                        sortOrder: item.sortOrder
+                    )
+                }
+            }
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        }
+        guard let backendURL, let authToken, let selectedListID else {
+            disabledCategoryIDs = previousDisabledCategoryIDs
+            return false
         }
 
         do {
@@ -1889,14 +2217,268 @@ final class MobileAppViewModel: ObservableObject {
         }
     }
 
+    private func syncLocalDemoDataToAuthenticatedAccount() async -> Bool {
+        guard
+            isLocalMode,
+            let backendURL,
+            let authToken
+        else {
+            return false
+        }
+        persistLocalDemoState()
+        guard let snapshot = localDemoSnapshot else { return false }
+
+        do {
+            let mappedListIDs = try await uploadLocalDemoSnapshot(
+                snapshot,
+                backendURL: backendURL,
+                authToken: authToken
+            )
+            let mappedFavoriteListID = snapshot.favoriteListID.flatMap { mappedListIDs[$0] }
+            let mappedSelectedListID = snapshot.selectedListID.flatMap { mappedListIDs[$0] }
+
+            isLocalMode = false
+            localModeUpgradeRequestID = nil
+            userDefaults.removeObject(forKey: Self.localModeEnabledKey)
+            localDemoStore.clear()
+            localDemoSnapshot = nil
+            favoriteListID = mappedFavoriteListID
+            if let mappedFavoriteListID {
+                userDefaults.set(mappedFavoriteListID.uuidString, forKey: Self.favoriteListKey)
+            } else {
+                userDefaults.removeObject(forKey: Self.favoriteListKey)
+            }
+
+            try await reloadAllData()
+            if let mappedSelectedListID, lists.contains(where: { $0.id == mappedSelectedListID }) {
+                selectedListID = mappedSelectedListID
+                try await reloadItems()
+            }
+            reviewerOnboardingMessage = nil
+            errorMessage = nil
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        } catch {
+            reviewerOnboardingMessage = nil
+            if handleSessionExpired(error) == false {
+                errorMessage = "Account is ready, but local data could not sync: \(error.localizedDescription)"
+            }
+            return false
+        }
+    }
+
+    private func uploadLocalDemoSnapshot(
+        _ snapshot: LocalDemoSnapshot,
+        backendURL: URL,
+        authToken: String
+    ) async throws -> [UUID: UUID] {
+        var remoteHouseholds = try await requestArray(
+            backendURL: backendURL,
+            path: "/api/v1/households",
+            token: authToken
+        )
+        var mappedListIDs: [UUID: UUID] = [:]
+
+        for localHousehold in snapshot.households {
+            let remoteHousehold: [String: Any]
+            if let existing = remoteHouseholds.first(where: {
+                normalizedSyncName($0["name"] as? String) == normalizedSyncName(localHousehold.name)
+            }) {
+                remoteHousehold = existing
+            } else {
+                remoteHousehold = try await requestJSON(
+                    backendURL: backendURL,
+                    path: "/api/v1/households",
+                    method: "POST",
+                    body: ["name": localHousehold.name],
+                    token: authToken
+                )
+                remoteHouseholds.append(remoteHousehold)
+            }
+            guard
+                let remoteHouseholdIDText = remoteHousehold["id"] as? String,
+                let remoteHouseholdID = UUID(uuidString: remoteHouseholdIDText)
+            else {
+                throw AppError.invalidResponse
+            }
+
+            var remoteLists = try await requestArray(
+                backendURL: backendURL,
+                path: "/api/v1/households/\(remoteHouseholdID.uuidString)/lists",
+                token: authToken
+            )
+            for localList in snapshot.lists where localList.householdID == localHousehold.id {
+                let remoteList: [String: Any]
+                if let existing = remoteLists.first(where: {
+                    normalizedSyncName($0["name"] as? String) == normalizedSyncName(localList.name)
+                }) {
+                    remoteList = existing
+                    var listBody: [String: Any] = ["name": localList.name]
+                    listBody["accent_color"] = localList.accentColorHex ?? NSNull()
+                    _ = try await requestJSON(
+                        backendURL: backendURL,
+                        path: "/api/v1/lists/\((existing["id"] as? String) ?? "")",
+                        method: "PATCH",
+                        body: listBody,
+                        token: authToken
+                    )
+                } else {
+                    var listBody: [String: Any] = ["name": localList.name]
+                    listBody["accent_color"] = localList.accentColorHex ?? NSNull()
+                    remoteList = try await requestJSON(
+                        backendURL: backendURL,
+                        path: "/api/v1/households/\(remoteHouseholdID.uuidString)/lists",
+                        method: "POST",
+                        body: listBody,
+                        token: authToken
+                    )
+                    remoteLists.append(remoteList)
+                }
+                guard
+                    let remoteListIDText = remoteList["id"] as? String,
+                    let remoteListID = UUID(uuidString: remoteListIDText),
+                    let localData = snapshot.listData[localList.id]
+                else {
+                    throw AppError.invalidResponse
+                }
+                mappedListIDs[localList.id] = remoteListID
+
+                let remoteCategories = try await requestArray(
+                    backendURL: backendURL,
+                    path: "/api/v1/lists/\(remoteListID.uuidString)/categories",
+                    token: authToken
+                )
+                var mappedCategoryIDs: [UUID: UUID] = [:]
+                for localCategory in localData.categories {
+                    if let existing = remoteCategories.first(where: {
+                        normalizedSyncName($0["name"] as? String) == normalizedSyncName(localCategory.name)
+                    }) {
+                        guard
+                            let remoteCategoryIDText = existing["id"] as? String,
+                            let remoteCategoryID = UUID(uuidString: remoteCategoryIDText)
+                        else {
+                            throw AppError.invalidResponse
+                        }
+                        mappedCategoryIDs[localCategory.id] = remoteCategoryID
+                    }
+                }
+
+                var remoteItems = try await requestArray(
+                    backendURL: backendURL,
+                    path: "/api/v1/lists/\(remoteListID.uuidString)/items",
+                    token: authToken
+                )
+                var matchedRemoteItemIDs = Set<UUID>()
+                for localItem in localData.items {
+                    let matchedRemoteItem = remoteItems.first { payload in
+                        guard
+                            let idText = payload["id"] as? String,
+                            let id = UUID(uuidString: idText),
+                            matchedRemoteItemIDs.contains(id) == false
+                        else {
+                            return false
+                        }
+                        return (payload["name"] as? String) == localItem.name
+                            && (payload["quantity_text"] as? String) == localItem.quantityText
+                            && (payload["note"] as? String) == localItem.note
+                    }
+
+                    let remoteItem: [String: Any]
+                    if let matchedRemoteItem {
+                        remoteItem = matchedRemoteItem
+                    } else {
+                        var itemBody: [String: Any] = [
+                            "name": localItem.name,
+                            "sort_order": localItem.sortOrder,
+                        ]
+                        itemBody["quantity_text"] = localItem.quantityText ?? NSNull()
+                        itemBody["note"] = localItem.note ?? NSNull()
+                        itemBody["category_id"] = localItem.categoryID.flatMap { mappedCategoryIDs[$0] }?.uuidString
+                            ?? NSNull()
+                        remoteItem = try await requestJSON(
+                            backendURL: backendURL,
+                            path: "/api/v1/lists/\(remoteListID.uuidString)/items",
+                            method: "POST",
+                            body: itemBody,
+                            token: authToken
+                        )
+                        remoteItems.append(remoteItem)
+                    }
+                    guard
+                        let remoteItemIDText = remoteItem["id"] as? String,
+                        let remoteItemID = UUID(uuidString: remoteItemIDText)
+                    else {
+                        throw AppError.invalidResponse
+                    }
+                    matchedRemoteItemIDs.insert(remoteItemID)
+
+                    var itemUpdateBody: [String: Any] = [
+                        "name": localItem.name,
+                        "sort_order": localItem.sortOrder,
+                    ]
+                    itemUpdateBody["quantity_text"] = localItem.quantityText ?? NSNull()
+                    itemUpdateBody["note"] = localItem.note ?? NSNull()
+                    itemUpdateBody["category_id"] = localItem.categoryID.flatMap { mappedCategoryIDs[$0] }?.uuidString
+                        ?? NSNull()
+                    itemUpdateBody["hidden_until"] = localItem.hiddenUntil.map(apiTimestamp) ?? NSNull()
+                    _ = try await requestJSON(
+                        backendURL: backendURL,
+                        path: "/api/v1/items/\(remoteItemID.uuidString)",
+                        method: "PATCH",
+                        body: itemUpdateBody,
+                        token: authToken
+                    )
+
+                    let remoteChecked = (remoteItem["checked"] as? Bool) ?? false
+                    if remoteChecked != localItem.checked {
+                        _ = try await requestJSON(
+                            backendURL: backendURL,
+                            path: "/api/v1/items/\(remoteItemID.uuidString)/\(localItem.checked ? "check" : "uncheck")",
+                            method: "POST",
+                            body: [:],
+                            token: authToken
+                        )
+                    }
+                }
+
+                let mappedCategoryOrder = localData.categoryOrder
+                    .sorted { $0.sortOrder < $1.sortOrder }
+                    .compactMap { mappedCategoryIDs[$0.categoryID] }
+                _ = try await requestArray(
+                    backendURL: backendURL,
+                    path: "/api/v1/lists/\(remoteListID.uuidString)/category-order",
+                    method: "PUT",
+                    body: ["category_ids": mappedCategoryOrder.map(\.uuidString)],
+                    token: authToken
+                )
+                let mappedDisabledCategoryIDs = localData.disabledCategoryIDs.compactMap {
+                    mappedCategoryIDs[$0]
+                }
+                _ = try await requestJSON(
+                    backendURL: backendURL,
+                    path: "/api/v1/lists/\(remoteListID.uuidString)/disabled-categories",
+                    method: "PUT",
+                    body: ["category_ids": mappedDisabledCategoryIDs.map(\.uuidString)],
+                    token: authToken
+                )
+            }
+        }
+
+        return mappedListIDs
+    }
+
+    private func normalizedSyncName(_ value: String?) -> String {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    }
+
     private func makeSharedAppState() -> SharedAppState {
         let syncsFavoriteList = selectedListID == favoriteListID
         let syncedItems = syncsFavoriteList ? items : []
         let syncedCategories = syncsFavoriteList ? categories : []
         let syncedCategoryOrder = syncsFavoriteList ? categoryOrder : []
         return SharedAppState(
-            backendURL: backendURL,
-            authToken: authToken,
+            backendURL: isLocalMode ? nil : backendURL,
+            authToken: isLocalMode ? nil : authToken,
             displayName: displayName,
             favoriteListID: favoriteListID,
             quickAddItemName: quickAddItemName,
@@ -1908,6 +2490,10 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     private func updateLiveUpdatesConnection() {
+        if isLocalMode {
+            liveUpdates.disconnect()
+            return
+        }
         guard
             selectedPublicList == nil,
             let backendURL,
@@ -2143,6 +2729,13 @@ final class MobileAppViewModel: ObservableObject {
         disabledCategoryIDs = Set(listData.disabledCategoryIDs)
     }
 
+    private func applyLocalDemoListData(_ listData: MobileListData) {
+        items = listData.items
+        categories = listData.categories
+        categoryOrder = listData.categoryOrder
+        disabledCategoryIDs = Set(listData.disabledCategoryIDs)
+    }
+
     private func cacheCurrentListData() {
         guard let selectedListID else { return }
         cacheListData(
@@ -2162,10 +2755,19 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func saveCategoryOrder(categoryIDs: [UUID]) async -> Bool {
-        guard let backendURL, let authToken, let selectedListID else { return false }
+        guard let selectedListID else { return false }
         let previousCategoryOrder = categoryOrder
         categoryOrder = categoryIDs.enumerated().map { index, categoryID in
             ListCategoryOrderEntry(categoryID: categoryID, sortOrder: index)
+        }
+        if isLocalMode {
+            persistLocalDemoState()
+            watchSyncCoordinator.publishCurrentState()
+            return true
+        }
+        guard let backendURL, let authToken else {
+            categoryOrder = previousCategoryOrder
+            return false
         }
 
         do {
@@ -2188,7 +2790,7 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     func saveCategoryOrderInBackground(categoryIDs: [UUID]) {
-        guard let backendURL, let authToken, let selectedListID else {
+        guard let selectedListID else {
             categoryOrderBackgroundSaveState = .failed
             return
         }
@@ -2197,6 +2799,16 @@ final class MobileAppViewModel: ObservableObject {
             ListCategoryOrderEntry(categoryID: categoryID, sortOrder: index)
         }
         categoryOrder = nextOrder
+        if isLocalMode {
+            persistLocalDemoState()
+            categoryOrderBackgroundSaveState = .saved
+            watchSyncCoordinator.publishCurrentState()
+            return
+        }
+        guard let backendURL, let authToken else {
+            categoryOrderBackgroundSaveState = .failed
+            return
+        }
         optimisticCategoryOrders[selectedListID] = nextOrder
         cacheCurrentListData()
         watchSyncCoordinator.publishCurrentState()
@@ -2844,6 +3456,10 @@ final class MobileAppViewModel: ObservableObject {
         var request = URLRequest(url: backendURL.appending(path: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(
+            Locale.preferredLanguages.first ?? "en",
+            forHTTPHeaderField: "Accept-Language"
+        )
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
