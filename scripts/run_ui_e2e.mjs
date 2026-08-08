@@ -1141,6 +1141,79 @@ function itemCard(page, text) {
   return page.locator(".item-card", { hasText: text }).first();
 }
 
+async function assertItemMoreContextMenu(card, itemName) {
+  const layoutBefore = await card.evaluate((node) => {
+    const next = node.nextElementSibling;
+    const cardRect = node.getBoundingClientRect();
+    const nextRect = next?.getBoundingClientRect();
+    return {
+      cardCount: document.querySelectorAll(".item-card").length,
+      cardHeight: cardRect.height,
+      nextTop: nextRect?.top ?? null,
+    };
+  });
+  await card.getByRole("button", { name: `More actions for ${itemName}` }).click();
+  const menu = card.locator(".item-more-menu");
+  await expectVisible(menu, `Expected ${itemName} context menu`);
+  const layoutAfter = await card.evaluate((node) => {
+    const button = node.querySelector("[data-item-menu-toggle]");
+    const menuNode = node.querySelector(".item-more-menu");
+    const next = node.nextElementSibling;
+    if (!(button instanceof HTMLElement)) {
+      throw new Error("Expected item menu toggle");
+    }
+    if (!(menuNode instanceof HTMLElement)) {
+      throw new Error("Expected item menu popup");
+    }
+    const cardRect = node.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    const menuRect = menuNode.getBoundingClientRect();
+    const nextRect = next?.getBoundingClientRect();
+    const buttonStyle = getComputedStyle(button);
+    const menuStyle = getComputedStyle(menuNode);
+    return {
+      buttonAlignItems: buttonStyle.alignItems,
+      buttonDisplay: buttonStyle.display,
+      buttonJustifyContent: buttonStyle.justifyContent,
+      buttonBottom: buttonRect.bottom,
+      cardCount: document.querySelectorAll(".item-card").length,
+      cardHeight: cardRect.height,
+      cardLeft: cardRect.left,
+      cardWidth: cardRect.width,
+      menuLeft: menuRect.left,
+      menuPosition: menuStyle.position,
+      menuTop: menuRect.top,
+      menuWidth: menuRect.width,
+      nextTop: nextRect?.top ?? null,
+    };
+  });
+
+  assert.equal(layoutAfter.buttonAlignItems, "center", "More actions button should center icon vertically");
+  assert(
+    layoutAfter.buttonDisplay === "flex" || layoutAfter.buttonDisplay === "inline-flex",
+    `More actions button should use flex centering; got ${layoutAfter.buttonDisplay}`,
+  );
+  assert.equal(layoutAfter.buttonJustifyContent, "center", "More actions button should center icon horizontally");
+  assert.equal(layoutAfter.cardCount, layoutBefore.cardCount, "Opening item actions should not add a list row");
+  assert(
+    Math.abs(layoutAfter.cardHeight - layoutBefore.cardHeight) <= 2,
+    `Opening item actions should not resize the item row; before ${layoutBefore.cardHeight}, after ${layoutAfter.cardHeight}`,
+  );
+  assert.equal(layoutAfter.menuPosition, "absolute", "Item menu should be an overlay popup");
+  assert(
+    layoutAfter.menuWidth < layoutAfter.cardWidth * 0.75,
+    "Item menu should not render as a full-width list row",
+  );
+  assert(layoutAfter.menuLeft >= layoutAfter.cardLeft, "Item menu should stay aligned inside the card");
+  assert(layoutAfter.menuTop >= layoutAfter.buttonBottom - 8, "Item menu should open below the actions button");
+  if (layoutBefore.nextTop !== null && layoutAfter.nextTop !== null) {
+    assert(
+      Math.abs(layoutAfter.nextTop - layoutBefore.nextTop) <= 1,
+      "Opening item menu should not push the next item down",
+    );
+  }
+}
+
 async function swipeItemRight(card) {
   await card.evaluate((node) => {
     const rect = node.getBoundingClientRect();
@@ -1764,24 +1837,8 @@ async function main() {
 
     const spaghettiCard = itemCard(page, "Spaghetti");
     if (deviceName === "desktop") {
-      const cardCountBeforeMenu = await page.locator(".item-card").count();
-      const cardHeightBeforeMenu = (await spaghettiCard.boundingBox())?.height ?? 0;
-      await spaghettiCard.getByRole("button", { name: "More actions for Spaghetti" }).click();
-      await expectVisible(
-        spaghettiCard.getByRole("button", { name: "Hide item for 4h" }),
-        "Expected more-actions context menu",
-      );
-      assert.equal(
-        await page.locator(".item-card").count(),
-        cardCountBeforeMenu,
-        "Opening item actions should not add a list row",
-      );
-      const cardHeightAfterMenu = (await spaghettiCard.boundingBox())?.height ?? 0;
-      assert(
-        Math.abs(cardHeightAfterMenu - cardHeightBeforeMenu) <= 2,
-        `Opening item actions should not resize the item row; before ${cardHeightBeforeMenu}, after ${cardHeightAfterMenu}`,
-      );
-      await spaghettiCard.getByRole("button", { name: "Hide item for 4h" }).click();
+      await assertItemMoreContextMenu(spaghettiCard, "Spaghetti");
+      await spaghettiCard.getByRole("menuitem", { name: "Hide item for 4h" }).click();
     } else {
       await swipeItemRight(spaghettiCard);
     }

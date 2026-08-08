@@ -960,8 +960,10 @@ main {
   cursor: pointer;
 }
 
+.item-card.has-open-menu,
 .item-card:has(.item-more-menu:not([hidden])) {
   z-index: 5;
+  overflow: visible;
 }
 
 .item-card-content {
@@ -1214,6 +1216,11 @@ main {
   line-height: 1;
 }
 
+.item-more-button-icon {
+  line-height: 1;
+  transform: translateY(-0.02rem);
+}
+
 .item-more-menu {
   position: absolute;
   z-index: 4;
@@ -1221,6 +1228,7 @@ main {
   right: 0.95rem;
   display: flex;
   justify-content: flex-end;
+  min-width: max-content;
   padding: 0.42rem;
   border: 1px solid rgba(217, 197, 179, 0.88);
   border-radius: 999px;
