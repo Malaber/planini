@@ -467,6 +467,10 @@
       "creating_account": "Creating account...",
       "could_not_create_account": "Could not create that account."
     },
+    "passkeys": {
+      "loading": "Loading passkeys...",
+      "name_too_long": "Use 120 characters or fewer."
+    },
     "tabs": {
       "favorite": "Favorite",
       "lists": "Lists"
