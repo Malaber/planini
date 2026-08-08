@@ -442,6 +442,32 @@
       "signing_in": "Signing in...",
       "continue_with_passkey": "Continue with Passkey"
     },
+    "promo": {
+      "navigation_title": "Discover Planini",
+      "explore": "Discover Planini",
+      "login_hint": "See what Planini can do, or try it without signing in.",
+      "title": "Shopping and household lists that stay in sync",
+      "subtitle": "Plan together, add items fast, and keep every list useful even when the connection drops.",
+      "households_title": "Made for households",
+      "households_message": "Organize shared lists and invite the people you plan with.",
+      "fast_title": "Fast from idea to list",
+      "fast_message": "Quick add, categories, Siri, and favorites keep common tasks close.",
+      "offline_title": "Reliable offline",
+      "offline_message": "Keep working without a connection. Planini saves changes and catches up later.",
+      "sync_title": "Ready on every device",
+      "sync_message": "Create an account when you want secure backup, invitations, and seamless sync.",
+      "start_demo": "Try local demo",
+      "demo_privacy": "No account needed. Demo data and every change stay on this iPhone until you choose to sync."
+    },
+    "local_mode": {
+      "banner": "Using in local mode",
+      "banner_action": "Tap to create an account and sync",
+      "sync_explainer": "Your households, lists, items, and list settings will be copied to your new Planini account.",
+      "create_and_sync": "Create account and sync",
+      "retry_sync": "Retry local data sync",
+      "exit": "Exit local mode",
+      "storage": "On this iPhone"
+    },
     "onboarding": {
       "sign_in_help": "Sign-in help",
       "add_passkey": "Add passkey",
