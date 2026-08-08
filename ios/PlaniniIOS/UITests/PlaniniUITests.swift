@@ -507,18 +507,39 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 5))
         editNameField.typeText(" Updated")
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(
+            waitForItem(
+                named: updatedName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
 
         XCTAssertTrue(undoButton.waitForExistence(timeout: 3))
         undoButton.tap()
         XCTAssertTrue(waitForFieldValue(editNameField, contains: itemName))
         XCTAssertFalse(editNameField.valueText.contains("Updated"))
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(
+            waitForItem(
+                named: itemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
 
         XCTAssertTrue(redoButton.waitForExistence(timeout: 3))
         redoButton.tap()
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(
+            waitForItem(
+                named: updatedName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
 
         chooseCategory(
             named: "Konserven",
@@ -534,7 +555,15 @@ final class PlaniniUITests: XCTestCase {
                 containing: "Konserven"
             )
         )
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(
+            waitForItemCategory(
+                named: updatedName,
+                categoryNamed: "Konserven",
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
         captureScreenshot(named: "ios-ui-live-edit-autosave")
         tapElement(closeButton)
         XCTAssertTrue(
@@ -2267,22 +2296,6 @@ final class PlaniniUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.35))
         }
         return false
-    }
-
-    private func waitForEditStatus(
-        _ status: String,
-        app: XCUIApplication,
-        timeout: TimeInterval = 20
-    ) -> Bool {
-        let statusLabel = app.staticTexts["edit-item-save-status"]
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if statusLabel.exists && statusLabel.valueText == status {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-        }
-        return statusLabel.exists && statusLabel.valueText == status
     }
 
     private func waitForElementLabel(
