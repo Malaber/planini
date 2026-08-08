@@ -134,6 +134,43 @@ async function apiJson(requestContext, url, options = {}) {
   throw lastError;
 }
 
+function waitForPasskeyOptions(page, pathPattern) {
+  return page.waitForResponse((response) => {
+    const request = response.request();
+    return request.method() === "POST" && pathPattern.test(new URL(response.url()).pathname);
+  });
+}
+
+async function assertRegistrationOptions(response) {
+  assert(response.ok(), `Expected passkey registration options, got ${response.status()}`);
+  const options = await response.json();
+  assert.equal(
+    options.authenticatorSelection?.residentKey,
+    "required",
+    "Expected reusable passkey library to require a resident key",
+  );
+  assert.equal(
+    options.authenticatorSelection?.userVerification,
+    "required",
+    "Expected reusable passkey library to require user verification during registration",
+  );
+}
+
+async function assertAuthenticationOptions(response, expectedCredentialCount) {
+  assert(response.ok(), `Expected passkey authentication options, got ${response.status()}`);
+  const options = await response.json();
+  assert.equal(
+    options.userVerification,
+    "required",
+    "Expected reusable passkey library to require user verification during authentication",
+  );
+  assert.equal(
+    options.allowCredentials?.length,
+    expectedCredentialCount,
+    "Expected reusable passkey library to constrain credential management verification",
+  );
+}
+
 function isTransientApiError(error) {
   const message = String(error?.message ?? error);
   return /socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|Target page, context or browser has been closed/u.test(
@@ -682,7 +719,12 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
   const secondPasskeyName = "Laptop passkey";
   await page.getByRole("button", { name: "Add another passkey" }).click();
   await page.getByLabel("Name this passkey").fill(secondPasskeyName);
+  const registrationOptions = waitForPasskeyOptions(
+    page,
+    /\/api\/v1\/auth\/passkeys\/register\/options$/,
+  );
   await page.getByRole("button", { name: "Continue" }).click();
+  await assertRegistrationOptions(await registrationOptions);
   await expectVisible(
     page.locator("[data-passkey-success]", { hasText: "Another passkey is ready to use." }),
     "Expected passkey add success message",
@@ -704,7 +746,12 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
   const renamedPasskeyName = "Travel passkey";
   await page.locator(".passkey-row").nth(1).getByRole("button", { name: "Rename" }).click();
   await page.getByLabel("Rename this passkey").fill(renamedPasskeyName);
+  const renameOptions = waitForPasskeyOptions(
+    page,
+    /\/api\/v1\/auth\/passkeys\/[^/]+\/rename\/options$/,
+  );
   await page.getByRole("button", { name: "Save and verify" }).click();
+  await assertAuthenticationOptions(await renameOptions, 1);
   await expectVisible(
     page.locator("[data-passkey-success]", {
       hasText: "Passkey renamed after confirming it still works.",
@@ -763,7 +810,12 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
     deletePanel.locator("strong", { hasText: "another" }),
     "Expected the delete confirmation to emphasize another passkey",
   );
+  const deleteOptions = waitForPasskeyOptions(
+    page,
+    /\/api\/v1\/auth\/passkeys\/[^/]+\/delete\/options$/,
+  );
   await page.getByRole("button", { name: "Continue to verification" }).click();
+  await assertAuthenticationOptions(await deleteOptions, 1);
   await expectVisible(
     page.locator("[data-passkey-success]", {
       hasText: "Passkey deleted after confirming another one worked.",
@@ -1384,14 +1436,23 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
   );
 
   await ownerHouseholdCard.getByRole("button", { name: "Create invite link" }).click();
-  const inviteInput = ownerHouseholdCard.locator(
-    `[data-invite-link-input="${scenario.householdId}"]`,
-  );
+  const invitePanel = ownerPage.locator("[data-dashboard-invite-panel]");
+  await expectVisible(invitePanel, "Expected invite share sheet");
+  await invitePanel.getByLabel("Limit").selectOption("uses");
+  await invitePanel.locator("[data-invite-max-uses]").fill("2");
+  await invitePanel.getByRole("button", { name: "Create invite link" }).click();
+  const inviteInput = invitePanel.locator("[data-invite-sheet-link-input]");
   await expectVisible(inviteInput, "Expected invite link field after creating invite");
   const inviteUrl = await inviteInput.inputValue();
   assert(inviteUrl.includes("/invite/"), "Expected invite URL");
   const inviteToken = extractInviteToken(inviteUrl);
   assert(inviteToken, "Expected invite token");
+  const invitePreview = await apiJson(
+    ownerPage.context().request,
+    `/api/v1/households/invites/${inviteToken}`,
+  );
+  assert.equal(invitePreview.max_uses, 2, "Expected limited-use invite");
+  assert.equal(invitePreview.remaining_uses, 2, "Expected unused invite to show both uses");
 
   const inviteeContext = await browser.newContext(contextOptions());
   const inviteePage = await inviteeContext.newPage();
@@ -1426,6 +1487,10 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
     await expectVisible(
       inviteePage.getByRole("heading", { name: scenario.householdName }),
       "Expected invite page household name",
+    );
+    await expectVisible(
+      inviteePage.getByText("This link has 2 uses remaining."),
+      "Expected limited-use invite copy",
     );
     await inviteePage.getByRole("button", { name: "Accept invite" }).click();
     await inviteePage.waitForURL(new URL("/", baseUrl).toString());
@@ -1546,6 +1611,18 @@ async function main() {
     await installSeededPasskey(authenticator, owner, rpId);
     await assertSupportPage(page);
     await assertPrivacyPage(page);
+    logStep("Checking signed-out list Smart App Banner context");
+    const signedOutListPath = "/lists/11111111-2222-3333-4444-555555555555";
+    const signedOutListUrl = new URL(signedOutListPath, baseUrl).toString();
+    await page.goto(signedOutListUrl, { waitUntil: "networkidle" });
+    const signedOutLoginUrl = new URL(page.url());
+    assert.equal(signedOutLoginUrl.pathname, "/login");
+    assert.equal(signedOutLoginUrl.searchParams.get("next"), signedOutListPath);
+    assert.equal(
+      await page.locator('head meta[name="apple-itunes-app"]').getAttribute("content"),
+      `app-id=6762043307, app-argument=${signedOutListUrl}`,
+      "Expected signed-out Smart App Banner to preserve current list",
+    );
     logStep("Signing in with the seeded owner passkey");
     await loginFromRoot(page, owner, "Households and Lists");
     await screenshot(page, "promotion-list-of-lists");
@@ -1581,6 +1658,11 @@ async function main() {
       page.goto(listUrl, { waitUntil: "networkidle" }),
       pageTwo.goto(listUrl, { waitUntil: "networkidle" }),
     ]);
+    assert.equal(
+      await page.locator('head meta[name="apple-itunes-app"]').getAttribute("content"),
+      `app-id=6762043307, app-argument=${listUrl}`,
+      "Expected Smart App Banner to deep-link to the current list",
+    );
 
     const addForm = page.locator("[data-item-form]");
     const editForm = page.locator("[data-item-edit-form]");
@@ -1609,7 +1691,23 @@ async function main() {
 
     const spaghettiCard = itemCard(page, "Spaghetti");
     if (deviceName === "desktop") {
+      const cardCountBeforeMenu = await page.locator(".item-card").count();
+      const cardHeightBeforeMenu = (await spaghettiCard.boundingBox())?.height ?? 0;
       await spaghettiCard.getByRole("button", { name: "More actions for Spaghetti" }).click();
+      await expectVisible(
+        spaghettiCard.getByRole("button", { name: "Hide item for 4h" }),
+        "Expected more-actions context menu",
+      );
+      assert.equal(
+        await page.locator(".item-card").count(),
+        cardCountBeforeMenu,
+        "Opening item actions should not add a list row",
+      );
+      const cardHeightAfterMenu = (await spaghettiCard.boundingBox())?.height ?? 0;
+      assert(
+        Math.abs(cardHeightAfterMenu - cardHeightBeforeMenu) <= 2,
+        `Opening item actions should not resize the item row; before ${cardHeightBeforeMenu}, after ${cardHeightAfterMenu}`,
+      );
       await spaghettiCard.getByRole("button", { name: "Hide item for 4h" }).click();
     } else {
       await swipeItemRight(spaghettiCard);

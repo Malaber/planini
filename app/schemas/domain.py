@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.common import ORMModel
 
@@ -15,26 +15,47 @@ class HouseholdOut(ORMModel):
     name: str
 
 
+class HouseholdInviteCreate(BaseModel):
+    expires_in_hours: int | None = Field(default=24, ge=1, le=24 * 30)
+    max_uses: int | None = Field(default=None, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def require_expiration_or_use_limit(self) -> "HouseholdInviteCreate":
+        if self.expires_in_hours is None and self.max_uses is None:
+            raise ValueError("Invite links must expire or have a usage limit.")
+        return self
+
+
 class HouseholdInviteOut(BaseModel):
     invite_url: str
-    expires_at: datetime
+    expires_at: datetime | None
+    max_uses: int | None = None
 
 
 class HouseholdInvitePreviewOut(BaseModel):
     household_id: UUID
     household_name: str
-    expires_at: datetime
+    expires_at: datetime | None
+    max_uses: int | None = None
+    remaining_uses: int | None = None
     already_member: bool
 
 
 class GroceryListCreate(BaseModel):
     name: str
+    accent_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class GroceryListUpdate(BaseModel):
+    name: str | None = None
+    accent_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class GroceryListOut(ORMModel):
     id: UUID
     household_id: UUID
     name: str
+    accent_color: str | None
     archived: bool
     open_item_count: int = 0
 

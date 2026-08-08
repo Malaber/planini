@@ -35,22 +35,6 @@ function formatHiddenUntilLabel(item, nowMs = Date.now()) {
   return `${remainingMinutes}m`;
 }
 
-function base64UrlToBytes(value) {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  const decoded = atob(padded);
-  return Uint8Array.from(decoded, (char) => char.charCodeAt(0));
-}
-
-function bytesToBase64Url(value) {
-  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
-  let binary = "";
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
 function normalizeLanguagePreference(value) {
   return SUPPORTED_LANGUAGE_OPTIONS.some((option) => option.value === value) ? value : "";
 }
@@ -150,54 +134,6 @@ function setLanguageSettingsOpen(root, isOpen) {
     syncLanguageSettings(root);
     root.querySelector("[data-language-settings-select]")?.focus();
   }
-}
-
-function publicKeyFromJSON(publicKey) {
-  const parsed = { ...publicKey, challenge: base64UrlToBytes(publicKey.challenge) };
-
-  if (parsed.user?.id) {
-    parsed.user = { ...parsed.user, id: base64UrlToBytes(parsed.user.id) };
-  }
-
-  if (Array.isArray(parsed.excludeCredentials)) {
-    parsed.excludeCredentials = parsed.excludeCredentials.map((credential) => ({
-      ...credential,
-      id: base64UrlToBytes(credential.id),
-    }));
-  }
-
-  if (Array.isArray(parsed.allowCredentials)) {
-    parsed.allowCredentials = parsed.allowCredentials.map((credential) => ({
-      ...credential,
-      id: base64UrlToBytes(credential.id),
-    }));
-  }
-
-  return parsed;
-}
-
-function credentialToJSON(value) {
-  if (value instanceof ArrayBuffer) {
-    return bytesToBase64Url(value);
-  }
-
-  if (ArrayBuffer.isView(value)) {
-    return bytesToBase64Url(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(credentialToJSON);
-  }
-
-  if (value && typeof value.toJSON === "function") {
-    return credentialToJSON(value.toJSON());
-  }
-
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, credentialToJSON(inner)]));
-  }
-
-  return value;
 }
 
 function getI18nState() {
@@ -348,33 +284,6 @@ function toggleButtons(root, disabled) {
   });
 }
 
-function setPasskeyManagementMessage(root, type, message) {
-  const errorNode = root.querySelector("[data-passkey-error]");
-  const successNode = root.querySelector("[data-passkey-success]");
-
-  if (!errorNode || !successNode) {
-    return;
-  }
-
-  errorNode.hidden = true;
-  successNode.hidden = true;
-  errorNode.textContent = "";
-  successNode.textContent = "";
-
-  if (!message) {
-    return;
-  }
-
-  if (type === "error") {
-    errorNode.hidden = false;
-    errorNode.textContent = message;
-    return;
-  }
-
-  successNode.hidden = false;
-  successNode.textContent = message;
-}
-
 function setDashboardMessage(root, type, message) {
   const errorNode = root.querySelector("[data-dashboard-error]");
   const successNode = root.querySelector("[data-dashboard-success]");
@@ -443,6 +352,7 @@ function syncDashboardModalState(root) {
     root.querySelector("[data-dashboard-add-overlay]"),
     root.querySelector("[data-dashboard-household-overlay]"),
     root.querySelector("[data-dashboard-list-overlay]"),
+    root.querySelector("[data-dashboard-invite-overlay]"),
   ];
   const hasModalOpen = overlays.some((overlay) => overlay instanceof HTMLElement && !overlay.hidden);
   document.body.classList.toggle("has-list-modal-open", hasModalOpen);
@@ -463,6 +373,11 @@ function setDashboardPanelOpen(root, panelName, isOpen) {
       overlay: root.querySelector("[data-dashboard-list-overlay]"),
       panel: root.querySelector("[data-dashboard-list-panel]"),
       focus: root.querySelector("[data-list-name-input]"),
+    },
+    invite: {
+      overlay: root.querySelector("[data-dashboard-invite-overlay]"),
+      panel: root.querySelector("[data-dashboard-invite-panel]"),
+      focus: root.querySelector("[data-invite-mode]"),
     },
   };
   const toggle = root.querySelector("[data-dashboard-add-toggle]");
@@ -580,18 +495,9 @@ function renderHouseholds(root, households, listsByHousehold) {
           <h3>${household.name}</h3>
           <p class="household-meta">${translatePlural("dashboard.list_count", lists.length, {}, { one: "{count} list", other: "{count} lists" })}</p>
         </div>
-        <button type="button" class="secondary-button" data-create-invite="${household.id}">
+        <button type="button" class="secondary-button" data-open-invite-sheet="${household.id}">
           ${translate("dashboard.create_invite_link", {}, "Create invite link")}
         </button>
-      </div>
-      <div class="household-invite-output" data-invite-output="${household.id}" hidden>
-        <p class="dashboard-helper">${translate("dashboard.share_invite_hint", {}, "Share this link within 24 hours:")}</p>
-        <div class="household-invite-row">
-          <input type="text" readonly data-invite-link-input="${household.id}" />
-          <button type="button" class="secondary-button" data-copy-invite="${household.id}">
-            ${translate("common.copy", {}, "Copy")}
-          </button>
-        </div>
       </div>
     `;
 
@@ -627,114 +533,55 @@ function renderHouseholds(root, households, listsByHousehold) {
   });
 }
 
-function formatPasskeyDate(value) {
-  if (!value) {
-    return translate("settings.never_used", {}, "Never used yet");
-  }
-
-  return new Date(value).toLocaleString(getPreferredLocale(), {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(String(value), 10);
+  const normalized = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.min(Math.max(normalized, min), max);
 }
 
-function renderPasskeys(root, passkeys) {
-  const container = root.querySelector("[data-passkey-list]");
-  const emptyState = root.querySelector("[data-passkey-empty]");
-  if (!container || !emptyState) {
-    return;
+function inviteDurationLabel(hours) {
+  if (hours % 24 === 0) {
+    const days = hours / 24;
+    return translatePlural("dashboard.invite_duration_days", days, {}, { one: "{count} day", other: "{count} days" });
   }
-
-  container.innerHTML = "";
-  const hasPasskeys = passkeys.length > 0;
-  emptyState.hidden = hasPasskeys;
-  emptyState.style.display = hasPasskeys ? "none" : "";
-
-  passkeys.forEach((passkey, index) => {
-    const row = document.createElement("article");
-    row.className = "passkey-row";
-    row.innerHTML = `
-      <div class="passkey-copy">
-        <strong>${passkey.name}</strong>
-        <span>${translate("settings.added_on", { date: formatPasskeyDate(passkey.created_at) }, "Added {date}")}</span>
-        <span>${translate("settings.last_used", { date: formatPasskeyDate(passkey.last_used_at) }, "Last used {date}")}</span>
-      </div>
-      <div class="passkey-actions">
-        <button
-          type="button"
-          class="secondary-button"
-          data-passkey-rename="${passkey.id}"
-          data-passkey-current-name="${passkey.name}"
-        >
-          ${translate("settings.rename", {}, "Rename")}
-        </button>
-        <button
-          type="button"
-          class="danger-button"
-          data-passkey-delete="${passkey.id}"
-          data-passkey-locked="${passkeys.length <= 1 ? "true" : "false"}"
-          ${
-            passkeys.length <= 1
-              ? `title="${translate("settings.delete_disabled", {}, "Add another passkey before deleting this one.")}" aria-disabled="true"`
-              : ""
-          }
-          ${passkeys.length <= 1 ? "disabled" : ""}
-        >
-          ${translate("common.delete", {}, "Delete")}
-        </button>
-      </div>
-    `;
-    container.appendChild(row);
-  });
+  return translatePlural("dashboard.invite_duration_hours", hours, {}, { one: "{count} hour", other: "{count} hours" });
 }
 
-function suggestedPasskeyName(root) {
-  return translate(
-    "settings.suggested_name",
-    { number: root.querySelectorAll(".passkey-row").length + 1 },
-    "Passkey {number}"
-  );
+function syncInviteSheet(root) {
+  const mode = root.querySelector("[data-invite-mode]")?.value || "time";
+  const timeFields = root.querySelector("[data-invite-time-fields]");
+  const useFields = root.querySelector("[data-invite-use-fields]");
+  if (timeFields instanceof HTMLElement) {
+    timeFields.hidden = mode !== "time";
+  }
+  if (useFields instanceof HTMLElement) {
+    useFields.hidden = mode !== "uses";
+  }
+  const hoursInput = root.querySelector("[data-invite-hours-input]");
+  const label = root.querySelector("[data-invite-duration-label]");
+  if (hoursInput instanceof HTMLInputElement && label instanceof HTMLElement) {
+    const hours = boundedInteger(hoursInput.value, 24, 1, 720);
+    hoursInput.value = String(hours);
+    label.textContent = inviteDurationLabel(hours);
+  }
 }
 
-function setPasskeyNameFormState(root, state) {
-  const form = root.querySelector("[data-passkey-name-form]");
-  const input = root.querySelector("[data-passkey-name-input]");
-  const addButton = root.querySelector("[data-passkey-add]");
-  const title = root.querySelector("[data-passkey-name-title]");
-  const submitButton = root.querySelector("[data-passkey-name-submit]");
-  if (
-    !(form instanceof HTMLFormElement)
-    || !(input instanceof HTMLInputElement)
-    || !(title instanceof HTMLElement)
-    || !(submitButton instanceof HTMLButtonElement)
-  ) {
-    return;
+function householdInvitePayload(root) {
+  const mode = root.querySelector("[data-invite-mode]")?.value || "time";
+  if (mode === "uses") {
+    const maxUsesInput = root.querySelector("[data-invite-max-uses]");
+    const maxUses = boundedInteger(maxUsesInput?.value, 5, 1, 100);
+    if (maxUsesInput instanceof HTMLInputElement) {
+      maxUsesInput.value = String(maxUses);
+    }
+    return { expires_in_hours: null, max_uses: maxUses };
   }
-
-  const isOpen = Boolean(state);
-  form.hidden = !isOpen;
-  if (addButton instanceof HTMLButtonElement) {
-    addButton.hidden = isOpen;
+  const hoursInput = root.querySelector("[data-invite-hours-input]");
+  const expiresInHours = boundedInteger(hoursInput?.value, 24, 1, 720);
+  if (hoursInput instanceof HTMLInputElement) {
+    hoursInput.value = String(expiresInHours);
   }
-
-  if (!isOpen) {
-    form.dataset.mode = "";
-    form.dataset.passkeyId = "";
-    title.textContent = translate("settings.name_this_passkey", {}, "Name this passkey");
-    submitButton.textContent = translate("common.continue", {}, "Continue");
-    form.reset();
-    return;
-  }
-
-  form.dataset.mode = state.mode;
-  form.dataset.passkeyId = state.passkeyId || "";
-  title.textContent = state.title;
-  submitButton.textContent = state.submitLabel;
-  input.value = state.name;
-  window.setTimeout(() => {
-    input.focus();
-    input.select();
-  }, 0);
+  return { expires_in_hours: expiresInHours };
 }
 
 async function copyText(value) {
@@ -771,283 +618,6 @@ async function loadDashboardData(root) {
   renderHouseholds(root, households, listsByHousehold);
 }
 
-async function loadPasskeyManagementData(root) {
-  const passkeys = await fetchJson("/api/v1/auth/passkeys");
-  renderPasskeys(root, passkeys);
-}
-
-function togglePasskeyManagementForms(root, disabled) {
-  root
-    .querySelectorAll("[data-passkey-management] button, [data-passkey-management] input")
-    .forEach((node) => {
-      const locked = node.getAttribute("data-passkey-locked") === "true";
-      node.disabled = disabled || locked;
-    });
-}
-
-function syncPasskeyManagementModalState(root) {
-  const deleteOverlay = root.querySelector("[data-passkey-delete-overlay]");
-  const hasModalOpen = deleteOverlay instanceof HTMLElement && !deleteOverlay.hidden;
-  document.body.classList.toggle("has-list-modal-open", hasModalOpen);
-}
-
-function setPasskeyDeleteConfirmState(root, state) {
-  const overlay = root.querySelector("[data-passkey-delete-overlay]");
-  const panel = root.querySelector("[data-passkey-delete-panel]");
-  const confirmButton = root.querySelector("[data-passkey-delete-confirm]");
-  const copyNode = root.querySelector("[data-passkey-delete-copy]");
-  if (
-    !(overlay instanceof HTMLElement)
-    || !(panel instanceof HTMLElement)
-    || !(confirmButton instanceof HTMLButtonElement)
-  ) {
-    return;
-  }
-
-  const isOpen = Boolean(state);
-  overlay.hidden = !isOpen;
-  panel.hidden = !isOpen;
-  const passkeyName = state?.name || translate("settings.delete_target_fallback", {}, "this passkey");
-  if (copyNode instanceof HTMLElement) {
-    const emphasisNode = document.createElement("strong");
-    emphasisNode.textContent = translate("settings.delete_help_emphasis", {}, "another");
-    copyNode.replaceChildren(
-      document.createTextNode(
-        translate(
-          "settings.delete_help_prefix",
-          { name: passkeyName },
-          "To delete {name}, you must authenticate with "
-        )
-      ),
-      emphasisNode,
-      document.createTextNode(
-        translate(
-          "settings.delete_help_suffix",
-          {},
-          " passkey to confirm you still have a working Passkey after deleting one."
-        )
-      )
-    );
-  }
-  confirmButton.dataset.passkeyId = state?.passkeyId || "";
-  syncPasskeyManagementModalState(root);
-
-  if (isOpen) {
-    window.setTimeout(() => {
-      confirmButton.focus();
-    }, 0);
-  }
-}
-
-function initPasskeyManagement(root, options = {}) {
-  if (!root) {
-    return;
-  }
-
-  const {
-    setMessage = setPasskeyManagementMessage,
-    toggleForms = togglePasskeyManagementForms,
-    refreshData = () => loadPasskeyManagementData(root),
-  } = options;
-
-  const refresh = async () => {
-    setMessage(root, "", "");
-    await refreshData();
-  };
-
-  const passkeyNameForm = root.querySelector("[data-passkey-name-form]");
-
-  root.addEventListener("click", async (event) => {
-    const addPasskeyButton = event.target.closest("[data-passkey-add]");
-    if (addPasskeyButton) {
-      if (!window.PublicKeyCredential || !navigator.credentials) {
-        setMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-        return;
-      }
-      setMessage(root, "", "");
-      setPasskeyNameFormState(root, {
-        mode: "add",
-        passkeyId: "",
-        title: translate("settings.name_this_passkey", {}, "Name this passkey"),
-        submitLabel: translate("common.continue", {}, "Continue"),
-        name: suggestedPasskeyName(root),
-      });
-      return;
-    }
-
-    const cancelPasskeyNameButton = event.target.closest("[data-passkey-name-cancel]");
-    if (cancelPasskeyNameButton) {
-      setMessage(root, "", "");
-      setPasskeyNameFormState(root, null);
-      return;
-    }
-
-    const renamePasskeyButton = event.target.closest("[data-passkey-rename]");
-    if (renamePasskeyButton) {
-      if (!window.PublicKeyCredential || !navigator.credentials) {
-        setMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-        return;
-      }
-
-      const passkeyId = renamePasskeyButton.getAttribute("data-passkey-rename");
-      const currentName = renamePasskeyButton.getAttribute("data-passkey-current-name") || "";
-      setMessage(root, "", "");
-      setPasskeyNameFormState(root, {
-        mode: "rename",
-        passkeyId,
-        title: translate("settings.rename_this_passkey", {}, "Rename this passkey"),
-        submitLabel: translate("settings.save_and_verify", {}, "Save and verify"),
-        name: currentName,
-      });
-      return;
-    }
-
-    const deletePasskeyButton = event.target.closest("[data-passkey-delete]");
-    if (deletePasskeyButton) {
-      if (!window.PublicKeyCredential || !navigator.credentials) {
-        setMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-        return;
-      }
-
-      setMessage(root, "", "");
-      setPasskeyDeleteConfirmState(root, {
-        passkeyId: deletePasskeyButton.getAttribute("data-passkey-delete"),
-        name:
-          deletePasskeyButton.closest(".passkey-row")?.querySelector(".passkey-copy strong")
-            ?.textContent?.trim() || translate("settings.delete_target_fallback", {}, "this passkey"),
-      });
-      return;
-    }
-
-    const closeDeletePasskeyButton = event.target.closest("[data-passkey-delete-close]");
-    if (closeDeletePasskeyButton) {
-      setPasskeyDeleteConfirmState(root, null);
-      return;
-    }
-
-    const confirmDeletePasskeyButton = event.target.closest("[data-passkey-delete-confirm]");
-    if (confirmDeletePasskeyButton) {
-      const passkeyId = confirmDeletePasskeyButton.getAttribute("data-passkey-id");
-      if (!passkeyId) {
-        setPasskeyDeleteConfirmState(root, null);
-        setMessage(root, "error", translate("settings.delete_choose_first", {}, "Choose a passkey to delete first."));
-        return;
-      }
-
-      toggleForms(root, true);
-      try {
-        await deletePasskey(root, passkeyId);
-        setPasskeyDeleteConfirmState(root, null);
-        setPasskeyNameFormState(root, null);
-        await refresh();
-        setMessage(root, "success", translate("settings.deleted_success", {}, "Passkey deleted after confirming another one worked."));
-      } catch (error) {
-        setMessage(
-          root,
-          "error",
-          error instanceof Error ? error.message : translate("settings.delete_failed", {}, "Could not delete that passkey.")
-        );
-      } finally {
-        toggleForms(root, false);
-      }
-    }
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") {
-      return;
-    }
-
-    const overlay = root.querySelector("[data-passkey-delete-overlay]");
-    if (overlay instanceof HTMLElement && !overlay.hidden) {
-      setPasskeyDeleteConfirmState(root, null);
-    }
-  });
-
-  if (passkeyNameForm instanceof HTMLFormElement) {
-    passkeyNameForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const formData = new FormData(passkeyNameForm);
-      const passkeyName = String(formData.get("name") || "").trim();
-      const mode = passkeyNameForm.dataset.mode;
-      const passkeyId = passkeyNameForm.dataset.passkeyId;
-      if (!passkeyName) {
-        setMessage(root, "error", translate("settings.name_required", {}, "Passkey name is required."));
-        const input = root.querySelector("[data-passkey-name-input]");
-        if (input instanceof HTMLInputElement) {
-          input.focus();
-        }
-        return;
-      }
-
-      toggleForms(root, true);
-      try {
-        if (mode === "rename") {
-          if (!passkeyId) {
-            throw new Error(translate("settings.rename_choose_first", {}, "Choose a passkey to rename first."));
-          }
-          await renamePasskey(root, passkeyId, passkeyName);
-        } else {
-          await addPasskey(root, passkeyName);
-        }
-        setPasskeyNameFormState(root, null);
-        await refresh();
-        setMessage(
-          root,
-          "success",
-          mode === "rename"
-            ? translate("settings.renamed_success", {}, "Passkey renamed after confirming it still works.")
-            : translate("settings.added_success", {}, "Another passkey is ready to use.")
-        );
-      } catch (error) {
-        setMessage(
-          root,
-          "error",
-          error instanceof Error
-            ? error.message
-            : mode === "rename"
-              ? translate("settings.rename_failed", {}, "Could not rename that passkey.")
-              : translate("settings.add_failed", {}, "Could not add another passkey.")
-        );
-      } finally {
-        toggleForms(root, false);
-      }
-    });
-  }
-
-  return refresh();
-}
-
-async function addPasskey(root, name) {
-  const options = await postJson("/api/v1/auth/passkeys/register/options", { name });
-  const credential = await navigator.credentials.create({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson("/api/v1/auth/passkeys/register/verify", {
-    credential: credentialToJSON(credential),
-  });
-}
-
-async function renamePasskey(root, passkeyId, name) {
-  const options = await postJson(`/api/v1/auth/passkeys/${passkeyId}/rename/options`, { name });
-  const credential = await navigator.credentials.get({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson(`/api/v1/auth/passkeys/${passkeyId}/rename/verify`, {
-    credential: credentialToJSON(credential),
-  });
-}
-
-async function deletePasskey(root, passkeyId) {
-  const options = await postJson(`/api/v1/auth/passkeys/${passkeyId}/delete/options`, {});
-  const credential = await navigator.credentials.get({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson(`/api/v1/auth/passkeys/${passkeyId}/delete/verify`, {
-    credential: credentialToJSON(credential),
-  });
-}
-
 async function initDashboard() {
   const root = document.querySelector("[data-dashboard]");
   if (!root) {
@@ -1063,35 +633,45 @@ async function initDashboard() {
   };
 
   root.addEventListener("click", async (event) => {
-    const inviteButton = event.target.closest("[data-create-invite]");
-    if (inviteButton) {
-      const householdId = inviteButton.getAttribute("data-create-invite");
-      toggleDashboardForms(root, true);
-      try {
-        const invite = await postJson(`/api/v1/households/${householdId}/invites`, {});
-        const output = root.querySelector(`[data-invite-output="${householdId}"]`);
-        const input = root.querySelector(`[data-invite-link-input="${householdId}"]`);
-        if (output && input) {
-          input.value = invite.invite_url;
-          output.hidden = false;
-        }
-        setDashboardMessage(root, "success", translate("dashboard.invite_link_created", {}, "Invite link created. It stays valid for 24 hours."));
-      } catch (error) {
-        setDashboardMessage(
-          root,
-          "error",
-          error instanceof Error ? error.message : translate("dashboard.invite_link_create_failed", {}, "Could not create the invite link.")
+    const openInviteButton = event.target.closest("[data-open-invite-sheet]");
+    if (openInviteButton) {
+      const householdId = openInviteButton.getAttribute("data-open-invite-sheet");
+      root.dataset.inviteHouseholdId = householdId || "";
+      const householdName = openInviteButton.closest(".household-card")?.querySelector("h3")?.textContent || "";
+      const householdNode = root.querySelector("[data-dashboard-invite-household]");
+      if (householdNode instanceof HTMLElement) {
+        householdNode.textContent = translate(
+          "dashboard.invite_sheet_helper",
+          { household: householdName },
+          "Choose how this invite link should stay valid for {household}."
         );
-      } finally {
-        toggleDashboardForms(root, false);
       }
+      const output = root.querySelector("[data-invite-sheet-output]");
+      const input = root.querySelector("[data-invite-sheet-link-input]");
+      if (output instanceof HTMLElement) {
+        output.hidden = true;
+      }
+      if (input instanceof HTMLInputElement) {
+        input.value = "";
+      }
+      syncInviteSheet(root);
+      setDashboardPanelOpen(root, "invite", true);
       return;
     }
 
-    const copyButton = event.target.closest("[data-copy-invite]");
-    if (copyButton) {
-      const householdId = copyButton.getAttribute("data-copy-invite");
-      const input = root.querySelector(`[data-invite-link-input="${householdId}"]`);
+    const presetButton = event.target.closest("[data-invite-hours-preset]");
+    if (presetButton) {
+      const hoursInput = root.querySelector("[data-invite-hours-input]");
+      if (hoursInput instanceof HTMLInputElement) {
+        hoursInput.value = presetButton.getAttribute("data-invite-hours-preset") || "24";
+      }
+      syncInviteSheet(root);
+      return;
+    }
+
+    const copyInviteButton = event.target.closest("[data-copy-invite-sheet]");
+    if (copyInviteButton) {
+      const input = root.querySelector("[data-invite-sheet-link-input]");
       if (!(input instanceof HTMLInputElement) || !input.value) {
         return;
       }
@@ -1104,6 +684,42 @@ async function initDashboard() {
           "error",
           error instanceof Error ? error.message : translate("dashboard.invite_link_copy_failed", {}, "Could not copy the invite link.")
         );
+      }
+      return;
+    }
+
+    const inviteButton = event.target.closest("[data-create-invite]");
+    if (inviteButton) {
+      event.preventDefault();
+      const householdId = root.dataset.inviteHouseholdId;
+      if (!householdId) {
+        return;
+      }
+      toggleDashboardForms(root, true);
+      try {
+        const payload = householdInvitePayload(root);
+        const invite = await postJson(`/api/v1/households/${householdId}/invites`, payload);
+        const output = root.querySelector("[data-invite-sheet-output]");
+        const input = root.querySelector("[data-invite-sheet-link-input]");
+        const hint = root.querySelector("[data-invite-sheet-hint]");
+        if (output && input) {
+          input.value = invite.invite_url;
+          output.hidden = false;
+        }
+        if (hint instanceof HTMLElement) {
+          hint.textContent = payload.max_uses
+            ? translate("dashboard.share_invite_use_hint", { count: payload.max_uses }, "Share this link. It can be used {count} times.")
+            : translate("dashboard.share_invite_time_hint", { duration: inviteDurationLabel(payload.expires_in_hours || 24) }, "Share this link within {duration}.");
+        }
+        setDashboardMessage(root, "success", translate("dashboard.invite_link_created", {}, "Invite link created."));
+      } catch (error) {
+        setDashboardMessage(
+          root,
+          "error",
+          error instanceof Error ? error.message : translate("dashboard.invite_link_create_failed", {}, "Could not create the invite link.")
+        );
+      } finally {
+        toggleDashboardForms(root, false);
       }
       return;
     }
@@ -1151,6 +767,25 @@ async function initDashboard() {
     node.addEventListener("click", () => {
       setDashboardPanelOpen(root, "list", false);
     });
+  });
+
+  root.querySelectorAll("[data-dashboard-invite-close]").forEach((node) => {
+    node.addEventListener("click", () => {
+      setDashboardPanelOpen(root, "invite", false);
+    });
+  });
+
+  root.querySelector("[data-invite-mode]")?.addEventListener("change", () => {
+    syncInviteSheet(root);
+  });
+
+  root.querySelector("[data-invite-hours-input]")?.addEventListener("input", () => {
+    syncInviteSheet(root);
+  });
+
+  root.querySelector("[data-dashboard-invite-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    root.querySelector("[data-create-invite='sheet']")?.click();
   });
 
   root.querySelectorAll("[data-dashboard-panel-back]").forEach((node) => {
@@ -5411,178 +5046,6 @@ async function initListDetail() {
   }
 }
 
-async function registerWithPasskey(root, form) {
-  const formData = new FormData(form);
-  const options = await postJson("/api/v1/auth/register/options", {
-    email: formData.get("email"),
-    display_name: formData.get("display_name"),
-  });
-  const credential = await navigator.credentials.create({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson("/api/v1/auth/register/verify", {
-    credential: credentialToJSON(credential),
-  });
-  setMessage(root, "success", translate("auth.login.created_redirect", {}, "Passkey created. Redirecting to your dashboard..."));
-  navigateTo(root.getAttribute("data-next-url") || "/");
-}
-
-async function loginWithPasskey(root, form) {
-  void form;
-  const options = await postJson("/api/v1/auth/login/options", {});
-  const credential = await navigator.credentials.get({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson("/api/v1/auth/login/verify", {
-    credential: credentialToJSON(credential),
-  });
-  setMessage(root, "success", translate("auth.login.accepted_redirect", {}, "Passkey accepted. Redirecting to your dashboard..."));
-  navigateTo(root.getAttribute("data-next-url") || "/");
-}
-
-async function addPasskeyWithLink(root) {
-  const token = root.getAttribute("data-passkey-add-token");
-  if (!token) {
-    throw new Error(translate("auth.passkey_add.missing_token", {}, "Passkey add link is missing."));
-  }
-
-  const options = await postJson(`/api/v1/auth/passkey-add/${token}/options`, {});
-  const credential = await navigator.credentials.create({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson(`/api/v1/auth/passkey-add/${token}/verify`, {
-    credential: credentialToJSON(credential),
-  });
-  setMessage(root, "success", translate("auth.passkey_add.created_redirect", {}, "Additional passkey created. Redirecting to your dashboard..."));
-  navigateTo("/");
-}
-
-async function handlePasskeyLoginClick(root, loginForm) {
-  toggleButtons(root, true);
-  try {
-    await loginWithPasskey(root, loginForm);
-  } catch (error) {
-    setMessage(root, "error", error instanceof Error ? error.message : translate("auth.login.login_failed", {}, "Passkey login failed."));
-  } finally {
-    toggleButtons(root, false);
-  }
-}
-
-function transitionAuthPanels(root, updatePanels) {
-  const panelGroup = root.querySelector("[data-auth-panels]");
-  if (!(panelGroup instanceof HTMLElement)) {
-    updatePanels();
-    return;
-  }
-
-  const beforeHeight = panelGroup.getBoundingClientRect().height;
-  updatePanels();
-  const afterHeight = panelGroup.scrollHeight;
-  if (!beforeHeight || !afterHeight || beforeHeight === afterHeight) {
-    return;
-  }
-
-  panelGroup.style.height = `${beforeHeight}px`;
-  panelGroup.style.overflow = "hidden";
-  panelGroup.getBoundingClientRect();
-  panelGroup.style.height = `${afterHeight}px`;
-
-  const settle = () => {
-    panelGroup.style.height = "";
-    panelGroup.style.overflow = "";
-    panelGroup.removeEventListener("transitionend", settle);
-  };
-  panelGroup.addEventListener("transitionend", settle, { once: true });
-  window.setTimeout(settle, 240);
-}
-
-function setAuthTab(root, tab) {
-  const panels = root.querySelectorAll("[data-auth-tab-panel]");
-  const triggers = root.querySelectorAll("[data-auth-tab-trigger]");
-  if (!panels.length || !triggers.length) {
-    return;
-  }
-
-  transitionAuthPanels(root, () => {
-    panels.forEach((panel) => {
-      panel.hidden = panel.getAttribute("data-auth-tab-panel") !== tab;
-    });
-  });
-
-  triggers.forEach((trigger) => {
-    trigger.setAttribute(
-      "aria-selected",
-      trigger.getAttribute("data-auth-tab-trigger") === tab ? "true" : "false"
-    );
-  });
-
-  if (tab === "signup") {
-    root.querySelector('[data-passkey-register] input[name="display_name"]')?.focus();
-  }
-}
-
-function initPasskeyAuth() {
-  const root = document.querySelector("[data-passkey-auth]");
-  if (!root) {
-    return;
-  }
-
-  if (!window.PublicKeyCredential || !navigator.credentials) {
-    setMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-    toggleButtons(root, true);
-    return;
-  }
-
-  const registerForm = root.querySelector("[data-passkey-register]");
-  const loginForm = root.querySelector("[data-passkey-login]");
-  root.querySelectorAll("[data-auth-tab-trigger]").forEach((trigger) => {
-    trigger.addEventListener("click", () => {
-      setAuthTab(root, trigger.getAttribute("data-auth-tab-trigger"));
-    });
-  });
-
-  registerForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    toggleButtons(root, true);
-    try {
-      await registerWithPasskey(root, registerForm);
-    } catch (error) {
-      setMessage(root, "error", error instanceof Error ? error.message : translate("auth.login.registration_failed", {}, "Passkey registration failed."));
-    } finally {
-      toggleButtons(root, false);
-    }
-  });
-
-  root.querySelector("[data-passkey-login-button]")?.addEventListener(
-    "click",
-    handlePasskeyLoginClick.bind(null, root, loginForm)
-  );
-}
-
-function initPasskeyAddLink() {
-  const root = document.querySelector("[data-passkey-add-link]");
-  if (!root) {
-    return;
-  }
-
-  if (!window.PublicKeyCredential || !navigator.credentials) {
-    setMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-    toggleButtons(root, true);
-    return;
-  }
-
-  root.querySelector("[data-passkey-add-link-button]")?.addEventListener("click", async () => {
-    toggleButtons(root, true);
-    try {
-      await addPasskeyWithLink(root);
-    } catch (error) {
-      setMessage(root, "error", error instanceof Error ? error.message : translate("auth.passkey_add.failed", {}, "Passkey add failed."));
-    } finally {
-      toggleButtons(root, false);
-    }
-  });
-}
-
 function setSettingsMessage(root, type, message) {
   const errorNode = root.querySelector("[data-settings-error]");
   const successNode = root.querySelector("[data-settings-success]");
@@ -5644,24 +5107,6 @@ function initUserSettings() {
     }
     navigateTo(`${url.pathname}${url.search}${url.hash}`);
   });
-
-  if (!window.PublicKeyCredential || !navigator.credentials) {
-    setPasskeyManagementMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-    toggleButtons(root, true);
-    return;
-  }
-
-  initPasskeyManagement(root, {
-    setMessage: setPasskeyManagementMessage,
-    toggleForms: togglePasskeyManagementForms,
-    refreshData: () => loadPasskeyManagementData(root),
-  }).catch((error) => {
-    setPasskeyManagementMessage(
-      root,
-      "error",
-      error instanceof Error ? error.message : translate("settings.load_failed", {}, "Could not load your passkeys.")
-    );
-  });
 }
 
 function formatInviteExpiry(value) {
@@ -5691,7 +5136,9 @@ async function initHouseholdInvite() {
     loadingNode.hidden = true;
     readyNode.hidden = false;
     householdNameNode.textContent = invite.household_name;
-    expiryNode.textContent = translate("invite.expires_on", { date: formatInviteExpiry(invite.expires_at) }, "This link expires on {date}.");
+    expiryNode.textContent = invite.expires_at
+      ? translate("invite.expires_on", { date: formatInviteExpiry(invite.expires_at) }, "This link expires on {date}.")
+      : translate("invite.remaining_uses", { count: invite.remaining_uses }, "This link has {count} uses remaining.");
     membershipNoteNode.hidden = !invite.already_member;
   } catch (error) {
     loadingNode.hidden = true;
@@ -5726,8 +5173,6 @@ async function initHouseholdInvite() {
 function initApp() {
   applyLanguagePreference();
   registerServiceWorker().catch(() => undefined);
-  initPasskeyAuth();
-  initPasskeyAddLink();
   initUserSettings();
   initDashboard();
   initHouseholdInvite();
@@ -5739,8 +5184,6 @@ if (typeof document !== "undefined") {
 }
 
 export {
-  base64UrlToBytes,
-  bytesToBase64Url,
   getI18nState,
   getCurrentLocale,
   interpolateTranslation,
@@ -5748,8 +5191,6 @@ export {
   translatePlural,
   isItemHidden,
   formatHiddenUntilLabel,
-  publicKeyFromJSON,
-  credentialToJSON,
   normalizeLanguagePreference,
   getBrowserLanguage,
   getStoredLanguagePreference,
@@ -5772,15 +5213,8 @@ export {
   updateHouseholdOptions,
   updateDashboardListOptions,
   renderHouseholds,
+  householdInvitePayload,
   loadDashboardData,
-  formatPasskeyDate,
-  renderPasskeys,
-  suggestedPasskeyName,
-  setPasskeyNameFormState,
-  setPasskeyDeleteConfirmState,
-  addPasskey,
-  renamePasskey,
-  deletePasskey,
   initDashboard,
   setListMessage,
   setListSyncStatus,
@@ -5913,15 +5347,7 @@ export {
   loadListDetail,
   connectListSocket,
   initListDetail,
-  registerWithPasskey,
-  loginWithPasskey,
-  addPasskeyWithLink,
-  handlePasskeyLoginClick,
-  transitionAuthPanels,
-  setAuthTab,
   setSettingsMessage,
-  initPasskeyAuth,
-  initPasskeyAddLink,
   initUserSettings,
   formatInviteExpiry,
   initHouseholdInvite,

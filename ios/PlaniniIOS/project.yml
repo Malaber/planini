@@ -17,6 +17,8 @@ targets:
       - path: ../../app/locales
         name: locales
         buildPhase: resources
+      - path: AppShortcutsLocalization
+        buildPhase: resources
     dependencies:
       - target: PlaniniWatchApp
         embed: true

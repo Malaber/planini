@@ -25,10 +25,12 @@ public struct HouseholdSummary: Identifiable, Equatable, Codable, Sendable {
 public struct HouseholdInviteLink: Equatable, Sendable {
     public let inviteURL: String
     public let expiresAt: Date?
+    public let maxUses: Int?
 
-    public init(inviteURL: String, expiresAt: Date?) {
+    public init(inviteURL: String, expiresAt: Date?, maxUses: Int? = nil) {
         self.inviteURL = inviteURL
         self.expiresAt = expiresAt
+        self.maxUses = maxUses
     }
 
     public init?(json: [String: Any]) {
@@ -37,7 +39,8 @@ public struct HouseholdInviteLink: Equatable, Sendable {
         }
 
         let expiresAt = (json["expires_at"] as? String).flatMap(Self.parseDate)
-        self.init(inviteURL: inviteURL, expiresAt: expiresAt)
+        let maxUses = json["max_uses"] as? Int
+        self.init(inviteURL: inviteURL, expiresAt: expiresAt, maxUses: maxUses)
     }
 
     private static func parseDate(_ value: String) -> Date? {
@@ -59,13 +62,22 @@ public struct GroceryListSummary: Identifiable, Equatable, Codable, Sendable {
     public let householdName: String
     public let name: String
     public let archived: Bool
+    public let accentColorHex: String?
 
-    public init(id: UUID, householdID: UUID, householdName: String, name: String, archived: Bool) {
+    public init(
+        id: UUID,
+        householdID: UUID,
+        householdName: String,
+        name: String,
+        archived: Bool,
+        accentColorHex: String? = nil
+    ) {
         self.id = id
         self.householdID = householdID
         self.householdName = householdName
         self.name = name
         self.archived = archived
+        self.accentColorHex = accentColorHex
     }
 }
 
