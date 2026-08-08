@@ -108,14 +108,21 @@ final class WatchAppViewModel: ObservableObject {
     }
 
     var setupButtonTitle: String {
-        isPhoneReachable ? "Sync from iPhone" : "Open and unlock iPhone app"
+        NSLocalizedString(
+            isPhoneReachable ? "Sync from iPhone" : "Open and unlock iPhone app",
+            comment: ""
+        )
     }
 
     var versionBuildText: String {
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? "0"
         let build = info["CFBundleVersion"] as? String ?? "0"
-        return "Version \(version) (\(build))"
+        return String(
+            format: NSLocalizedString("Version %@ (%@)", comment: ""),
+            version,
+            build
+        )
     }
 
     func performInitialLoad() async {
@@ -217,11 +224,11 @@ final class WatchAppViewModel: ObservableObject {
     }
 
     func undoListActionTitle(for list: GroceryListSummary) -> String {
-        actionHistory(for: list.id).undoTitle ?? "Undo"
+        actionHistory(for: list.id).undoTitle ?? NSLocalizedString("Undo", comment: "")
     }
 
     func redoListActionTitle(for list: GroceryListSummary) -> String {
-        actionHistory(for: list.id).redoTitle ?? "Redo"
+        actionHistory(for: list.id).redoTitle ?? NSLocalizedString("Redo", comment: "")
     }
 
     func undoLastListAction(in list: GroceryListSummary) async {

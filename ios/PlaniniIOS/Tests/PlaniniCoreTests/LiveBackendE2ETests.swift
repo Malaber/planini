@@ -304,8 +304,16 @@ struct LiveBackendE2ETests {
             token: accessToken
         )
         let categories = categoriesPayload.compactMap(GroceryCategorySummary.init)
-        #expect(categories.contains(where: { $0.name == "Konserven" }))
-        #expect(categories.contains(where: { $0.name == "Gemuese" }))
+        #expect(categories.contains(where: { $0.name == "Canned Goods" }))
+        #expect(categories.contains(where: { $0.name == "Produce" }))
+        let germanCategoriesPayload = try await client.jsonArray(
+            path: "/api/v1/lists/\(listID)/categories",
+            token: accessToken,
+            acceptLanguage: "de-DE"
+        )
+        let germanCategories = germanCategoriesPayload.compactMap(GroceryCategorySummary.init)
+        #expect(germanCategories.contains(where: { $0.name == "Konserven" }))
+        #expect(germanCategories.contains(where: { $0.name == "Gemüse" }))
 
         let categoryOrderPayload = try await client.jsonArray(
             path: "/api/v1/lists/\(listID)/category-order",
@@ -324,7 +332,7 @@ struct LiveBackendE2ETests {
             categories: categories,
             categoryOrder: categoryOrder
         )
-        #expect(initialSections.map(\.title).prefix(5).elementsEqual(["On sale", "Uncategorized", "Konserven", "Milch & Eier", "Nudeln"]))
+        #expect(initialSections.map(\.title).prefix(5).elementsEqual(["On sale", "Uncategorized", "Canned Goods", "Dairy & Eggs", "Pasta"]))
         #expect(initialSections.first?.items.map(\.name) == ["Sale apples"])
         #expect(initialSections.dropFirst().first?.items.contains(where: { $0.name == "Loose item" }) == true)
         #expect(initialSections.dropFirst().first?.items.contains(where: { $0.name == "Sale apples" }) == true)
@@ -389,10 +397,10 @@ struct LiveBackendE2ETests {
             categories: restoredState.categories,
             categoryOrder: restoredState.categoryOrder
         )
-        #expect(restoredSections.map(\.title).prefix(5).elementsEqual(["On sale", "Uncategorized", "Konserven", "Milch & Eier", "Nudeln"]))
+        #expect(restoredSections.map(\.title).prefix(5).elementsEqual(["On sale", "Uncategorized", "Canned Goods", "Dairy & Eggs", "Pasta"]))
 
-        let konservenID = try #require(categories.first { $0.name == "Konserven" }?.id)
-        let gemueseID = try #require(categories.first { $0.name == "Gemuese" }?.id)
+        let konservenID = try #require(categories.first { $0.name == "Canned Goods" }?.id)
+        let gemueseID = try #require(categories.first { $0.name == "Produce" }?.id)
 
         let uniqueSuffix = UUID().uuidString.prefix(8)
         let originalName = "iOS E2E \(uniqueSuffix)"
@@ -469,7 +477,7 @@ struct LiveBackendE2ETests {
             categories: categories,
             categoryOrder: categoryOrder
         )
-        let gemueseSection = try #require(updatedSections.first { $0.title == "Gemuese" })
+        let gemueseSection = try #require(updatedSections.first { $0.title == "Produce" })
         #expect(gemueseSection.items.contains(where: { $0.name == updatedName }))
 
         let moved = try await client.jsonObject(
@@ -896,9 +904,16 @@ private final class LiveBackendClient {
         path: String,
         method: String = "GET",
         body: [String: Any]? = nil,
-        token: String
+        token: String,
+        acceptLanguage: String = "en"
     ) async throws -> [[String: Any]] {
-        let data = try await data(path: path, method: method, body: body, token: token)
+        let data = try await data(
+            path: path,
+            method: method,
+            body: body,
+            token: token,
+            acceptLanguage: acceptLanguage
+        )
         guard let payload = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             throw LiveBackendE2EError("Expected JSON array for \(path).")
         }
@@ -909,7 +924,8 @@ private final class LiveBackendClient {
         path: String,
         method: String,
         body: [String: Any]?,
-        token: String?
+        token: String?,
+        acceptLanguage: String = "en"
     ) async throws -> Data {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw LiveBackendE2EError("Invalid URL path \(path).")
@@ -918,6 +934,7 @@ private final class LiveBackendClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(acceptLanguage, forHTTPHeaderField: "Accept-Language")
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }

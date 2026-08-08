@@ -27,14 +27,14 @@ const staleBlueAccentTokens = [
   "245, 251, 253",
 ];
 const seedMainCategoryColors = new Map([
-  ["Milch & Eier", "rgb(216, 180, 226)"],
-  ["Tiefkuehlkost", "rgb(77, 208, 225)"],
-  ["Gemuese", "rgb(126, 217, 87)"],
+  ["Dairy & Eggs", "rgb(216, 180, 226)"],
+  ["Frozen Foods", "rgb(77, 208, 225)"],
+  ["Produce", "rgb(126, 217, 87)"],
 ]);
 const seedSettingsCategoryColors = new Map([
-  ["Backwaren", "rgb(251, 146, 60)"],
-  ["Backzutaten", "rgb(236, 72, 153)"],
-  ["Fleisch", "rgb(239, 68, 68)"],
+  ["Bakery", "rgb(251, 146, 60)"],
+  ["Baking Supplies", "rgb(236, 72, 153)"],
+  ["Meat", "rgb(239, 68, 68)"],
 ]);
 
 function logStep(message) {
@@ -924,7 +924,7 @@ async function runAdminTableControlsFlow(page) {
   await page.waitForURL(/\/admin\/category\/list\?pageSize=100/);
   await expectVisible(page.getByRole("link", { name: "100 / Page" }), "Expected page size to persist");
 
-  await page.getByRole("link", { name: "Name" }).click();
+  await page.getByRole("link", { name: "English" }).click();
   await page.waitForURL(/\/admin\/category\/list\?.*pageSize=100.*sortBy=name.*sort=asc/);
 
   await page.getByRole("link", { name: "Reset view" }).click();
@@ -948,6 +948,65 @@ async function runAdminBackupFlow(page) {
   const stat = await fs.stat(path.join(backupDir, fileName));
   assert(stat.size > 0, `Expected backup file ${fileName} to be non-empty`);
   await screenshot(page, "admin-backup-created");
+}
+
+async function runAdminCategoryTranslationFlow(adminPage, userPage, requestContext, seed) {
+  const scenario = await scenarioFromSeed(seed, requestContext);
+  const suffix = Date.now();
+  const englishName = `Seasonal E2E ${suffix}`;
+  const germanName = `Saison E2E ${suffix}`;
+
+  logStep("Creating translated category through admin frontend");
+  await adminPage.goto(new URL("/admin/category/create", baseUrl).toString(), {
+    waitUntil: "networkidle",
+  });
+  await expectVisible(
+    adminPage.getByLabel("English (en)"),
+    "Expected mandatory English category field",
+  );
+  await expectVisible(
+    adminPage.getByLabel("German (de)"),
+    "Expected German category translation field",
+  );
+  await adminPage.getByLabel("English (en)").fill(englishName);
+  await adminPage.getByLabel("German (de)").fill(germanName);
+  await adminPage.getByLabel("Color").fill("#8b5cf6");
+  await adminPage.getByLabel("Aliases").fill("seasonal");
+  await adminPage.locator('input[type="submit"][value="Save"]').click();
+  await adminPage.waitForURL(/\/admin\/category\/list/);
+  await expectVisible(
+    adminPage.locator("tr", { hasText: englishName }),
+    "Expected translated category in admin list",
+  );
+
+  const germanCategories = await apiJson(
+    requestContext,
+    `/api/v1/lists/${scenario.listId}/categories`,
+    { headers: { "Accept-Language": "de-DE,de;q=0.9" } },
+  );
+  const translatedCategory = germanCategories.find((category) => category.name === germanName);
+  assert(translatedCategory, "Expected German category name from localized API");
+  assert.equal(translatedCategory.translations.de, germanName);
+
+  logStep("Showing translated defaults and admin category in German list UI");
+  await userPage.goto(
+    new URL(`/lists/${scenario.listId}?lang=de`, baseUrl).toString(),
+    { waitUntil: "networkidle" },
+  );
+  await userPage.getByRole("button", { name: "Listeneinstellungen öffnen" }).click();
+  const settingsPanel = userPage.locator("[data-list-settings-panel]");
+  await expectVisible(
+    settingsPanel.locator(".settings-category-row", { hasText: germanName }),
+    "Expected admin translation in German list settings",
+  );
+  await expectVisible(
+    settingsPanel.locator(".settings-category-row", { hasText: "Backwaren" }),
+    "Expected seeded default German translation",
+  );
+  await userPage.goto(
+    new URL(`/lists/${scenario.listId}?lang=en`, baseUrl).toString(),
+    { waitUntil: "networkidle" },
+  );
 }
 
 async function runAdminPasskeyAddLinkFlow(page, seed, rpId) {
@@ -987,6 +1046,7 @@ async function runAdminPasskeyAddLinkFlow(page, seed, rpId) {
     await loginAsAdmin(adminPage, adminUser);
     await runAdminBackupFlow(adminPage);
     await runAdminTableControlsFlow(adminPage);
+    await runAdminCategoryTranslationFlow(adminPage, page, page.context().request, seed);
     await adminPage.goto(new URL("/admin/user/list", baseUrl).toString(), { waitUntil: "networkidle" });
     const targetUserRow = adminPage.locator("tr", { hasText: targetUser.email }).first();
     await expectVisible(
@@ -1139,6 +1199,79 @@ async function textList(locator) {
 
 function itemCard(page, text) {
   return page.locator(".item-card", { hasText: text }).first();
+}
+
+async function assertItemMoreContextMenu(card, itemName) {
+  const layoutBefore = await card.evaluate((node) => {
+    const next = node.nextElementSibling;
+    const cardRect = node.getBoundingClientRect();
+    const nextRect = next?.getBoundingClientRect();
+    return {
+      cardCount: document.querySelectorAll(".item-card").length,
+      cardHeight: cardRect.height,
+      nextTop: nextRect?.top ?? null,
+    };
+  });
+  await card.getByRole("button", { name: `More actions for ${itemName}` }).click();
+  const menu = card.locator(".item-more-menu");
+  await expectVisible(menu, `Expected ${itemName} context menu`);
+  const layoutAfter = await card.evaluate((node) => {
+    const button = node.querySelector("[data-item-menu-toggle]");
+    const menuNode = node.querySelector(".item-more-menu");
+    const next = node.nextElementSibling;
+    if (!(button instanceof HTMLElement)) {
+      throw new Error("Expected item menu toggle");
+    }
+    if (!(menuNode instanceof HTMLElement)) {
+      throw new Error("Expected item menu popup");
+    }
+    const cardRect = node.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    const menuRect = menuNode.getBoundingClientRect();
+    const nextRect = next?.getBoundingClientRect();
+    const buttonStyle = getComputedStyle(button);
+    const menuStyle = getComputedStyle(menuNode);
+    return {
+      buttonAlignItems: buttonStyle.alignItems,
+      buttonDisplay: buttonStyle.display,
+      buttonJustifyContent: buttonStyle.justifyContent,
+      buttonBottom: buttonRect.bottom,
+      cardCount: document.querySelectorAll(".item-card").length,
+      cardHeight: cardRect.height,
+      cardLeft: cardRect.left,
+      cardWidth: cardRect.width,
+      menuLeft: menuRect.left,
+      menuPosition: menuStyle.position,
+      menuTop: menuRect.top,
+      menuWidth: menuRect.width,
+      nextTop: nextRect?.top ?? null,
+    };
+  });
+
+  assert.equal(layoutAfter.buttonAlignItems, "center", "More actions button should center icon vertically");
+  assert(
+    layoutAfter.buttonDisplay === "flex" || layoutAfter.buttonDisplay === "inline-flex",
+    `More actions button should use flex centering; got ${layoutAfter.buttonDisplay}`,
+  );
+  assert.equal(layoutAfter.buttonJustifyContent, "center", "More actions button should center icon horizontally");
+  assert.equal(layoutAfter.cardCount, layoutBefore.cardCount, "Opening item actions should not add a list row");
+  assert(
+    Math.abs(layoutAfter.cardHeight - layoutBefore.cardHeight) <= 2,
+    `Opening item actions should not resize the item row; before ${layoutBefore.cardHeight}, after ${layoutAfter.cardHeight}`,
+  );
+  assert.equal(layoutAfter.menuPosition, "absolute", "Item menu should be an overlay popup");
+  assert(
+    layoutAfter.menuWidth < layoutAfter.cardWidth * 0.75,
+    "Item menu should not render as a full-width list row",
+  );
+  assert(layoutAfter.menuLeft >= layoutAfter.cardLeft, "Item menu should stay aligned inside the card");
+  assert(layoutAfter.menuTop >= layoutAfter.buttonBottom - 8, "Item menu should open below the actions button");
+  if (layoutBefore.nextTop !== null && layoutAfter.nextTop !== null) {
+    assert(
+      Math.abs(layoutAfter.nextTop - layoutBefore.nextTop) <= 1,
+      "Opening item menu should not push the next item down",
+    );
+  }
 }
 
 async function swipeItemRight(card) {
@@ -1691,24 +1824,8 @@ async function main() {
 
     const spaghettiCard = itemCard(page, "Spaghetti");
     if (deviceName === "desktop") {
-      const cardCountBeforeMenu = await page.locator(".item-card").count();
-      const cardHeightBeforeMenu = (await spaghettiCard.boundingBox())?.height ?? 0;
-      await spaghettiCard.getByRole("button", { name: "More actions for Spaghetti" }).click();
-      await expectVisible(
-        spaghettiCard.getByRole("button", { name: "Hide item for 4h" }),
-        "Expected more-actions context menu",
-      );
-      assert.equal(
-        await page.locator(".item-card").count(),
-        cardCountBeforeMenu,
-        "Opening item actions should not add a list row",
-      );
-      const cardHeightAfterMenu = (await spaghettiCard.boundingBox())?.height ?? 0;
-      assert(
-        Math.abs(cardHeightAfterMenu - cardHeightBeforeMenu) <= 2,
-        `Opening item actions should not resize the item row; before ${cardHeightBeforeMenu}, after ${cardHeightAfterMenu}`,
-      );
-      await spaghettiCard.getByRole("button", { name: "Hide item for 4h" }).click();
+      await assertItemMoreContextMenu(spaghettiCard, "Spaghetti");
+      await spaghettiCard.getByRole("menuitem", { name: "Hide item for 4h" }).click();
     } else {
       await swipeItemRight(spaghettiCard);
     }
@@ -1759,8 +1876,8 @@ async function main() {
     await page.locator(".item-category-header h3", { hasText: "Checked off" }).waitFor({ state: "hidden" });
     await expectVisible(page.locator(".item-card", { hasText: "Brot" }), "Brot should be active again");
 
-    const backwarenHeader = page.locator(".item-category-header h3", { hasText: "Backwaren" }).first();
-    await expectVisible(backwarenHeader, "Expected Backwaren section");
+    const backwarenHeader = page.locator(".item-category-header h3", { hasText: "Bakery" }).first();
+    await expectVisible(backwarenHeader, "Expected Bakery section");
 
     const looseItemCard = page.locator(".item-card", { hasText: "Loose item" });
     await looseItemCard.getByRole("button").first().click();
@@ -1853,8 +1970,8 @@ async function main() {
     const editSearch = editForm.locator("[data-item-edit-category-search]");
     await editSearch.fill("brot");
     await expectVisible(
-      editForm.locator(".category-radio-option", { hasText: "Backwaren" }),
-      "Alias search should find Backwaren",
+      editForm.locator(".category-radio-option", { hasText: "Bakery" }),
+      "Alias search should find Bakery",
     );
     const aliasTexts = await textList(
       editForm.locator(".category-radio-option .category-radio-copy span"),
@@ -1864,7 +1981,7 @@ async function main() {
       editForm.getByRole("button", { name: "Save changes" }),
       "Edit modal should live-save without a save button",
     );
-    await editForm.locator(".category-radio-option", { hasText: "Backwaren" }).click();
+    await editForm.locator(".category-radio-option", { hasText: "Bakery" }).click();
     await editForm.locator('input[name="quantity_text"]').fill("4 loaves");
     const editPanel = page.locator("[data-item-edit-panel]");
     const editHeader = editPanel.locator(".add-item-panel-header");
@@ -2045,9 +2162,9 @@ async function main() {
     ).slice(0, 3);
     assert.equal(topCategoryBefore[0], "Uncategorized", "Uncategorized should stay on top");
 
-    const backwarenSettingsRow = page.locator(".settings-category-row", { hasText: "Backwaren" });
+    const backwarenSettingsRow = page.locator(".settings-category-row", { hasText: "Bakery" });
     for (let i = 0; i < 4; i += 1) {
-      await backwarenSettingsRow.getByRole("button", { name: /Move Backwaren up/i }).click();
+      await backwarenSettingsRow.getByRole("button", { name: /Move Bakery up/i }).click();
       await page.waitForTimeout(150);
     }
     await page.locator("[data-list-settings-panel] .add-item-close").click();
@@ -2057,7 +2174,7 @@ async function main() {
         const headers = [...document.querySelectorAll(".item-category-group > .item-category-header h3")].map(
           (node) => node.textContent?.trim(),
         );
-        return headers.indexOf("Backwaren") > -1 && headers.indexOf("Backwaren") < headers.indexOf("Nudeln");
+        return headers.indexOf("Bakery") > -1 && headers.indexOf("Bakery") < headers.indexOf("Pasta");
       },
       { timeout: 5000 },
     );
@@ -2066,22 +2183,22 @@ async function main() {
         const headers = [...document.querySelectorAll(".item-category-group > .item-category-header h3")].map(
           (node) => node.textContent?.trim(),
         );
-        return headers.indexOf("Backwaren") > -1 && headers.indexOf("Backwaren") < headers.indexOf("Nudeln");
+        return headers.indexOf("Bakery") > -1 && headers.indexOf("Bakery") < headers.indexOf("Pasta");
       },
       { timeout: 5000 },
     );
 
     const backwarenGroup = page
       .locator(".item-category-group")
-      .filter({ has: page.locator(".item-category-header h3", { hasText: "Backwaren" }) })
+      .filter({ has: page.locator(".item-category-header h3", { hasText: "Bakery" }) })
       .first();
-    await backwarenGroup.getByRole("button", { name: "Quick add to Backwaren" }).click();
+    await backwarenGroup.getByRole("button", { name: "Quick add to Bakery" }).click();
     await expectVisible(page.locator("[data-item-panel]"), "Category quick add should open add modal");
     assert.equal(
       (await addForm
         .locator('.category-radio-option:has(input[name="category_id"]:checked) .category-radio-copy strong')
         .textContent())?.trim(),
-      "Backwaren",
+      "Bakery",
       "Category quick add should preselect that category",
     );
     const freshThingName = `Fresh thing ${Date.now()}`;
@@ -2097,18 +2214,18 @@ async function main() {
     await expectInViewport(freshThingCard, "New item should be scrolled into view after saving");
     await expectVisible(
       page
-        .locator(".item-category-group", { hasText: "Backwaren" })
+        .locator(".item-category-group", { hasText: "Bakery" })
         .locator(".item-card", { hasText: freshThingName }),
-      "New item should land in the Backwaren section",
+      "New item should land in the Bakery section",
     );
 
     await page.getByRole("button", { name: "Open list settings" }).click();
     await expectVisible(page.getByRole("heading", { name: "Category order" }), "Expected settings modal");
-    const backwarenDisableRow = settingsPanel.locator(".settings-category-row", { hasText: "Backwaren" });
-    await dragCategoryAfter(page, "Backwaren", "Nudeln");
-    await backwarenDisableRow.getByRole("button", { name: /Disable Backwaren/i }).click();
+    const backwarenDisableRow = settingsPanel.locator(".settings-category-row", { hasText: "Bakery" });
+    await dragCategoryAfter(page, "Bakery", "Pasta");
+    await backwarenDisableRow.getByRole("button", { name: /Disable Bakery/i }).click();
     await expectVisible(
-      page.locator("[data-category-disable-confirm-panel]", { hasText: "Disable Backwaren?" }),
+      page.locator("[data-category-disable-confirm-panel]", { hasText: "Disable Bakery?" }),
       "Disabling a populated category should use the app confirmation modal",
     );
     await page.locator("[data-category-disable-confirm-confirm]").click();
@@ -2139,14 +2256,14 @@ async function main() {
     }
     await addForm.locator("[data-item-category-search]").fill("brot");
     await expectHidden(
-      addForm.locator(".category-radio-option", { hasText: "Backwaren" }),
+      addForm.locator(".category-radio-option", { hasText: "Bakery" }),
       "Disabled category should not be selectable when adding items",
     );
     await page.locator("[data-item-panel] .add-item-close").click();
     await page.getByRole("button", { name: "Open list settings" }).click();
     await settingsPanel
-      .locator(".settings-category-row", { hasText: "Backwaren" })
-      .getByRole("button", { name: /Enable Backwaren/i })
+      .locator(".settings-category-row", { hasText: "Bakery" })
+      .getByRole("button", { name: /Enable Bakery/i })
       .click();
     await page.locator("[data-list-settings-panel] .add-item-close").click();
 
@@ -2180,7 +2297,7 @@ async function main() {
   const summary = [
     "## UI E2E",
     "",
-    `Browser UI flow passed for ${deviceName} using seeded real database data and passkey auth for public support and privacy contacts, route rendering, login gating, multi-passkey enrollment and deletion, add/edit flows, fuzzy duplicate suggestions, undo toasts, category alias search, category disabling, admin navigation, websocket updates, and household invite acceptance.`,
+    `Browser UI flow passed for ${deviceName} using seeded real database data and passkey auth for public support and privacy contacts, route rendering, login gating, multi-passkey enrollment and deletion, translated category administration and locale fallback, add/edit flows, fuzzy duplicate suggestions, undo toasts, category alias search, category disabling, admin navigation, websocket updates, and household invite acceptance.`,
     "",
   ].join("\n");
   await fs.writeFile(path.join(artifactDir, "summary.md"), summary);

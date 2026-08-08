@@ -1,7 +1,7 @@
 """add item sale window
 
 Revision ID: 0018_add_item_sale_window
-Revises: 0017_add_list_accent_color, 0017_add_item_sale_window
+Revises: 0017_add_list_accent_color
 Create Date: 2026-07-23
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "0018_add_item_sale_window"
-down_revision = ("0017_add_list_accent_color", "0017_add_item_sale_window")
+down_revision = "0017_add_list_accent_color"
 branch_labels = None
 depends_on = None
 

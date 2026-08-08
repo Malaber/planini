@@ -65,35 +65,50 @@
   ],
   "categories": [
     {
-      "name": "Konserven",
+      "name": "Canned Goods",
+      "translations": {
+        "de": "Konserven"
+      },
       "color": "#94a3b8",
       "aliases": [
         "Dose"
       ]
     },
     {
-      "name": "Milch & Eier",
+      "name": "Dairy & Eggs",
+      "translations": {
+        "de": "Milch & Eier"
+      },
       "color": "#d8b4e2",
       "aliases": [
         "Molkerei"
       ]
     },
     {
-      "name": "Nudeln",
+      "name": "Pasta",
+      "translations": {
+        "de": "Nudeln"
+      },
       "color": "#d6b08b",
       "aliases": [
         "Pasta"
       ]
     },
     {
-      "name": "Reinigung",
+      "name": "Cleaning",
+      "translations": {
+        "de": "Reinigung"
+      },
       "color": "#c026a3",
       "aliases": [
         "Putzen"
       ]
     },
     {
-      "name": "Tiefkuehlkost",
+      "name": "Frozen Foods",
+      "translations": {
+        "de": "Tiefkühlkost"
+      },
       "color": "#4dd0e1",
       "aliases": [
         "TK"
@@ -101,13 +116,19 @@
     },
     {
       "name": "Vegan",
+      "translations": {
+        "de": "Vegan"
+      },
       "color": "#00b512",
       "aliases": [
         "Plant based"
       ]
     },
     {
-      "name": "Backwaren",
+      "name": "Bakery",
+      "translations": {
+        "de": "Backwaren"
+      },
       "color": "#fb923c",
       "aliases": [
         "Brot",
@@ -116,35 +137,50 @@
       ]
     },
     {
-      "name": "Backzutaten",
+      "name": "Baking Supplies",
+      "translations": {
+        "de": "Backzutaten"
+      },
       "color": "#ec4899",
       "aliases": [
         "backen"
       ]
     },
     {
-      "name": "Fleisch",
+      "name": "Meat",
+      "translations": {
+        "de": "Fleisch"
+      },
       "color": "#ef4444",
       "aliases": [
         "Metzger"
       ]
     },
     {
-      "name": "Gemuese",
+      "name": "Produce",
+      "translations": {
+        "de": "Gemüse"
+      },
       "color": "#7ed957",
       "aliases": [
         "Gruenzeug"
       ]
     },
     {
-      "name": "Haushalt",
+      "name": "Household",
+      "translations": {
+        "de": "Haushalt"
+      },
       "color": "#64748b",
       "aliases": [
         "Home"
       ]
     },
     {
-      "name": "Weekend chores",
+      "name": "Weekend Chores",
+      "translations": {
+        "de": "Wochenendaufgaben"
+      },
       "color": "#8b5cf6",
       "aliases": [
         "Cabin"
@@ -167,16 +203,16 @@
           "accent_color": "#3b82f6",
           "created_by_email": "planini@schaedler.rocks",
           "category_order": [
-            "Konserven",
-            "Milch & Eier",
-            "Nudeln",
-            "Reinigung",
-            "Tiefkuehlkost",
+            "Canned Goods",
+            "Dairy & Eggs",
+            "Pasta",
+            "Cleaning",
+            "Frozen Foods",
             "Vegan",
-            "Backwaren",
-            "Backzutaten",
-            "Fleisch",
-            "Gemuese"
+            "Bakery",
+            "Baking Supplies",
+            "Meat",
+            "Produce"
           ],
           "items": [
             {
@@ -192,13 +228,13 @@
             },
             {
               "name": "Spaghetti",
-              "category": "Nudeln",
+              "category": "Pasta",
               "quantity_text": "2 packs",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Brot",
-              "category": "Backwaren",
+              "category": "Bakery",
               "note": "Seeded checked duplicate",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
@@ -206,23 +242,23 @@
             },
             {
               "name": "Tomaten",
-              "category": "Konserven",
+              "category": "Canned Goods",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Eier",
-              "category": "Milch & Eier",
+              "category": "Dairy & Eggs",
               "quantity_text": "10",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Putzmittel",
-              "category": "Reinigung",
+              "category": "Cleaning",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Erbsen",
-              "category": "Tiefkuehlkost",
+              "category": "Frozen Foods",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
@@ -232,17 +268,17 @@
             },
             {
               "name": "Mehl",
-              "category": "Backzutaten",
+              "category": "Baking Supplies",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Hackfleisch",
-              "category": "Fleisch",
+              "category": "Meat",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Paprika",
-              "category": "Gemuese",
+              "category": "Produce",
               "created_by_email": "planini@schaedler.rocks"
             }
           ]
@@ -251,25 +287,25 @@
           "name": "Hosting errands",
           "created_by_email": "planini@schaedler.rocks",
           "category_order": [
-            "Haushalt",
-            "Backwaren"
+            "Household",
+            "Bakery"
           ],
           "items": [
             {
               "name": "Dish soap",
-              "category": "Haushalt",
+              "category": "Household",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Napkins",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Brioches",
-              "category": "Backwaren",
+              "category": "Bakery",
               "created_by_email": "planini@schaedler.rocks"
             }
           ]
@@ -278,1811 +314,1811 @@
           "name": "Checked History Stress Test",
           "created_by_email": "planini@schaedler.rocks",
           "category_order": [
-            "Haushalt"
+            "Household"
           ],
           "items": [
             {
               "name": "Checked history 001",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 002",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 003",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 004",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 005",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 006",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 007",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 008",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 009",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 010",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 011",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 012",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 013",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 014",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 015",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 016",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 017",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 018",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 019",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 020",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 021",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 022",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 023",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 024",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 025",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 026",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 027",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 028",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 029",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 030",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 031",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 032",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 033",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 034",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 035",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 036",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 037",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 038",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 039",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 040",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 041",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 042",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 043",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 044",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 045",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 046",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 047",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 048",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 049",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 050",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 051",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 052",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 053",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 054",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 055",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 056",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 057",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 058",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 059",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 060",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 061",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 062",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 063",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 064",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 065",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 066",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 067",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 068",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 069",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 070",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 071",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 072",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 073",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 074",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 075",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 076",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 077",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 078",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 079",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 080",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 081",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 082",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 083",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 084",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 085",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 086",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 087",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 088",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 089",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 090",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 091",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 092",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 093",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 094",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 095",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 096",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 097",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 098",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 099",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 100",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 101",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 102",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 103",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 104",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 105",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 106",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 107",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 108",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 109",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 110",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 111",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 112",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 113",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 114",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 115",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 116",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 117",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 118",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 119",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 120",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 121",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 122",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 123",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 124",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 125",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 126",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 127",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 128",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 129",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 130",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 131",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 132",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 133",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 134",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 135",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 136",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 137",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 138",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 139",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 140",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 141",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 142",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 143",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 144",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 145",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 146",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 147",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 148",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 149",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 150",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 151",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 152",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 153",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 154",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 155",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 156",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 157",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 158",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 159",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 160",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 161",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 162",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 163",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 164",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 165",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 166",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 167",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 168",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 169",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 170",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 171",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 172",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 173",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 174",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 175",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 176",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 177",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 178",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 179",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 180",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 181",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 182",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 183",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 184",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 185",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 186",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 187",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 188",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 189",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 190",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 191",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 192",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 193",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 194",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 195",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 196",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 197",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 198",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 199",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 200",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 201",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 202",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 203",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 204",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 205",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 206",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 207",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 208",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 209",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 210",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 211",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 212",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 213",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 214",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 215",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 216",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 217",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 218",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 219",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 220",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 221",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 222",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 223",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 224",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 225",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 226",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 227",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 228",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 229",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 230",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 231",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 232",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 233",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 234",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 235",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 236",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 237",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 238",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 239",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 240",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 241",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 242",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 243",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 244",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 245",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 246",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 247",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 248",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 249",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 250",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 251",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 252",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 253",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 254",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 255",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 256",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 257",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
             },
             {
               "name": "Checked history 258",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "planini@schaedler.rocks"
@@ -2109,18 +2145,18 @@
           "name": "Weekend reset",
           "created_by_email": "review-neighbor@example.com",
           "category_order": [
-            "Weekend chores",
-            "Haushalt"
+            "Weekend Chores",
+            "Household"
           ],
           "items": [
             {
               "name": "Wood pellets",
-              "category": "Weekend chores",
+              "category": "Weekend Chores",
               "created_by_email": "review-neighbor@example.com"
             },
             {
               "name": "Laundry pods",
-              "category": "Haushalt",
+              "category": "Household",
               "checked": true,
               "checked_by_email": "planini@schaedler.rocks",
               "created_by_email": "review-neighbor@example.com",

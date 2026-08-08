@@ -20,7 +20,7 @@ def test_sale_migration_keeps_single_head_with_legacy_revision(tmp_path: Path) -
     config = _migration_config(tmp_path / "graph.db")
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0018_add_item_sale_window"]
+    assert scripts.get_heads() == ["0019_merge_sale_revision_heads"]
     assert scripts.get_revision("0017_add_item_sale_window") is not None
 
 
@@ -39,6 +39,7 @@ def test_legacy_sale_database_upgrades_to_current_head(tmp_path: Path) -> None:
 
     item_columns = {column["name"] for column in inspect(engine).get_columns("grocery_items")}
     list_columns = {column["name"] for column in inspect(engine).get_columns("grocery_lists")}
+    category_columns = {column["name"] for column in inspect(engine).get_columns("categories")}
     with engine.connect() as connection:
         current_revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
@@ -47,4 +48,28 @@ def test_legacy_sale_database_upgrades_to_current_head(tmp_path: Path) -> None:
 
     assert {"sale_starts_at", "sale_ends_at"} <= item_columns
     assert "accent_color" in list_columns
-    assert current_revision == "0018_add_item_sale_window"
+    assert "translations_text" in category_columns
+    assert current_revision == "0019_merge_sale_revision_heads"
+
+
+def test_current_sale_database_applies_sibling_category_migration(tmp_path: Path) -> None:
+    database_path = tmp_path / "current-sale.db"
+    config = _migration_config(database_path)
+    command.upgrade(config, "0018_add_item_sale_window")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    assert "translations_text" not in {
+        column["name"] for column in inspect(engine).get_columns("categories")
+    }
+
+    command.upgrade(config, "head")
+
+    category_columns = {column["name"] for column in inspect(engine).get_columns("categories")}
+    with engine.connect() as connection:
+        current_revision = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    engine.dispose()
+
+    assert "translations_text" in category_columns
+    assert current_revision == "0019_merge_sale_revision_heads"

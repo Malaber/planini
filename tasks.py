@@ -7,6 +7,7 @@ import shlex
 import shutil
 import signal
 import sqlite3
+import struct
 import subprocess
 import sys
 import time
@@ -63,6 +64,26 @@ DEFAULT_IOS_UI_E2E_ARTIFACT_DIR = "e2e-artifacts/ios-ui-e2e"
 DEFAULT_IOS_UI_E2E_RESULT_BUNDLE = "PlaniniUITests.xcresult"
 DEFAULT_IOS_UI_E2E_DEVICE = "iPhone 17 Pro"
 DEFAULT_IOS_UI_E2E_INITIAL_LIST = "Browser Test Shop"
+DEFAULT_IOS_MARKETING_SCREENSHOT_PORT = 8019
+DEFAULT_IOS_MARKETING_SCREENSHOT_DATABASE_URL = (
+    "sqlite+aiosqlite:///./tmp-ios-marketing-screenshots.db"
+)
+DEFAULT_IOS_MARKETING_SCREENSHOT_LOG_PATH = "ios-marketing-screenshots-server.log"
+DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH = "ios-marketing-screenshots-server.pid"
+DEFAULT_IOS_MARKETING_SCREENSHOT_ARTIFACT_DIR = "e2e-artifacts/ios-marketing-screenshots"
+DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH = "ios/PlaniniIOS/.derived-marketing-screenshots"
+DEFAULT_IOS_MARKETING_SCREENSHOT_SEED_PATH = "app/fixtures/ios_marketing_seed.json"
+DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE = "iPhone 14 Plus"
+DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_DEVICE = "iPad Pro 13-inch (M5)"
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_PHONE_DEVICE = "iPhone 17 Pro"
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_DEVICE = "Apple Watch Ultra 3 (49mm)"
+DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST = "Weekly groceries"
+DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_USER_EMAIL = "planini-de@schaedler.rocks"
+DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_INITIAL_LIST = "Wocheneinkauf"
+DEFAULT_IOS_MARKETING_SCREENSHOT_TEST = "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
+DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE = (1284, 2778)
+DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_SIZE = (2064, 2752)
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_SIZE = (422, 514)
 DEFAULT_IOS_SIMULATOR_DESTINATION = "generic/platform=iOS Simulator"
 DEFAULT_IOS_APP_BACKEND_URL = "https://planini.malaber.de"
 DEFAULT_IOS_APP_BUNDLE_IDENTIFIER = "de.malaber.planini"
@@ -260,7 +281,9 @@ def _ios_ui_test_env(
 
 def _write_ios_ui_e2e_summary(artifact_dir: str) -> None:
     artifact_path = ROOT / artifact_dir
-    screenshots = sorted(path.name for path in artifact_path.glob("*.png"))
+    screenshots = sorted(
+        str(path.relative_to(artifact_path)) for path in artifact_path.rglob("*.png")
+    )
     result_bundle_path = artifact_path / DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
     failure_summaries = _ios_ui_e2e_failure_summaries(result_bundle_path)
     summary_lines = [
@@ -675,6 +698,125 @@ def _ios_simulator_destination(device_name: str) -> str:
     return ",".join(destination_parts)
 
 
+def _ensure_ios_simulator_device(device_name: str) -> None:
+    env = _ios_toolchain_env()
+    existing_udid = next(
+        (
+            udid
+            for udid, device in _list_available_simulators(env).items()
+            if device.get("name") == device_name
+        ),
+        None,
+    )
+    if existing_udid is not None:
+        _boot_simulator(env, existing_udid)
+        return
+
+    device_types_payload = _simctl_json(env, "list", "devicetypes", "-j")
+    device_types = device_types_payload.get("devicetypes", [])
+    device_type_id = next(
+        (
+            device_type.get("identifier")
+            for device_type in device_types
+            if isinstance(device_type, dict) and device_type.get("name") == device_name
+        ),
+        None,
+    )
+    if not isinstance(device_type_id, str):
+        raise Exit(f"iOS simulator device type is unavailable: {device_name}")
+
+    _run_command(
+        ["xcrun", "simctl", "create", device_name, device_type_id],
+        env=env,
+    )
+    _boot_simulator(env, _find_simulator_udid(env, device_name))
+
+
+def _png_dimensions(path: Path) -> tuple[int, int]:
+    header = path.read_bytes()[:24]
+    if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        raise Exit(f"Invalid PNG screenshot: {path}")
+    return struct.unpack(">II", header[16:24])
+
+
+def _validate_ios_screenshot_sizes(
+    artifact_dir: str,
+    expected_size: tuple[int, int],
+) -> None:
+    screenshots = sorted((ROOT / artifact_dir).glob("*.png"))
+    if not screenshots:
+        raise Exit(f"No iOS screenshots found in {ROOT / artifact_dir}")
+
+    invalid_sizes = [
+        f"{path.name}: {width}x{height}"
+        for path in screenshots
+        for width, height in [_png_dimensions(path)]
+        if (width, height) != expected_size
+    ]
+    if invalid_sizes:
+        expected_width, expected_height = expected_size
+        raise Exit(
+            f"Expected iOS screenshots sized {expected_width}x{expected_height}; "
+            f"found {', '.join(invalid_sizes)}"
+        )
+
+
+def _capture_watch_marketing_screenshot(
+    c,
+    *,
+    base_url: str,
+    bootstrap_email: str,
+    initial_list_name: str,
+    language: str,
+    locale: str,
+    artifact_dir: str,
+    phone_device: str,
+    watch_device: str,
+    derived_data_path: str,
+) -> None:
+    _ensure_ios_simulator_device(watch_device)
+    run_ios_simulators_fresh.body(
+        c,
+        phone_device=phone_device,
+        watch_device=watch_device,
+        derived_data_path=derived_data_path,
+        rebuild=False,
+        backend_url_override=base_url,
+        bootstrap_email=bootstrap_email,
+        initial_list_name=initial_list_name,
+    )
+    env = _ios_toolchain_env()
+    watch_udid = _find_simulator_udid(env, watch_device)
+    time.sleep(4)
+    _terminate_if_running(env, watch_udid, DEFAULT_IOS_WATCH_APP_BUNDLE_IDENTIFIER)
+    _run_command(
+        [
+            "xcrun",
+            "simctl",
+            "launch",
+            watch_udid,
+            DEFAULT_IOS_WATCH_APP_BUNDLE_IDENTIFIER,
+            "-AppleLanguages",
+            f"({language})",
+            "-AppleLocale",
+            locale.replace("-", "_"),
+        ],
+        env=env,
+    )
+    time.sleep(4)
+    screenshot_dir = ROOT / artifact_dir
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    screenshot_path = screenshot_dir / "app-store-watch-01-lists.png"
+    _run_command(
+        ["xcrun", "simctl", "io", watch_udid, "screenshot", str(screenshot_path)],
+        env=env,
+    )
+    _validate_ios_screenshot_sizes(
+        artifact_dir,
+        DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_SIZE,
+    )
+
+
 def _bootstrap_ios_ui_test_session(*, base_url: str, user_email: str) -> dict[str, str]:
     request = Request(
         url=f"{base_url.rstrip('/')}/api/v1/auth/ui-test-bootstrap",
@@ -989,6 +1131,16 @@ def _boot_simulator(env: dict[str, str], udid: str) -> None:
     _run_command(["xcrun", "simctl", "bootstatus", udid, "-b"], env=env)
 
 
+def _shutdown_ios_simulators() -> None:
+    subprocess.run(
+        ["xcrun", "simctl", "shutdown", "all"],
+        env=_ios_toolchain_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def _terminate_if_running(env: dict[str, str], udid: str, bundle_id: str) -> None:
     subprocess.run(
         ["xcrun", "simctl", "terminate", udid, bundle_id],
@@ -1007,6 +1159,13 @@ def _uninstall_if_present(env: dict[str, str], udid: str, bundle_id: str) -> Non
         text=True,
         check=False,
     )
+
+
+def _reset_ios_ui_test_app(device_name: str) -> None:
+    env = _ios_toolchain_env()
+    udid = _find_simulator_udid(env, device_name)
+    _terminate_if_running(env, udid, DEFAULT_IOS_APP_BUNDLE_IDENTIFIER)
+    _uninstall_if_present(env, udid, DEFAULT_IOS_APP_BUNDLE_IDENTIFIER)
 
 
 def _build_ios_product_paths(derived_data_path: Path, configuration: str) -> tuple[Path, Path]:
@@ -1696,6 +1855,7 @@ def build_ios_simulator(
         "phone_udid": "Exact iPhone simulator UDID to use instead of name-based resolution.",
         "watch_udid": "Exact Apple Watch simulator UDID to use instead of name-based resolution.",
         "derived_data_path": "Derived data folder used for the clean rebuild.",
+        "rebuild": "Build from scratch before installing; disable to reuse existing products.",
         "backend_url_override": "Runtime backend URL override passed to the iPhone app at launch.",
         "bootstrap_email": "Seeded email used for simulator bootstrap login at launch.",
         "initial_list_name": "Optional seeded list name the simulator app should open first.",
@@ -1711,6 +1871,7 @@ def run_ios_simulators_fresh(
     phone_udid="",
     watch_udid="",
     derived_data_path="ios/PlaniniIOS/.derived-run-fresh",
+    rebuild=True,
     backend_url_override="http://localhost:8000",
     bootstrap_email=DEFAULT_IOS_E2E_USER_EMAIL,
     initial_list_name=DEFAULT_IOS_UI_E2E_INITIAL_LIST,
@@ -1752,31 +1913,34 @@ def run_ios_simulators_fresh(
     _uninstall_if_present(env, watch_udid, watch_bundle_id)
 
     derived_data = ROOT / derived_data_path
-    print(f"[run-ios-simulators-fresh] Clearing derived data at {derived_data}")
-    shutil.rmtree(derived_data, ignore_errors=True)
+    if rebuild:
+        print(f"[run-ios-simulators-fresh] Clearing derived data at {derived_data}")
+        shutil.rmtree(derived_data, ignore_errors=True)
 
-    print("[run-ios-simulators-fresh] Building iPhone and Watch apps from scratch...")
-    command = " ".join(
-        [
-            f"cd {shlex.quote(project_dir)} &&",
-            "xcodebuild",
-            "-project PlaniniApp.xcodeproj",
-            f"-scheme {shlex.quote(scheme)}",
-            f"-configuration {shlex.quote(configuration)}",
-            f"-derivedDataPath {shlex.quote(str(derived_data.resolve()))}",
-            f"-destination {shlex.quote(DEFAULT_IOS_SIMULATOR_DESTINATION)}",
-            "-quiet",
-            "CODE_SIGNING_ALLOWED=NO",
-            "clean",
-            "build",
-        ]
-    )
-    c.run(
-        command,
-        env=env,
-        pty=False,
-        shell="/bin/bash",
-    )
+        print("[run-ios-simulators-fresh] Building iPhone and Watch apps from scratch...")
+        command = " ".join(
+            [
+                f"cd {shlex.quote(project_dir)} &&",
+                "xcodebuild",
+                "-project PlaniniApp.xcodeproj",
+                f"-scheme {shlex.quote(scheme)}",
+                f"-configuration {shlex.quote(configuration)}",
+                f"-derivedDataPath {shlex.quote(str(derived_data.resolve()))}",
+                f"-destination {shlex.quote(DEFAULT_IOS_SIMULATOR_DESTINATION)}",
+                "-quiet",
+                "CODE_SIGNING_ALLOWED=NO",
+                "clean",
+                "build",
+            ]
+        )
+        c.run(
+            command,
+            env=env,
+            pty=False,
+            shell="/bin/bash",
+        )
+    else:
+        print(f"[run-ios-simulators-fresh] Reusing products from {derived_data}")
 
     ios_app_path, watch_app_path = _build_ios_product_paths(derived_data, configuration)
     if ios_app_path.exists() is False:
@@ -2033,6 +2197,126 @@ def run_ios_ui_e2e(
         raise Exit(f"Command failed with exit code {result.exited}: xcodebuild iOS UI e2e")
 
 
+def _run_ios_marketing_ui_test(
+    c,
+    *,
+    base_url: str,
+    artifact_dir: str,
+    device_name: str,
+    ipad_device_name: str,
+    initial_list_name: str,
+    german_initial_list_name: str,
+    english_session: dict[str, str],
+    german_session: dict[str, str],
+    derived_data_path: str,
+    clean_derived_data: bool = True,
+) -> None:
+    artifact_path = ROOT / artifact_dir
+    artifact_path.mkdir(parents=True, exist_ok=True)
+    result_bundle_path = artifact_path / DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
+
+    derived_data = ROOT / derived_data_path
+    if clean_derived_data:
+        shutil.rmtree(derived_data, ignore_errors=True)
+
+    env = _ios_ui_test_env(
+        base_url=base_url,
+        bootstrap_base_url=base_url,
+        user_email=DEFAULT_IOS_E2E_USER_EMAIL,
+        artifact_dir=artifact_dir,
+        initial_list_name=initial_list_name,
+        access_token=english_session["access_token"],
+        display_name=english_session["display_name"],
+    )
+    env.update(
+        {
+            "PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN": german_session["access_token"],
+            "PLANINI_UI_TEST_MARKETING_GERMAN_DISPLAY_NAME": german_session["display_name"],
+            "PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME": german_initial_list_name,
+        }
+    )
+    build_command = " ".join(
+        [
+            "cd ios/PlaniniIOS &&",
+            "xcodebuild",
+            "-project PlaniniApp.xcodeproj",
+            "-scheme Planini",
+            f"-derivedDataPath {shlex.quote(str(derived_data.resolve()))}",
+            f"-destination {shlex.quote(DEFAULT_IOS_SIMULATOR_DESTINATION)}",
+            "-destination-timeout 120",
+            "-quiet",
+            f"-only-testing:{shlex.quote(DEFAULT_IOS_MARKETING_SCREENSHOT_TEST)}",
+            "build-for-testing",
+        ]
+    )
+    build_result = c.run(
+        build_command,
+        env=env,
+        pty=False,
+        shell="/bin/bash",
+        warn=True,
+    )
+    if build_result.exited != 0:
+        raise Exit(
+            "Command failed with exit code "
+            f"{build_result.exited}: xcodebuild iOS marketing screenshot build"
+        )
+
+    for simulator_name in (device_name, ipad_device_name):
+        _shutdown_ios_simulators()
+        _ensure_ios_simulator_device(simulator_name)
+        _reset_ios_ui_test_app(simulator_name)
+        shutil.rmtree(result_bundle_path, ignore_errors=True)
+        test_command = " ".join(
+            [
+                "cd ios/PlaniniIOS &&",
+                "xcodebuild",
+                "-project PlaniniApp.xcodeproj",
+                "-scheme Planini",
+                f"-derivedDataPath {shlex.quote(str(derived_data.resolve()))}",
+                f"-destination {shlex.quote(_ios_simulator_destination(simulator_name))}",
+                "-destination-timeout 120",
+                f"-resultBundlePath {shlex.quote(str(result_bundle_path.resolve()))}",
+                "-quiet",
+                "-parallel-testing-enabled NO",
+                "-maximum-parallel-testing-workers 1",
+                f"-only-testing:{shlex.quote(DEFAULT_IOS_MARKETING_SCREENSHOT_TEST)}",
+                "test-without-building",
+            ]
+        )
+        result = c.run(
+            test_command,
+            env=env,
+            pty=False,
+            shell="/bin/bash",
+            warn=True,
+        )
+        if result.exited != 0:
+            _write_ios_ui_e2e_summary(artifact_dir)
+            failure_summaries = _ios_ui_e2e_failure_summaries(result_bundle_path)
+            if failure_summaries:
+                print("iOS marketing screenshot failure summary:")
+                for summary in failure_summaries:
+                    print(f"- {summary}")
+            raise Exit(
+                "Command failed with exit code "
+                f"{result.exited}: xcodebuild iOS marketing screenshots on {simulator_name}"
+            )
+
+    shutil.rmtree(result_bundle_path, ignore_errors=True)
+
+    for platform_dir, locale_dir, expected_size in [
+        ("iphone", "en-US", DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE),
+        ("iphone", "de-DE", DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE),
+        ("ipad", "en-US", DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_SIZE),
+        ("ipad", "de-DE", DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_SIZE),
+    ]:
+        _validate_ios_screenshot_sizes(
+            f"{artifact_dir}/{platform_dir}/{locale_dir}",
+            expected_size,
+        )
+
+
 @task(
     help={
         "seed_path": "Fixture used to seed the local app database.",
@@ -2257,6 +2541,103 @@ def check_ios_ui_e2e(
             )
         finally:
             stop_app(c, pid_path=pid_path)
+
+
+@task
+def check_ios_marketing_screenshots(
+    c,
+    seed_path=DEFAULT_IOS_MARKETING_SCREENSHOT_SEED_PATH,
+    database_url=DEFAULT_IOS_MARKETING_SCREENSHOT_DATABASE_URL,
+    webauthn_rp_id="localhost",
+    user_email=DEFAULT_IOS_E2E_USER_EMAIL,
+    german_user_email=DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_USER_EMAIL,
+    artifact_dir=DEFAULT_IOS_MARKETING_SCREENSHOT_ARTIFACT_DIR,
+    device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE,
+    ipad_device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_DEVICE,
+    watch_phone_device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_PHONE_DEVICE,
+    watch_device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_DEVICE,
+    initial_list_name=DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST,
+    german_initial_list_name=DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_INITIAL_LIST,
+    host=DEFAULT_HOST,
+    port=DEFAULT_IOS_MARKETING_SCREENSHOT_PORT,
+    log_path=DEFAULT_IOS_MARKETING_SCREENSHOT_LOG_PATH,
+    pid_path=DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH,
+    preserve_derived_data=False,
+) -> None:
+    """Capture App Store-sized iPhone, iPad, and watchOS screenshots."""
+    shutil.rmtree(ROOT / artifact_dir, ignore_errors=True)
+    _reset_sqlite_database_file(database_url)
+    start_app(
+        c,
+        seed_path=seed_path,
+        database_url=database_url,
+        webauthn_rp_id=webauthn_rp_id,
+        host=host,
+        port=port,
+        log_path=log_path,
+        pid_path=pid_path,
+        ui_test_bootstrap_enabled=True,
+    )
+    try:
+        wait_for_app(c, url=f"http://{host}:{port}/health")
+        generate_ios_app_icons.body(c)
+        generate_ios_project.body(c)
+        locale_variants = [
+            ("en-US", "en", user_email, initial_list_name),
+            ("de-DE", "de", german_user_email, german_initial_list_name),
+        ]
+        sessions = [
+            _bootstrap_ios_ui_test_session(
+                base_url=f"http://localhost:{port}",
+                user_email=locale_user_email,
+            )
+            for _, _, locale_user_email, _ in locale_variants
+        ]
+        try:
+            _run_ios_marketing_ui_test(
+                c,
+                base_url=f"http://localhost:{port}",
+                artifact_dir=artifact_dir,
+                device_name=device_name,
+                ipad_device_name=ipad_device_name,
+                initial_list_name=initial_list_name,
+                german_initial_list_name=german_initial_list_name,
+                english_session=sessions[0],
+                german_session=sessions[1],
+                derived_data_path=DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH,
+                clean_derived_data=not preserve_derived_data,
+            )
+        finally:
+            _shutdown_ios_simulators()
+        try:
+            for (
+                locale_dir,
+                language,
+                locale_user_email,
+                locale_initial_list_name,
+            ) in locale_variants:
+                _capture_watch_marketing_screenshot(
+                    c,
+                    base_url=f"http://localhost:{port}",
+                    bootstrap_email=locale_user_email,
+                    initial_list_name=locale_initial_list_name,
+                    language=language,
+                    locale=locale_dir,
+                    artifact_dir=f"{artifact_dir}/watchos/{locale_dir}",
+                    phone_device=watch_phone_device_name,
+                    watch_device=watch_device_name,
+                    derived_data_path=DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH,
+                )
+        finally:
+            _shutdown_ios_simulators()
+        _write_ios_ui_e2e_summary(artifact_dir)
+    finally:
+        if not preserve_derived_data:
+            shutil.rmtree(
+                ROOT / DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH,
+                ignore_errors=True,
+            )
+        stop_app(c, pid_path=pid_path)
 
 
 @task(
