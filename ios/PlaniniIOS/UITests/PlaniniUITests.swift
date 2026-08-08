@@ -500,6 +500,8 @@ final class PlaniniUITests: XCTestCase {
         )
         let closeButton = app.buttons["edit-item-close-button"]
         XCTAssertTrue(closeButton.waitForExistence(timeout: 3))
+        XCTAssertEqual(closeButton.label, "Done")
+        XCTAssertTrue(closeButton.isHittable)
         captureScreenshot(named: "promotion-edit-item-dialogue")
 
         let editNameField = app.textFields["edit-item-name-field"]
@@ -507,18 +509,18 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 5))
         editNameField.typeText(" Updated")
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(waitForEditSaveCompletion(app: app))
 
         XCTAssertTrue(undoButton.waitForExistence(timeout: 3))
         undoButton.tap()
         XCTAssertTrue(waitForFieldValue(editNameField, contains: itemName))
         XCTAssertFalse(editNameField.valueText.contains("Updated"))
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(waitForEditSaveCompletion(app: app))
 
         XCTAssertTrue(redoButton.waitForExistence(timeout: 3))
         redoButton.tap()
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(waitForEditSaveCompletion(app: app))
 
         chooseCategory(
             named: "Konserven",
@@ -534,7 +536,7 @@ final class PlaniniUITests: XCTestCase {
                 containing: "Konserven"
             )
         )
-        XCTAssertTrue(waitForEditStatus("saved", app: app))
+        XCTAssertTrue(waitForEditSaveCompletion(app: app))
         captureScreenshot(named: "ios-ui-live-edit-autosave")
         tapElement(closeButton)
         XCTAssertTrue(
@@ -761,6 +763,12 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["list-settings-sheet"].waitForExistence(timeout: 5))
         let settingsSaveState = app.descendants(matching: .any)["list-settings-save-state"].firstMatch
         XCTAssertTrue(settingsSaveState.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["list-settings-save-state"].exists)
+        let listSettingsDoneButton = app.buttons["list-settings-done-button"]
+        XCTAssertTrue(listSettingsDoneButton.waitForExistence(timeout: 3))
+        XCTAssertEqual(listSettingsDoneButton.label, "Done")
+        XCTAssertTrue(listSettingsDoneButton.isHittable)
+        XCTAssertLessThan(settingsSaveState.frame.midX, listSettingsDoneButton.frame.midX)
 
         let renamedHostingName = "Hosting errands \(UUID().uuidString.prefix(6))"
         let listNameField = app.textFields["list-name-field"]
@@ -867,7 +875,7 @@ final class PlaniniUITests: XCTestCase {
                 accessToken: session.accessToken
             )
         )
-        app.buttons["Done"].tap()
+        tapElement(listSettingsDoneButton)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, renamedHostingName)
 
@@ -902,7 +910,7 @@ final class PlaniniUITests: XCTestCase {
             "list-settings-save-state"
         ].firstMatch
         XCTAssertTrue(waitForElementLabel(reopenedSaveState, containing: "Saved", timeout: 8))
-        app.buttons["Done"].tap()
+        tapElement(app.buttons["list-settings-done-button"])
         XCTAssertTrue(tintedListDetail.waitForExistence(timeout: 5))
         XCTAssertTrue(waitForElementLabel(tintedListDetail, containing: "No color", timeout: 5))
 
@@ -2147,20 +2155,20 @@ final class PlaniniUITests: XCTestCase {
         return false
     }
 
-    private func waitForEditStatus(
-        _ status: String,
+    private func waitForEditSaveCompletion(
         app: XCUIApplication,
         timeout: TimeInterval = 20
     ) -> Bool {
         let statusLabel = app.staticTexts["edit-item-save-status"]
+        let completedStatuses = ["saved", "saved-offline"]
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if statusLabel.exists && statusLabel.valueText == status {
+            if statusLabel.exists && completedStatuses.contains(statusLabel.valueText) {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
-        return statusLabel.exists && statusLabel.valueText == status
+        return statusLabel.exists && completedStatuses.contains(statusLabel.valueText)
     }
 
     private func waitForElementLabel(
@@ -2925,9 +2933,16 @@ final class PlaniniUITests: XCTestCase {
                 scrollToHittable(row, in: app, maxSwipes: 12)
             }
             if row.exists {
+                let navigationBar = app.navigationBars.firstMatch
                 let tabBar = app.tabBars.firstMatch
+                let rowIsBelowNavigationBar =
+                    navigationBar.exists == false || row.frame.minY >= navigationBar.frame.maxY
                 let rowIsAboveTabBar = tabBar.exists == false || row.frame.maxY <= tabBar.frame.minY
-                if rowIsAboveTabBar {
+                if rowIsBelowNavigationBar == false {
+                    app.swipeDown()
+                } else if rowIsAboveTabBar == false {
+                    app.swipeUp()
+                } else {
                     if editTrigger.exists && editTrigger.isHittable {
                         tapElement(editTrigger)
                     } else if row.isHittable {
