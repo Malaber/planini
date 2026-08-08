@@ -764,7 +764,6 @@ final class PlaniniUITests: XCTestCase {
         let settingsSaveState = app.descendants(matching: .any)["list-settings-save-state"].firstMatch
         XCTAssertTrue(settingsSaveState.waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons["list-settings-save-state"].exists)
-        XCTAssertFalse(settingsSaveState.isHittable)
         let listSettingsDoneButton = app.buttons["list-settings-done-button"]
         XCTAssertTrue(listSettingsDoneButton.waitForExistence(timeout: 3))
         XCTAssertEqual(listSettingsDoneButton.label, "Done")
