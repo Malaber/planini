@@ -4012,10 +4012,11 @@ function renderItems(root, state) {
         return;
       }
 
+      const menuIsOpen = state.openItemMenuId === item.id;
       const article = document.createElement("article");
       article.className = `item-card${item.checked ? " is-checked" : ""}${
         state.highlightedItemId === item.id ? " is-highlighted" : ""
-      }`;
+      }${menuIsOpen ? " has-open-menu" : ""}`;
       article.dataset.itemCard = item.id;
       article.dataset.itemEdit = item.id;
 
@@ -4079,8 +4080,14 @@ function renderItems(root, state) {
         "aria-label",
         translate("list_detail.more_item_actions", { name: item.name }, "More actions for {name}")
       );
-      menuButton.setAttribute("aria-expanded", String(state.openItemMenuId === item.id));
-      menuButton.textContent = "⋯";
+      menuButton.setAttribute("aria-controls", `item-more-menu-${item.id}`);
+      menuButton.setAttribute("aria-expanded", String(menuIsOpen));
+      menuButton.setAttribute("aria-haspopup", "menu");
+      const menuButtonIcon = document.createElement("span");
+      menuButtonIcon.className = "item-more-button-icon";
+      menuButtonIcon.setAttribute("aria-hidden", "true");
+      menuButtonIcon.textContent = "⋯";
+      menuButton.appendChild(menuButtonIcon);
       actions.appendChild(menuButton);
       cardContent.appendChild(actions);
 
@@ -4088,11 +4095,14 @@ function renderItems(root, state) {
 
       const menu = document.createElement("div");
       menu.className = "item-more-menu";
-      menu.hidden = state.openItemMenuId !== item.id;
+      menu.id = `item-more-menu-${item.id}`;
+      menu.setAttribute("role", "menu");
+      menu.hidden = !menuIsOpen;
 
       const hideButton = document.createElement("button");
       hideButton.type = "button";
       hideButton.dataset.itemHide = item.id;
+      hideButton.setAttribute("role", "menuitem");
       hideButton.textContent = translate("list_detail.hide_item_for_later_menu", {}, "Hide item for 4h");
       menu.appendChild(hideButton);
       article.appendChild(menu);

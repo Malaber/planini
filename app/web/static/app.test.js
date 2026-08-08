@@ -1123,9 +1123,17 @@ test("renderItems hides active items until their hidden_until time", () => {
   assert.deepEqual(cardNames, ["Visible item", "Expired hidden item", "Hidden item", "Checked item 0"]);
   assert.equal(document.querySelector(".item-hidden-group h3").textContent, "Hidden for 4h");
   assert.equal(document.querySelector('[data-item-unhide="hidden-item"]').textContent, "4h");
-  assert.equal(document.querySelector('[data-item-menu-toggle="visible-item"]').textContent, "⋯");
+  const visibleMenuToggle = document.querySelector('[data-item-menu-toggle="visible-item"]');
+  const visibleMenu = document.querySelector('[data-item-hide="visible-item"]').closest(".item-more-menu");
+  assert.equal(visibleMenuToggle.textContent, "⋯");
+  assert.equal(visibleMenuToggle.getAttribute("aria-haspopup"), "menu");
+  assert.equal(visibleMenuToggle.getAttribute("aria-expanded"), "true");
+  assert.equal(visibleMenuToggle.getAttribute("aria-controls"), visibleMenu.id);
+  assert.equal(visibleMenu.getAttribute("role"), "menu");
+  assert.equal(visibleMenu.closest(".item-card").classList.contains("has-open-menu"), true);
   assert.equal(document.querySelector('[data-item-hide="visible-item"]').textContent, "Hide item for 4h");
-  assert.equal(document.querySelector('[data-item-hide="visible-item"]').closest(".item-more-menu").hidden, false);
+  assert.equal(document.querySelector('[data-item-hide="visible-item"]').getAttribute("role"), "menuitem");
+  assert.equal(visibleMenu.hidden, false);
 });
 
 test("category quick add buttons open the add form with the category selected", () => {

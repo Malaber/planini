@@ -1089,6 +1089,67 @@ function itemCard(page, text) {
   return page.locator(".item-card", { hasText: text }).first();
 }
 
+async function assertItemMoreContextMenu(card, itemName) {
+  const layoutBefore = await card.evaluate((node) => {
+    const next = node.nextElementSibling;
+    const nextRect = next?.getBoundingClientRect();
+    return { nextTop: nextRect?.top ?? null };
+  });
+  await card.getByRole("button", { name: `More actions for ${itemName}` }).click();
+  const menu = card.locator(".item-more-menu");
+  await expectVisible(menu, `Expected ${itemName} context menu`);
+  const layoutAfter = await card.evaluate((node) => {
+    const button = node.querySelector("[data-item-menu-toggle]");
+    const menuNode = node.querySelector(".item-more-menu");
+    const next = node.nextElementSibling;
+    if (!(button instanceof HTMLElement)) {
+      throw new Error("Expected item menu toggle");
+    }
+    if (!(menuNode instanceof HTMLElement)) {
+      throw new Error("Expected item menu popup");
+    }
+    const cardRect = node.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    const menuRect = menuNode.getBoundingClientRect();
+    const nextRect = next?.getBoundingClientRect();
+    const buttonStyle = getComputedStyle(button);
+    const menuStyle = getComputedStyle(menuNode);
+    return {
+      buttonAlignItems: buttonStyle.alignItems,
+      buttonDisplay: buttonStyle.display,
+      buttonJustifyContent: buttonStyle.justifyContent,
+      buttonBottom: buttonRect.bottom,
+      cardLeft: cardRect.left,
+      cardWidth: cardRect.width,
+      menuLeft: menuRect.left,
+      menuPosition: menuStyle.position,
+      menuTop: menuRect.top,
+      menuWidth: menuRect.width,
+      nextTop: nextRect?.top ?? null,
+    };
+  });
+
+  assert.equal(layoutAfter.buttonAlignItems, "center", "More actions button should center icon vertically");
+  assert(
+    layoutAfter.buttonDisplay === "flex" || layoutAfter.buttonDisplay === "inline-flex",
+    `More actions button should use flex centering; got ${layoutAfter.buttonDisplay}`,
+  );
+  assert.equal(layoutAfter.buttonJustifyContent, "center", "More actions button should center icon horizontally");
+  assert.equal(layoutAfter.menuPosition, "absolute", "Item menu should be an overlay popup");
+  assert(
+    layoutAfter.menuWidth < layoutAfter.cardWidth * 0.75,
+    "Item menu should not render as a full-width list row",
+  );
+  assert(layoutAfter.menuLeft >= layoutAfter.cardLeft, "Item menu should stay aligned inside the card");
+  assert(layoutAfter.menuTop >= layoutAfter.buttonBottom - 8, "Item menu should open below the actions button");
+  if (layoutBefore.nextTop !== null && layoutAfter.nextTop !== null) {
+    assert(
+      Math.abs(layoutAfter.nextTop - layoutBefore.nextTop) <= 1,
+      "Opening item menu should not push the next item down",
+    );
+  }
+}
+
 async function swipeItemRight(card) {
   await card.evaluate((node) => {
     const rect = node.getBoundingClientRect();
@@ -1609,8 +1670,8 @@ async function main() {
 
     const spaghettiCard = itemCard(page, "Spaghetti");
     if (deviceName === "desktop") {
-      await spaghettiCard.getByRole("button", { name: "More actions for Spaghetti" }).click();
-      await spaghettiCard.getByRole("button", { name: "Hide item for 4h" }).click();
+      await assertItemMoreContextMenu(spaghettiCard, "Spaghetti");
+      await spaghettiCard.getByRole("menuitem", { name: "Hide item for 4h" }).click();
     } else {
       await swipeItemRight(spaghettiCard);
     }
