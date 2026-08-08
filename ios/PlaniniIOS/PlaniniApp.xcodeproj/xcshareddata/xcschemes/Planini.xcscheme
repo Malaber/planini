@@ -127,11 +127,6 @@
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "PLANINI_UI_TEST_LANGUAGE"
-            value = "$(PLANINI_UI_TEST_LANGUAGE)"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
             key = "PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN"
             value = "$(PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN)"
             isEnabled = "YES">

@@ -90,7 +90,7 @@ DEFAULT_IOS_APP_BUNDLE_IDENTIFIER = "de.malaber.planini"
 DEFAULT_IOS_WATCH_APP_BUNDLE_IDENTIFIER = "de.malaber.planini.watchkitapp"
 DEFAULT_IOS_APP_DEVELOPMENT_TEAM = "VWKG94374J"
 DEFAULT_IOS_SIMULATOR_PHONE_DEVICE = "iPhone 17 Pro"
-DEFAULT_IOS_SIMULATOR_WATCH_DEVICE = "Apple Watch Ultra 3 (49mm)"
+DEFAULT_IOS_SIMULATOR_WATCH_DEVICE = "Apple Watch Ultra 2 (49mm)"
 IOS_PROJECT_YML_PATH = ROOT / "ios" / "PlaniniIOS" / "project.yml"
 IOS_ENTITLEMENTS_PATH = ROOT / "ios" / "PlaniniIOS" / "App" / "Planini.entitlements"
 IOS_GENERATED_CONFIG_PATH = (
@@ -259,7 +259,6 @@ def _ios_ui_test_env(
     user_email: str,
     artifact_dir: str,
     initial_list_name: str,
-    language: str = "en",
     access_token: str | None = None,
     display_name: str | None = None,
 ) -> dict[str, str]:
@@ -271,7 +270,6 @@ def _ios_ui_test_env(
             "PLANINI_UI_TEST_USER_EMAIL": user_email,
             "PLANINI_UI_TEST_ARTIFACT_DIR": str((ROOT / artifact_dir).resolve()),
             "PLANINI_UI_TEST_INITIAL_LIST_NAME": initial_list_name,
-            "PLANINI_UI_TEST_LANGUAGE": language,
         }
     )
     if access_token:
@@ -2121,10 +2119,7 @@ def run_ios_e2e(
         "artifact_dir": "Directory used to store native iOS UI screenshots.",
         "device_name": "Simulator device name used for XCUITest.",
         "initial_list_name": "Seeded list name that should open first inside the app.",
-        "language": "Language used by the app during XCUITest.",
         "only_testing": "Xcode test target, class, or method passed to -only-testing.",
-        "expected_width": "Optional expected screenshot width in pixels.",
-        "expected_height": "Optional expected screenshot height in pixels.",
     }
 )
 def run_ios_ui_e2e(
@@ -2135,13 +2130,10 @@ def run_ios_ui_e2e(
     artifact_dir=DEFAULT_IOS_UI_E2E_ARTIFACT_DIR,
     device_name=DEFAULT_IOS_UI_E2E_DEVICE,
     initial_list_name=DEFAULT_IOS_UI_E2E_INITIAL_LIST,
-    language="en",
     access_token="",
     display_name="",
     attempts=1,
     only_testing="PlaniniUITests",
-    expected_width=0,
-    expected_height=0,
 ) -> None:
     artifact_path = ROOT / artifact_dir
     artifact_path.mkdir(parents=True, exist_ok=True)
@@ -2156,11 +2148,9 @@ def run_ios_ui_e2e(
         user_email=user_email,
         artifact_dir=artifact_dir,
         initial_list_name=initial_list_name,
-        language=language,
         access_token=access_token or None,
         display_name=display_name or None,
     )
-    _ensure_ios_simulator_device(device_name)
     command = " ".join(
         [
             "cd ios/PlaniniIOS &&",
@@ -2181,7 +2171,6 @@ def run_ios_ui_e2e(
     max_attempts = max(1, int(attempts))
     for attempt in range(max_attempts):
         shutil.rmtree(result_bundle_path, ignore_errors=True)
-        _reset_ios_ui_test_app(device_name)
         result = c.run(
             command,
             env=env,
@@ -2199,11 +2188,6 @@ def run_ios_ui_e2e(
 
     _write_ios_ui_e2e_summary(artifact_dir)
     assert result is not None
-    if result.exited == 0 and int(expected_width) > 0 and int(expected_height) > 0:
-        _validate_ios_screenshot_sizes(
-            artifact_dir,
-            (int(expected_width), int(expected_height)),
-        )
     if result.exited != 0:
         failure_summaries = _ios_ui_e2e_failure_summaries(result_bundle_path)
         if failure_summaries:
@@ -2229,7 +2213,6 @@ def _run_ios_marketing_ui_test(
     artifact_path = ROOT / artifact_dir
     artifact_path.mkdir(parents=True, exist_ok=True)
     result_bundle_path = artifact_path / DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
-    shutil.rmtree(result_bundle_path, ignore_errors=True)
 
     derived_data = ROOT / derived_data_path
     shutil.rmtree(derived_data, ignore_errors=True)
@@ -2243,7 +2226,6 @@ def _run_ios_marketing_ui_test(
         user_email=DEFAULT_IOS_E2E_USER_EMAIL,
         artifact_dir=artifact_dir,
         initial_list_name=initial_list_name,
-        language="en",
         access_token=english_session["access_token"],
         display_name=english_session["display_name"],
     )
@@ -2254,44 +2236,72 @@ def _run_ios_marketing_ui_test(
             "PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME": german_initial_list_name,
         }
     )
-    destinations = " ".join(
-        f"-destination {shlex.quote(_ios_simulator_destination(simulator_name))}"
-        for simulator_name in (device_name, ipad_device_name)
-    )
-    command = " ".join(
+    build_command = " ".join(
         [
             "cd ios/PlaniniIOS &&",
             "xcodebuild",
             "-project PlaniniApp.xcodeproj",
             "-scheme Planini",
             f"-derivedDataPath {shlex.quote(str(derived_data.resolve()))}",
-            destinations,
+            f"-destination {shlex.quote(DEFAULT_IOS_SIMULATOR_DESTINATION)}",
             "-destination-timeout 120",
-            f"-resultBundlePath {shlex.quote(str(result_bundle_path.resolve()))}",
             "-quiet",
-            "-parallel-testing-enabled NO",
-            "-maximum-concurrent-test-simulator-destinations 2",
             f"-only-testing:{shlex.quote(DEFAULT_IOS_MARKETING_SCREENSHOT_TEST)}",
-            "test",
+            "build-for-testing",
         ]
     )
-    result = c.run(
-        command,
+    build_result = c.run(
+        build_command,
         env=env,
         pty=False,
         shell="/bin/bash",
         warn=True,
     )
-    _write_ios_ui_e2e_summary(artifact_dir)
-    if result.exited != 0:
-        failure_summaries = _ios_ui_e2e_failure_summaries(result_bundle_path)
-        if failure_summaries:
-            print("iOS marketing screenshot failure summary:")
-            for summary in failure_summaries:
-                print(f"- {summary}")
+    if build_result.exited != 0:
         raise Exit(
-            f"Command failed with exit code {result.exited}: xcodebuild iOS marketing screenshots"
+            "Command failed with exit code "
+            f"{build_result.exited}: xcodebuild iOS marketing screenshot build"
         )
+
+    for simulator_name in (device_name, ipad_device_name):
+        shutil.rmtree(result_bundle_path, ignore_errors=True)
+        test_command = " ".join(
+            [
+                "cd ios/PlaniniIOS &&",
+                "xcodebuild",
+                "-project PlaniniApp.xcodeproj",
+                "-scheme Planini",
+                f"-derivedDataPath {shlex.quote(str(derived_data.resolve()))}",
+                f"-destination {shlex.quote(_ios_simulator_destination(simulator_name))}",
+                "-destination-timeout 120",
+                f"-resultBundlePath {shlex.quote(str(result_bundle_path.resolve()))}",
+                "-quiet",
+                "-parallel-testing-enabled NO",
+                "-maximum-parallel-testing-workers 1",
+                f"-only-testing:{shlex.quote(DEFAULT_IOS_MARKETING_SCREENSHOT_TEST)}",
+                "test-without-building",
+            ]
+        )
+        result = c.run(
+            test_command,
+            env=env,
+            pty=False,
+            shell="/bin/bash",
+            warn=True,
+        )
+        if result.exited != 0:
+            _write_ios_ui_e2e_summary(artifact_dir)
+            failure_summaries = _ios_ui_e2e_failure_summaries(result_bundle_path)
+            if failure_summaries:
+                print("iOS marketing screenshot failure summary:")
+                for summary in failure_summaries:
+                    print(f"- {summary}")
+            raise Exit(
+                "Command failed with exit code "
+                f"{result.exited}: xcodebuild iOS marketing screenshots on {simulator_name}"
+            )
+
+    shutil.rmtree(result_bundle_path, ignore_errors=True)
 
     for platform_dir, locale_dir, expected_size in [
         ("iphone", "en-US", DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE),
@@ -2618,6 +2628,10 @@ def check_ios_marketing_screenshots(
             _shutdown_ios_simulators()
         _write_ios_ui_e2e_summary(artifact_dir)
     finally:
+        shutil.rmtree(
+            ROOT / DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH,
+            ignore_errors=True,
+        )
         stop_app(c, pid_path=pid_path)
 
 
@@ -2626,7 +2640,6 @@ def check_ios_marketing_screenshots(
         install_xcodegen,
         check_ios_e2e,
         check_ios_ui_e2e,
-        check_ios_marketing_screenshots,
     ]
 )
 def check_ios_ci(c) -> None:

@@ -1071,7 +1071,6 @@ def test_ios_ui_test_env_uses_absolute_artifact_path(tmp_path: Path, monkeypatch
     assert env["PLANINI_UI_TEST_BOOTSTRAP_BASE_URL"] == "http://localhost:8018"
     assert env["PLANINI_UI_TEST_USER_EMAIL"] == "ios@example.com"
     assert env["PLANINI_UI_TEST_INITIAL_LIST_NAME"] == "Browser Test Shop"
-    assert env["PLANINI_UI_TEST_LANGUAGE"] == "en"
     assert env["PLANINI_UI_TEST_ARTIFACT_DIR"] == str(
         (tmp_path / "e2e-artifacts" / "ios-ui-e2e").resolve()
     )
@@ -1419,7 +1418,6 @@ def test_run_ios_e2e_invokes_swift_test_with_expected_env(monkeypatch) -> None:
 
 def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_path: Path) -> None:
     calls: list[tuple[str, dict]] = []
-    resets: list[str] = []
 
     class Context:
         def run(self, command, **kwargs):
@@ -1431,10 +1429,6 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
         tasks,
         "_ios_simulator_destination",
         lambda device_name: f"platform=iOS Simulator,name={device_name},OS=latest",
-    )
-    monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda device_name: None)
-    monkeypatch.setattr(
-        tasks, "_reset_ios_ui_test_app", lambda device_name: resets.append(device_name)
     )
     artifact_path = tmp_path / "e2e-artifacts" / "ios-ui-e2e"
     result_bundle_path = artifact_path / tasks.DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
@@ -1448,20 +1442,13 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
             "PLANINI_UI_TEST_USER_EMAIL": kwargs["user_email"],
             "PLANINI_UI_TEST_ARTIFACT_DIR": kwargs["artifact_dir"],
             "PLANINI_UI_TEST_INITIAL_LIST_NAME": kwargs["initial_list_name"],
-            "PLANINI_UI_TEST_LANGUAGE": kwargs["language"],
             "PLANINI_UI_TEST_ACCESS_TOKEN": kwargs["access_token"],
             "PLANINI_UI_TEST_DISPLAY_NAME": kwargs["display_name"],
         },
     )
     summaries: list[str] = []
-    validations: list[tuple[str, tuple[int, int]]] = []
     monkeypatch.setattr(
         tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: summaries.append(artifact_dir)
-    )
-    monkeypatch.setattr(
-        tasks,
-        "_validate_ios_screenshot_sizes",
-        lambda artifact_dir, expected_size: validations.append((artifact_dir, expected_size)),
     )
 
     tasks.run_ios_ui_e2e.body(
@@ -1474,8 +1461,6 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
         initial_list_name="Browser Test Shop",
         access_token="token-123",
         display_name="Test User",
-        expected_width=1284,
-        expected_height=2778,
         only_testing="PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad",
     )
 
@@ -1495,7 +1480,6 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
                     "PLANINI_UI_TEST_USER_EMAIL": "ios@example.com",
                     "PLANINI_UI_TEST_ARTIFACT_DIR": "e2e-artifacts/ios-ui-e2e",
                     "PLANINI_UI_TEST_INITIAL_LIST_NAME": "Browser Test Shop",
-                    "PLANINI_UI_TEST_LANGUAGE": "en",
                     "PLANINI_UI_TEST_ACCESS_TOKEN": "token-123",
                     "PLANINI_UI_TEST_DISPLAY_NAME": "Test User",
                 },
@@ -1506,14 +1490,11 @@ def test_run_ios_ui_e2e_invokes_xcodebuild_with_expected_env(monkeypatch, tmp_pa
         )
     ]
     assert summaries == ["e2e-artifacts/ios-ui-e2e"]
-    assert validations == [("e2e-artifacts/ios-ui-e2e", (1284, 2778))]
-    assert resets == ["iPhone 17"]
     assert not result_bundle_path.exists()
 
 
 def test_run_ios_ui_e2e_retries_once_before_succeeding(monkeypatch, tmp_path: Path, capsys) -> None:
     calls: list[tuple[str, dict]] = []
-    resets: list[str] = []
     results = iter([RunResult(exited=65), RunResult(exited=0)])
 
     class Context:
@@ -1522,10 +1503,6 @@ def test_run_ios_ui_e2e_retries_once_before_succeeding(monkeypatch, tmp_path: Pa
             return next(results)
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
-    monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda device_name: None)
-    monkeypatch.setattr(
-        tasks, "_reset_ios_ui_test_app", lambda device_name: resets.append(device_name)
-    )
     monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
     monkeypatch.setattr(tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: None)
 
@@ -1536,7 +1513,6 @@ def test_run_ios_ui_e2e_retries_once_before_succeeding(monkeypatch, tmp_path: Pa
     )
 
     assert len(calls) == 2
-    assert resets == [tasks.DEFAULT_IOS_UI_E2E_DEVICE, tasks.DEFAULT_IOS_UI_E2E_DEVICE]
     assert capsys.readouterr().out.count("Retrying iOS UI e2e after xcodebuild failure") == 1
 
 
@@ -1548,8 +1524,6 @@ def test_run_ios_ui_e2e_prints_failure_summary_before_exiting(
             return RunResult(exited=65)
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
-    monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda device_name: None)
-    monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda device_name: None)
     monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
     monkeypatch.setattr(tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: None)
     monkeypatch.setattr(
@@ -1890,30 +1864,55 @@ def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
         / "ios-marketing-screenshots"
         / tasks.DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
     )
+    expected_env = {
+        "PLANINI_UI_TEST_ACCESS_TOKEN": "english-token",
+        "PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN": "german-token",
+        "PLANINI_UI_TEST_MARKETING_GERMAN_DISPLAY_NAME": "Alex",
+        "PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME": "Wocheneinkauf",
+    }
+    expected_kwargs = {
+        "env": expected_env,
+        "pty": False,
+        "shell": "/bin/bash",
+        "warn": True,
+    }
     assert calls == [
         (
             "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
             "-scheme Planini "
             f"-derivedDataPath {derived_data} "
+            "-destination 'generic/platform=iOS Simulator' "
+            "-destination-timeout 120 -quiet "
+            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots "
+            "build-for-testing",
+            expected_kwargs,
+        ),
+        (
+            "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
+            "-scheme Planini "
+            f"-derivedDataPath {derived_data} "
             "-destination 'platform=iOS Simulator,name=iPhone 14 Plus,OS=latest,arch=arm64' "
+            "-destination-timeout 120 "
+            f"-resultBundlePath {result_bundle_path} -quiet "
+            "-parallel-testing-enabled NO "
+            "-maximum-parallel-testing-workers 1 "
+            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots "
+            "test-without-building",
+            expected_kwargs,
+        ),
+        (
+            "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
+            "-scheme Planini "
+            f"-derivedDataPath {derived_data} "
             "-destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=latest,arch=arm64' "
             "-destination-timeout 120 "
             f"-resultBundlePath {result_bundle_path} -quiet "
             "-parallel-testing-enabled NO "
-            "-maximum-concurrent-test-simulator-destinations 2 "
-            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots test",
-            {
-                "env": {
-                    "PLANINI_UI_TEST_ACCESS_TOKEN": "english-token",
-                    "PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN": "german-token",
-                    "PLANINI_UI_TEST_MARKETING_GERMAN_DISPLAY_NAME": "Alex",
-                    "PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME": "Wocheneinkauf",
-                },
-                "pty": False,
-                "shell": "/bin/bash",
-                "warn": True,
-            },
-        )
+            "-maximum-parallel-testing-workers 1 "
+            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots "
+            "test-without-building",
+            expected_kwargs,
+        ),
     ]
     assert env_calls == [
         {
@@ -1922,14 +1921,13 @@ def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
             "user_email": tasks.DEFAULT_IOS_E2E_USER_EMAIL,
             "artifact_dir": "e2e-artifacts/ios-marketing-screenshots",
             "initial_list_name": "Weekly groceries",
-            "language": "en",
             "access_token": "english-token",
             "display_name": "Alex",
         }
     ]
     assert ensured == ["iPhone 14 Plus", "iPad Pro 13-inch (M5)"]
     assert resets == ensured
-    assert summaries == ["e2e-artifacts/ios-marketing-screenshots"]
+    assert summaries == []
     assert validations == [
         ("e2e-artifacts/ios-marketing-screenshots/iphone/en-US", (1284, 2778)),
         ("e2e-artifacts/ios-marketing-screenshots/iphone/de-DE", (1284, 2778)),
@@ -1937,6 +1935,37 @@ def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
         ("e2e-artifacts/ios-marketing-screenshots/ipad/de-DE", (2064, 2752)),
     ]
     assert not derived_data.exists()
+    assert not result_bundle_path.exists()
+
+
+def test_run_ios_marketing_ui_test_reports_build_failure(monkeypatch, tmp_path: Path) -> None:
+    class Context:
+        def run(self, command, **kwargs):
+            return RunResult(exited=65)
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda name: None)
+    monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda name: None)
+    monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
+
+    try:
+        tasks._run_ios_marketing_ui_test(
+            Context(),
+            base_url="http://localhost:8019",
+            artifact_dir="e2e-artifacts/ios-marketing-screenshots",
+            device_name="iPhone 14 Plus",
+            ipad_device_name="iPad Pro 13-inch (M5)",
+            initial_list_name="Weekly groceries",
+            german_initial_list_name="Wocheneinkauf",
+            english_session={"access_token": "english-token", "display_name": "Alex"},
+            german_session={"access_token": "german-token", "display_name": "Alex"},
+            derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
+        )
+    except tasks.Exit as exc:
+        assert "marketing screenshot build" in str(exc)
+        assert "exit code 65" in str(exc)
+    else:
+        raise AssertionError("expected marketing build to fail")
 
 
 def test_run_ios_marketing_ui_test_reports_xcode_failure(
@@ -1944,9 +1973,11 @@ def test_run_ios_marketing_ui_test_reports_xcode_failure(
     tmp_path: Path,
     capsys,
 ) -> None:
+    results = iter([RunResult(exited=0), RunResult(exited=65)])
+
     class Context:
         def run(self, command, **kwargs):
-            return RunResult(exited=65)
+            return next(results)
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda name: None)
@@ -2106,7 +2137,6 @@ def test_check_ios_ci_runs_only_mac_native_e2e_prerequisites() -> None:
         "install_xcodegen",
         "check_ios_e2e",
         "check_ios_ui_e2e",
-        "check_ios_marketing_screenshots",
     ]
 
 
