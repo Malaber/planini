@@ -8,7 +8,6 @@ Create Date: 2026-05-14
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "0012_add_offline_item_sync"
 down_revision = "0011_add_passkey_reset_links"
 branch_labels = None
@@ -23,12 +22,10 @@ def upgrade() -> None:
     op.add_column(
         "grocery_items", sa.Column("client_created_id", sa.String(length=120), nullable=True)
     )
-    op.execute(
-        """
+    op.execute("""
         UPDATE grocery_items
         SET checked_state_recorded_at = COALESCE(checked_at, updated_at, created_at)
-        """
-    )
+        """)
     op.create_index(
         "ix_grocery_items_list_client_created_id",
         "grocery_items",

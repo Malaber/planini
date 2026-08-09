@@ -10,7 +10,6 @@ import json
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "0018_add_category_translations"
 down_revision = "0017_add_list_accent_color"
 branch_labels = None

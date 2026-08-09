@@ -8,7 +8,6 @@ Create Date: 2026-06-27
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "0016_add_multi_use_invites"
 down_revision = "0015_add_passkey_add_links"
 branch_labels = None

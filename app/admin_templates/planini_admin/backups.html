@@ -9,7 +9,7 @@
           <h3 class="card-title mb-1">Database backups</h3>
           <p class="text-muted mb-0">Create a dump of the configured database into the backup directory.</p>
         </div>
-        <form method="post" action="{{ url_for('admin:backups') }}">
+        <form method="post" action="{{ url_for('admin:view-backups') }}">
           <input type="hidden" name="action" value="create">
           <button class="btn btn-primary" type="submit">Create backup</button>
         </form>
@@ -46,7 +46,7 @@
                 <td><code>{{ slot.time }}</code></td>
                 <td>{% if slot.enabled %}Enabled{% else %}Disabled{% endif %}</td>
                 <td class="text-end">
-                  <form method="post" action="{{ url_for('admin:backups') }}">
+                  <form method="post" action="{{ url_for('admin:view-backups') }}">
                     <input type="hidden" name="action" value="run-slot">
                     <input type="hidden" name="slot_name" value="{{ slot.name }}">
                     <button class="btn btn-outline-primary btn-sm" type="submit">New backup in {{ slot.display_name }} now</button>
@@ -110,7 +110,7 @@
                 <td>{{ backup.size_bytes }} bytes</td>
                 <td>{{ backup.created_at.isoformat() }}</td>
                 <td>
-                  <form class="d-flex flex-column gap-2" method="post" action="{{ url_for('admin:backups') }}">
+                  <form class="d-flex flex-column gap-2" method="post" action="{{ url_for('admin:view-backups') }}">
                     <input type="hidden" name="action" value="restore">
                     <input type="hidden" name="file_name" value="{{ backup.file_name }}">
                     <label class="form-label mb-0" for="restore-{{ loop.index }}">Type exact filename</label>
@@ -119,7 +119,7 @@
                   </form>
                 </td>
                 <td>
-                  <form class="d-flex flex-column gap-2" method="post" action="{{ url_for('admin:backups') }}">
+                  <form class="d-flex flex-column gap-2" method="post" action="{{ url_for('admin:view-backups') }}">
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="file_name" value="{{ backup.file_name }}">
                     <label class="form-label mb-0" for="delete-{{ loop.index }}">Type exact filename</label>
