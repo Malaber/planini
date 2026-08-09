@@ -1,8 +1,7 @@
 import importlib.util
+import json
 import shlex
 import sqlite3
-import sys
-import types
 from contextlib import closing
 from pathlib import Path
 
@@ -684,30 +683,60 @@ def test_compute_version_values_for_branch_skips_existing_rc_tags():
     }
 
 
-def test_ios_app_icon_svg_with_background_color_updates_cls_1_fill(
+def test_ios_app_icon_foreground_svg_removes_background_rectangle(
     tmp_path: Path, monkeypatch
 ) -> None:
     source_path = tmp_path / "planini.svg"
     source_path.write_text(
         """
-        <svg>
-          <style>
-            .cls-1 {
-              fill: #ddddc1;
-            }
-          </style>
+        <svg width="4267" height="4267" viewBox="0 0 4267 4267">
+          <rect id="Rechteck_1" class="cls-1" width="100" height="100"/>
+          <path id="logo"/>
         </svg>
         """,
         encoding="utf-8",
     )
     monkeypatch.setattr(tasks, "IOS_APP_ICON_SOURCE_PATH", source_path)
 
-    svg = tasks._ios_app_icon_svg_with_background_color("#A7E79D")
+    svg = tasks._ios_app_icon_foreground_svg()
 
-    assert "fill: #a7e79d;" in svg
+    assert "Rechteck_1" not in svg
+    assert 'id="logo"' in svg
+    assert 'width="1024" height="1024"' in svg
 
 
-def test_ios_app_icon_svg_with_background_color_rejects_invalid_color() -> None:
+def test_ios_app_icon_foreground_svg_rejects_missing_background(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source_path = tmp_path / "planini.svg"
+    source_path.write_text("<svg/>", encoding="utf-8")
+    monkeypatch.setattr(tasks, "IOS_APP_ICON_SOURCE_PATH", source_path)
+
+    try:
+        tasks._ios_app_icon_foreground_svg()
+    except tasks.Exit as exc:
+        assert "background rectangle" in str(exc)
+    else:
+        raise AssertionError("expected missing icon background to fail")
+
+
+def test_ios_app_icon_foreground_svg_rejects_unexpected_canvas(tmp_path: Path, monkeypatch) -> None:
+    source_path = tmp_path / "planini.svg"
+    source_path.write_text(
+        '<svg>\n  <rect id="Rechteck_1" width="100" height="100"/>\n</svg>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tasks, "IOS_APP_ICON_SOURCE_PATH", source_path)
+
+    try:
+        tasks._ios_app_icon_foreground_svg()
+    except tasks.Exit as exc:
+        assert "1024x1024" in str(exc)
+    else:
+        raise AssertionError("expected unexpected icon canvas to fail")
+
+
+def test_ios_app_icon_background_color_rejects_invalid_color() -> None:
     try:
         tasks._normalize_ios_app_icon_background_color("green")
     except tasks.Exit as exc:
@@ -716,43 +745,84 @@ def test_ios_app_icon_svg_with_background_color_rejects_invalid_color() -> None:
         raise AssertionError("expected invalid icon color to fail")
 
 
-def test_generate_ios_app_icons_renders_variant_svg_color(tmp_path: Path, monkeypatch) -> None:
+def test_ios_icon_composer_document_adds_dark_and_glass_appearances() -> None:
+    document = tasks._ios_icon_composer_document("#e18585")
+
+    fills = document["fill-specializations"]
+    assert fills[0]["value"]["linear-gradient"][0] == ("display-p3:0.88235,0.52157,0.52157,1.00000")
+    assert fills[1] == {
+        "appearance": "dark",
+        "value": {
+            "linear-gradient": [
+                "display-p3:0.37059,0.21906,0.21906,1.00000",
+                "display-p3:0.22941,0.13561,0.13561,1.00000",
+            ]
+        },
+    }
+    assert document["groups"][0]["translucency"] == {"enabled": True, "value": 0.2}
+    assert document["supported-platforms"]["circles"] == ["watchOS"]
+
+
+def test_generate_ios_app_icons_writes_icon_composer_document(tmp_path: Path, monkeypatch) -> None:
     source_path = tmp_path / "planini.svg"
     source_path.write_text(
         """
-        <svg>
-          <style>
-            .cls-1 {
-              fill: #ddddc1;
-            }
-          </style>
+        <svg width="4267" height="4267" viewBox="0 0 4267 4267">
+          <rect id="Rechteck_1" class="cls-1" width="100" height="100"/>
+          <path id="logo"/>
         </svg>
         """,
         encoding="utf-8",
     )
-    app_iconset_path = tmp_path / "AppIcon.appiconset"
-    watch_iconset_path = tmp_path / "WatchAppIcon.appiconset"
-    rendered: list[dict] = []
-
-    fake_cairosvg = types.SimpleNamespace(
-        svg2png=lambda **kwargs: rendered.append(kwargs)
-        or Path(kwargs["write_to"]).write_bytes(b"png")
-    )
+    document_path = tmp_path / "AppIcon.icon" / "icon.json"
+    artwork_path = tmp_path / "AppIcon.icon" / "Assets" / "Planini.svg"
 
     monkeypatch.setattr(tasks, "IOS_APP_ICON_SOURCE_PATH", source_path)
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
-    monkeypatch.setattr(tasks, "IOS_APP_ICONSET_PATH", app_iconset_path)
-    monkeypatch.setattr(tasks, "IOS_WATCH_APP_ICONSET_PATH", watch_iconset_path)
-    monkeypatch.setattr(tasks, "IOS_APP_ICON_FILES", {"Icon-20@2x.png": 40})
-    monkeypatch.setattr(tasks, "IOS_WATCH_APP_ICON_FILES", {"Icon-24@2x.png": 48})
-    monkeypatch.setitem(sys.modules, "cairosvg", fake_cairosvg)
+    monkeypatch.setattr(tasks, "IOS_APP_ICON_DOCUMENT_PATH", document_path)
+    monkeypatch.setattr(tasks, "IOS_APP_ICON_ARTWORK_PATH", artwork_path)
 
     tasks.generate_ios_app_icons.body(None, background_color="#e18585")
+    tasks.check_ios_app_icons.body(None)
 
-    assert len(rendered) == 2
-    assert all(b"fill: #e18585;" in call["bytestring"] for call in rendered)
-    assert (app_iconset_path / "Icon-20@2x.png").exists()
-    assert (watch_iconset_path / "Icon-24@2x.png").exists()
+    document = json.loads(document_path.read_text(encoding="utf-8"))
+    assert document["fill-specializations"][1]["appearance"] == "dark"
+    assert document["groups"][0]["translucency"]["enabled"] is True
+    artwork = artwork_path.read_text(encoding="utf-8")
+    assert "Rechteck_1" not in artwork
+    assert 'width="1024" height="1024"' in artwork
+
+
+def test_generate_ios_app_icons_rejects_missing_source(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(tasks, "IOS_APP_ICON_SOURCE_PATH", tmp_path / "missing.svg")
+
+    try:
+        tasks.generate_ios_app_icons.body(None)
+    except tasks.Exit as exc:
+        assert "Missing app icon source SVG" in str(exc)
+    else:
+        raise AssertionError("expected missing icon source to fail")
+
+
+def test_check_ios_app_icons_reports_missing_files(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        tasks, "IOS_APP_ICON_DOCUMENT_PATH", tmp_path / "AppIcon.icon" / "icon.json"
+    )
+    monkeypatch.setattr(
+        tasks,
+        "IOS_APP_ICON_ARTWORK_PATH",
+        tmp_path / "AppIcon.icon" / "Assets" / "Planini.svg",
+    )
+
+    try:
+        tasks.check_ios_app_icons.body(None)
+    except tasks.Exit as exc:
+        assert "Missing generated iOS Icon Composer files" in str(exc)
+        assert "AppIcon.icon/icon.json" in str(exc)
+        assert "AppIcon.icon/Assets/Planini.svg" in str(exc)
+    else:
+        raise AssertionError("expected missing Icon Composer files to fail")
 
 
 def test_generate_ios_app_shortcuts_localizations_uses_all_locale_catalogs(
@@ -875,6 +945,7 @@ def test_ios_testflight_workflow_adds_pr_build_component_and_variant_icon_colors
 def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
     workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
     ci_workflow = (workflows / "ci.yml").read_text(encoding="utf-8")
+    screenshot_workflow = (workflows / "app-store-screenshots.yml").read_text(encoding="utf-8")
     testflight_workflow = (workflows / "ios-build-and-testflight.yml").read_text(encoding="utf-8")
 
     assert (
@@ -891,22 +962,49 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
     assert "--skip-filter=listWebsocketEmitsItemLifecycleEvents" in ci_workflow
     assert "--test-filter=listWebsocketEmitsItemLifecycleEvents" in ci_workflow
     assert ci_workflow.count("check-ios-ui-e2e") == 1
-    assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in ci_workflow
-    assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in ci_workflow
+    assert "uses: ./.github/workflows/app-store-screenshots.yml" in ci_workflow
+    assert "if: github.ref != 'refs/heads/main'" in ci_workflow
+    assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in screenshot_workflow
+    assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in screenshot_workflow
     assert "check-ios-e2e" not in testflight_workflow
     assert "check-ios-ui-e2e" not in testflight_workflow
     assert "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}" in testflight_workflow
 
 
-def test_ci_skips_duplicate_main_docker_publish() -> None:
+def test_release_attaches_app_store_screenshots() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "uses: ./.github/workflows/app-store-screenshots.yml" in workflow
+    assert "- ios_marketing_screenshots" in workflow
+    assert 'archive="planini-app-store-screenshots-${GIT_TAG}.zip"' in workflow
+    assert 'gh release upload "$GIT_TAG" "$SCREENSHOT_ARCHIVE" --clobber' in workflow
+    assert "## App Store screenshots" in workflow
+    assert "docs/app-store-screenshots.md" in workflow
+
+
+def test_ci_skips_work_repeated_by_main_release() -> None:
     workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml").read_text(
         encoding="utf-8"
     )
 
     main_skip = "if: github.ref != 'refs/heads/main'"
-    assert workflow.count(main_skip) == 2
+    assert workflow.count(main_skip) == 3
+    assert f"ios_marketing_screenshots:\n    {main_skip}" in workflow
     assert f"version:\n    {main_skip}" in workflow
     assert f"docker_build_platform:\n    {main_skip}" in workflow
+
+
+def test_ios_project_uses_icon_composer_for_app_and_watch() -> None:
+    project = (
+        Path(__file__).resolve().parents[1] / "ios" / "PlaniniIOS" / "project.yml"
+    ).read_text(encoding="utf-8")
+
+    assert project.count("- path: AppIcon.icon") == 2
+    assert project.count("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon") == 2
+    assert "WatchAppIcon" not in project
+    assert "AppIcon.appiconset" not in project
 
 
 def test_run_quiet_hides_successful_output() -> None:
@@ -1649,6 +1747,11 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
         or {"access_token": "token-123", "display_name": "Test User"},
     )
     monkeypatch.setattr(
+        tasks.generate_ios_app_icons,
+        "body",
+        lambda c: calls.append(("icons", {})),
+    )
+    monkeypatch.setattr(
         tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
     )
     monkeypatch.setattr(
@@ -1698,6 +1801,7 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
                 "user_email": "ios@example.com",
             },
         ),
+        ("icons", {}),
         ("generate", {}),
         (
             "run",
