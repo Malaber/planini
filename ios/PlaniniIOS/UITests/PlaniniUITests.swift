@@ -2367,33 +2367,42 @@ final class PlaniniUITests: XCTestCase {
         accessToken: String
     ) -> Bool {
         let sourceRow = itemRow(itemID: itemID, in: app)
+        let dropOffsets: [CGFloat] = [0.5, 0.3, 0.7]
 
-        scrollToHittable(sourceRow, in: app, maxSwipes: 4)
-        scrollToHittable(targetElement, in: app, maxSwipes: 4)
-        guard
-            sourceRow.waitForExistence(timeout: 3),
-            targetElement.waitForExistence(timeout: 3),
-            sourceRow.isHittable,
-            targetElement.isHittable
-        else {
-            return false
+        for dropOffset in dropOffsets {
+            scrollToHittable(sourceRow, in: app, maxSwipes: 4)
+            scrollToHittable(targetElement, in: app, maxSwipes: 4)
+            guard
+                sourceRow.waitForExistence(timeout: 3),
+                targetElement.waitForExistence(timeout: 3),
+                sourceRow.isHittable,
+                targetElement.isHittable
+            else {
+                continue
+            }
+
+            let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let target = targetElement.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: dropOffset)
+            )
+            source.press(
+                forDuration: 1.2,
+                thenDragTo: target,
+                withVelocity: .slow,
+                thenHoldForDuration: 1.2
+            )
+            if waitForItemCategory(
+                named: itemName,
+                categoryNamed: categoryName,
+                inListNamed: listName,
+                accessToken: accessToken,
+                timeout: 12
+            ) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
-
-        let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let target = targetElement.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        source.press(
-            forDuration: 1.2,
-            thenDragTo: target,
-            withVelocity: .slow,
-            thenHoldForDuration: 1.2
-        )
-        return waitForItemCategory(
-            named: itemName,
-            categoryNamed: categoryName,
-            inListNamed: listName,
-            accessToken: accessToken,
-            timeout: 8
-        )
+        return false
     }
 
     private func dragCategoryRow(
@@ -2994,10 +3003,20 @@ final class PlaniniUITests: XCTestCase {
             ids = []
         }
         var candidates = ids.flatMap { id in
-            [app.tabBars.buttons[id], app.buttons[id]]
+            [
+                app.tabBars.buttons.matching(identifier: id).firstMatch,
+                app.buttons.matching(identifier: id).firstMatch,
+            ]
         }
         candidates += labels.flatMap { tabLabel in
-            [app.tabBars.buttons[tabLabel], app.buttons[tabLabel]]
+            [
+                app.tabBars.buttons.matching(
+                    NSPredicate(format: "label == %@", tabLabel)
+                ).firstMatch,
+                app.buttons.matching(
+                    NSPredicate(format: "label == %@", tabLabel)
+                ).firstMatch,
+            ]
         }
         return candidates
     }
