@@ -36,6 +36,3 @@ ios/PlaniniIOS/PlaniniApp.xcodeproj/xcuserdata/
 ios/PlaniniIOS/PlaniniApp.xcodeproj/project.xcworkspace/xcuserdata/
 ios/ListerineIOS/ListerineApp.xcodeproj/xcuserdata/
 ios/ListerineIOS/ListerineApp.xcodeproj/project.xcworkspace/xcuserdata/
-# Generated iOS app icon PNGs
-ios/PlaniniIOS/Assets.xcassets/AppIcon.appiconset/Icon-*.png
-ios/PlaniniIOS/Assets.xcassets/WatchAppIcon.appiconset/Icon-*.png
