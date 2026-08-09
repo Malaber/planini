@@ -90,14 +90,15 @@ public struct LocalDemoSnapshot: Codable, Equatable, Sendable {
                 aliases: ["Home"]
             ),
         ]
-        let household = HouseholdSummary(id: householdID, name: "Demo household")
+        let household = HouseholdSummary(id: householdID, name: "Demo household", role: .owner)
         let list = GroceryListSummary(
             id: listID,
             householdID: householdID,
             householdName: household.name,
             name: "Weekly groceries",
             archived: false,
-            accentColorHex: "#3b82f6"
+            accentColorHex: "#3b82f6",
+            accessRole: .owner
         )
         let items = [
             GroceryItemRecord(
@@ -167,7 +168,24 @@ public final class LocalDemoStore: @unchecked Sendable {
 
     public func load() -> LocalDemoSnapshot? {
         guard let data = userDefaults.data(forKey: storageKey) else { return nil }
-        return try? decoder.decode(LocalDemoSnapshot.self, from: data)
+        guard var snapshot = try? decoder.decode(LocalDemoSnapshot.self, from: data) else {
+            return nil
+        }
+        snapshot.households = snapshot.households.map {
+            HouseholdSummary(id: $0.id, name: $0.name, role: .owner)
+        }
+        snapshot.lists = snapshot.lists.map {
+            GroceryListSummary(
+                id: $0.id,
+                householdID: $0.householdID,
+                householdName: $0.householdName,
+                name: $0.name,
+                archived: $0.archived,
+                accentColorHex: $0.accentColorHex,
+                accessRole: .owner
+            )
+        }
+        return snapshot
     }
 
     public func loadOrSeed() -> LocalDemoSnapshot {

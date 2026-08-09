@@ -1086,7 +1086,7 @@ final class MobileAppViewModel: ObservableObject {
             return nil
         }
         if isLocalMode {
-            let household = HouseholdSummary(id: UUID(), name: name)
+            let household = HouseholdSummary(id: UUID(), name: name, role: .owner)
             households.append(household)
             households = sortedHouseholds(households)
             persistLocalDemoState()
@@ -1134,7 +1134,8 @@ final class MobileAppViewModel: ObservableObject {
                 householdID: householdID,
                 householdName: household.name,
                 name: name,
-                archived: false
+                archived: false,
+                accessRole: .owner
             )
             lists.append(list)
             lists = sortedLists(lists)
