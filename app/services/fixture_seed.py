@@ -16,6 +16,7 @@ from app.models import (
     Passkey,
     User,
 )
+from app.schemas.domain import GroceryItemCreate
 
 PREVIEW_INSTANCE_ADMIN_EMAIL = "planini_admin@schaedler.rocks"
 PREVIEW_MEMBER_EMAIL = "planini@schaedler.rocks"
@@ -245,6 +246,13 @@ async def _seed_list_items(
 
     for index, item_payload in enumerate(payload.get("items", [])):
         item_name = str(item_payload["name"])
+        sale_window = GroceryItemCreate.model_validate(
+            {
+                "name": item_name,
+                "sale_starts_at": item_payload.get("sale_starts_at"),
+                "sale_ends_at": item_payload.get("sale_ends_at"),
+            }
+        )
         item = existing_items.get(item_name)
         created_by = users[str(item_payload["created_by_email"])]
         updated_by = users[
@@ -272,6 +280,8 @@ async def _seed_list_items(
         item.category_id = category.id if category else None
         item.checked = bool(item_payload.get("checked", False))
         item.hidden_until = None
+        item.sale_starts_at = sale_window.sale_starts_at
+        item.sale_ends_at = sale_window.sale_ends_at
         item.sort_order = index
         item.updated_by = updated_by.id
         if item.checked:

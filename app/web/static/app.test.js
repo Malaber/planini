@@ -39,6 +39,12 @@ import {
   setListName,
   setListSyncStatus,
   itemEditHistoryStorageKey,
+  dateTimeLocalValue,
+  dateTimeLocalToIso,
+  defaultSaleWindow,
+  isValidSaleWindowPayload,
+  itemEditApiPayload,
+  syncSaleWindowControls,
   readItemEditFormPayload,
   setItemEditPanelOpen,
   scheduleItemEditSave,
@@ -93,6 +99,7 @@ import {
   confirmCategoryDisable,
   saveCategoryOrderInBackground,
   setCategoryDropIndicator,
+  isItemOnSale,
 } from "./app.js";
 
 function setGlobalProperty(name, value) {
@@ -264,6 +271,11 @@ function createEditListRoot() {
             <input type="text" name="name" />
             <input type="text" name="quantity_text" />
             <input type="text" name="note" />
+            <input type="checkbox" name="sale_enabled" />
+            <div data-sale-window-fields hidden>
+              <input type="datetime-local" name="sale_starts_at" disabled />
+              <input type="datetime-local" name="sale_ends_at" disabled />
+            </div>
             <label data-item-edit-list-field hidden>
               <select name="list_id" data-item-edit-list-select></select>
             </label>
@@ -373,6 +385,11 @@ function createEditRoot() {
           <input name="name" />
           <input name="quantity_text" />
           <input name="note" />
+          <input type="checkbox" name="sale_enabled" />
+          <div data-sale-window-fields hidden>
+            <input type="datetime-local" name="sale_starts_at" disabled />
+            <input type="datetime-local" name="sale_ends_at" disabled />
+          </div>
           <input data-item-edit-category-search value="" />
           <div data-item-edit-category-radios></div>
           <label data-item-edit-list-field hidden>
@@ -771,6 +788,157 @@ test("renderItems uses brown fallback swatches for uncategorized and checked gro
   const swatches = document.querySelectorAll(".item-category-swatch");
   assert.match(swatches[0].getAttribute("style") || "", /217, 197, 179|#d9c5b3/);
   assert.match(swatches[1].getAttribute("style") || "", /181, 150, 118|#b59676/);
+});
+
+test("sale date helpers validate and serialize local windows", () => {
+  const fixedNow = new Date("2026-05-14T10:00:00.000Z");
+  const defaults = defaultSaleWindow(fixedNow);
+  assert.equal(new Date(defaults.startsAt).getTime(), fixedNow.getTime() - 60 * 60_000);
+  assert.equal(new Date(defaults.endsAt).getTime(), fixedNow.getTime() + 24 * 60 * 60_000);
+  assert.equal(dateTimeLocalValue("not-a-date"), "");
+  assert.equal(new Date(dateTimeLocalValue(fixedNow)).getTime(), fixedNow.getTime());
+  assert.equal(dateTimeLocalToIso("not-a-date"), null);
+  assert.equal(dateTimeLocalToIso(defaults.startsAt), new Date(defaults.startsAt).toISOString());
+
+  const valid = {
+    sale_enabled: true,
+    sale_starts_at: "2026-05-14T09:00:00.000Z",
+    sale_ends_at: "2026-05-14T11:00:00.000Z",
+  };
+  assert.equal(isValidSaleWindowPayload(valid), true);
+  assert.equal(isValidSaleWindowPayload({ sale_enabled: false }), true);
+  assert.equal(isValidSaleWindowPayload({ ...valid, sale_ends_at: valid.sale_starts_at }), false);
+  assert.equal(isValidSaleWindowPayload({ ...valid, sale_starts_at: "bad" }), false);
+  assert.equal(isItemOnSale(valid, Date.parse(valid.sale_starts_at)), true);
+  assert.equal(isItemOnSale(valid, Date.parse(valid.sale_ends_at)), false);
+  assert.equal(isItemOnSale({}, fixedNow.getTime()), false);
+
+  assert.deepEqual(itemEditApiPayload({ name: "Milk", sale_enabled: false }), {
+    name: "Milk",
+    quantity_text: null,
+    note: null,
+    category_id: null,
+  });
+  assert.deepEqual(itemEditApiPayload({ name: "Milk", ...valid }), {
+    name: "Milk",
+    quantity_text: null,
+    note: null,
+    category_id: null,
+    sale_starts_at: valid.sale_starts_at,
+    sale_ends_at: valid.sale_ends_at,
+  });
+  assert.deepEqual(
+    itemEditApiPayload(
+      { name: "Milk", sale_enabled: false },
+      { sale_starts_at: valid.sale_starts_at, sale_ends_at: valid.sale_ends_at },
+    ),
+    {
+      name: "Milk",
+      quantity_text: null,
+      note: null,
+      category_id: null,
+      sale_starts_at: null,
+      sale_ends_at: null,
+    },
+  );
+});
+
+test("sale controls default, reveal, and disable their date fields", () => {
+  const dom = new JSDOM(`
+    <form>
+      <input type="checkbox" name="sale_enabled" />
+      <div data-sale-window-fields hidden>
+        <input type="datetime-local" name="sale_starts_at" disabled />
+        <input type="datetime-local" name="sale_ends_at" disabled />
+      </div>
+    </form>
+  `);
+  const originals = {
+    FormData: globalThis.FormData,
+    HTMLElement: globalThis.HTMLElement,
+    HTMLButtonElement: globalThis.HTMLButtonElement,
+    HTMLFormElement: globalThis.HTMLFormElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+  };
+  setDomGlobals(dom);
+  try {
+    const form = dom.window.document.querySelector("form");
+    syncSaleWindowControls(null);
+    syncSaleWindowControls(dom.window.document.createElement("form"));
+    syncSaleWindowControls(form);
+    assert.equal(form.elements.namedItem("sale_starts_at").disabled, true);
+    form.elements.namedItem("sale_enabled").checked = true;
+    syncSaleWindowControls(form, { useDefaults: true });
+    assert.equal(form.querySelector("[data-sale-window-fields]").hidden, false);
+    assert.equal(form.elements.namedItem("sale_starts_at").required, true);
+    assert.notEqual(form.elements.namedItem("sale_starts_at").value, "");
+    assert.notEqual(form.elements.namedItem("sale_ends_at").value, "");
+    syncSaleWindowControls(form, { useDefaults: true });
+    form.elements.namedItem("sale_enabled").checked = false;
+    syncSaleWindowControls(form);
+    assert.equal(form.querySelector("[data-sale-window-fields]").hidden, true);
+  } finally {
+    restoreDomGlobals(originals);
+  }
+});
+
+test("renderItems promotes all active sale-window items without replacing normal rows", () => {
+  const { document, root } = createListRoot();
+  const saleWindow = {
+    sale_starts_at: "2020-01-01T00:00:00.000Z",
+    sale_ends_at: "2099-01-01T00:00:00.000Z",
+  };
+  const active = {
+    id: "sale-active",
+    name: "Sale active",
+    checked: false,
+    checked_at: null,
+    category_id: null,
+    note: "discounted",
+    quantity_text: "2",
+    sort_order: 0,
+    ...saleWindow,
+  };
+  const hidden = {
+    ...active,
+    id: "sale-hidden",
+    name: "Sale hidden",
+    hidden_until: "2099-01-01T00:00:00.000Z",
+    sort_order: 1,
+  };
+  const checked = {
+    ...active,
+    id: "sale-checked",
+    name: "Sale checked",
+    checked: true,
+    checked_at: "2026-05-14T10:00:00.000Z",
+    sort_order: 2,
+  };
+  const future = {
+    ...active,
+    id: "future-sale",
+    name: "Future sale",
+    sale_starts_at: "2099-01-01T00:00:00.000Z",
+    sale_ends_at: "2099-01-02T00:00:00.000Z",
+    sort_order: 3,
+  };
+  const state = createState([active, hidden, checked, future]);
+  state.highlightedItemId = checked.id;
+
+  renderItems(root, state);
+
+  const saleSection = document.querySelector("[data-item-sale-section]");
+  assert.equal(saleSection.querySelector(".item-category-header h3").textContent, "On sale");
+  assert.equal(saleSection.querySelector(".item-category-meta").textContent, "3 items");
+  assert.equal(saleSection.querySelectorAll("[data-item-sale-card]").length, 3);
+  assert.equal(saleSection.querySelectorAll(".item-sale-badge").length, 3);
+  assert.equal(saleSection.querySelector('[data-item-sale-card="sale-checked"]').classList.contains("is-checked"), true);
+  assert.equal(saleSection.querySelector('[data-item-sale-card="sale-checked"]').classList.contains("is-highlighted"), true);
+  assert.equal(document.querySelectorAll('[data-item-card="sale-active"]').length, 1);
+  assert.equal(document.querySelectorAll('[data-item-card].is-on-sale').length, 3);
+  assert.equal(document.querySelectorAll('[data-item-toggle="sale-active"]').length, 2);
+  assert.equal(document.querySelector('[data-item-card="future-sale"] .item-sale-badge'), null);
 });
 
 test("renderItems hides active items until their hidden_until time", () => {
@@ -1440,6 +1608,86 @@ test("live item editing debounces saves, flushes before close, and undoes local 
     assert.equal(calls[3].payload.quantity_text, "2 cartons");
     assert.equal(form.elements.namedItem("quantity_text").value, "2 cartons");
     assert.equal(document.querySelector("[data-list-success]").textContent, "Edit redone.");
+  } finally {
+    restoreDomGlobals(originals);
+    setGlobalProperty("document", originals.document);
+    setGlobalProperty("fetch", originals.fetch);
+    setGlobalProperty("navigator", originals.navigator);
+    setGlobalProperty("window", originals.window);
+  }
+});
+
+test("live item editing saves, validates, and clears sale windows", async () => {
+  const { document, root, window } = createEditListRoot();
+  const originals = {
+    FormData: globalThis.FormData,
+    HTMLElement: globalThis.HTMLElement,
+    HTMLFormElement: globalThis.HTMLFormElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    document: globalThis.document,
+    fetch: globalThis.fetch,
+    navigator: globalThis.navigator,
+    window: globalThis.window,
+  };
+  const state = createState([
+    {
+      id: "item-1",
+      list_id: "list-1",
+      name: "Milk",
+      checked: false,
+      checked_at: null,
+      category_id: null,
+      note: null,
+      quantity_text: null,
+      sale_starts_at: "2026-05-14T09:00:00.000Z",
+      sale_ends_at: "2026-05-14T11:00:00.000Z",
+      sort_order: 0,
+    },
+  ]);
+  const calls = [];
+
+  setDomGlobals({ window });
+  setGlobalProperty("document", document);
+  setGlobalProperty("window", window);
+  setGlobalProperty("navigator", { onLine: true });
+  setGlobalProperty("fetch", async (url, options) => {
+    const payload = JSON.parse(options.body);
+    calls.push({ url, payload });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ ...state.items.get("item-1"), ...payload }),
+    };
+  });
+
+  try {
+    setItemEditPanelOpen(root, state, "item-1");
+    const form = document.querySelector("[data-item-edit-form]");
+    const enabled = form.elements.namedItem("sale_enabled");
+    const starts = form.elements.namedItem("sale_starts_at");
+    const ends = form.elements.namedItem("sale_ends_at");
+    assert.equal(enabled.checked, true);
+    assert.notEqual(starts.value, "");
+    assert.equal(readItemEditFormPayload(root).sale_enabled, true);
+
+    enabled.checked = false;
+    syncSaleWindowControls(form);
+    assert.equal(await flushItemEditSave(root, state), true);
+    assert.equal(calls[0].payload.sale_starts_at, null);
+    assert.equal(calls[0].payload.sale_ends_at, null);
+
+    enabled.checked = true;
+    syncSaleWindowControls(form, { useDefaults: true });
+    ends.value = starts.value;
+    assert.equal(await flushItemEditSave(root, state), false);
+    assert.equal(calls.length, 1);
+    assert.equal(document.querySelector("[data-item-edit-status-text]").textContent, "Sale end must be after its start.");
+
+    ends.value = dateTimeLocalValue(new Date(new Date(starts.value).getTime() + 60 * 60_000));
+    assert.equal(await flushItemEditSave(root, state), true);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].payload.sale_starts_at, new Date(starts.value).toISOString());
+    assert.equal(calls[1].payload.sale_ends_at, new Date(ends.value).toISOString());
   } finally {
     restoreDomGlobals(originals);
     setGlobalProperty("document", originals.document);

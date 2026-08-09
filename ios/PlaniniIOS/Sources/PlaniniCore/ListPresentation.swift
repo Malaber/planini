@@ -227,6 +227,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
     public let checked: Bool
     public let checkedAt: Date?
     public let hiddenUntil: Date?
+    public let saleStartsAt: Date?
+    public let saleEndsAt: Date?
     public let sortOrder: Int
 
     public init(
@@ -239,6 +241,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
         checked: Bool,
         checkedAt: Date?,
         hiddenUntil: Date? = nil,
+        saleStartsAt: Date? = nil,
+        saleEndsAt: Date? = nil,
         sortOrder: Int
     ) {
         self.id = id
@@ -250,6 +254,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
         self.checked = checked
         self.checkedAt = checkedAt
         self.hiddenUntil = hiddenUntil
+        self.saleStartsAt = saleStartsAt
+        self.saleEndsAt = saleEndsAt
         self.sortOrder = sortOrder
     }
 
@@ -266,6 +272,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
 
         let checkedAt = Self.parseDate(json["checked_at"] as? String)
         let hiddenUntil = Self.parseDate(json["hidden_until"] as? String)
+        let saleStartsAt = Self.parseDate(json["sale_starts_at"] as? String)
+        let saleEndsAt = Self.parseDate(json["sale_ends_at"] as? String)
 
         self.init(
             id: id,
@@ -277,6 +285,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
             checked: (json["checked"] as? Bool) ?? false,
             checkedAt: checkedAt,
             hiddenUntil: hiddenUntil,
+            saleStartsAt: saleStartsAt,
+            saleEndsAt: saleEndsAt,
             sortOrder: (json["sort_order"] as? Int) ?? 0
         )
     }
@@ -284,6 +294,11 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
     public func isHiddenForLater(at now: Date = Date()) -> Bool {
         guard checked == false, let hiddenUntil else { return false }
         return hiddenUntil > now
+    }
+
+    public func isOnSale(at now: Date = Date()) -> Bool {
+        guard let saleStartsAt, let saleEndsAt else { return false }
+        return saleStartsAt <= now && now < saleEndsAt
     }
 
     private static func parseDate(_ value: String?) -> Date? {
@@ -455,6 +470,7 @@ public enum GroceryItemSuggestionMatcher {
 }
 
 public enum GroceryItemSectionKind: Hashable, Sendable {
+    case onSale
     case uncategorized
     case category(UUID)
     case hidden
@@ -484,6 +500,8 @@ public struct GroceryItemSection: Identifiable, Equatable, Sendable {
 
     public var id: String {
         switch kind {
+        case .onSale:
+            return "on-sale"
         case .uncategorized:
             return "uncategorized"
         case let .category(categoryID):
@@ -529,8 +547,30 @@ public enum GroceryItemSectionBuilder {
         let checkedItems = items
             .filter(\.checked)
             .sorted(by: compareCheckedItems)
+        let onSaleItems = items
+            .filter { $0.isOnSale(at: now) }
+            .sorted { left, right in
+                compareActiveItems(
+                    left,
+                    right,
+                    categoryLookup: categoryLookup,
+                    explicitOrder: explicitOrder
+                )
+            }
 
         var sections: [GroceryItemSection] = []
+
+        if onSaleItems.isEmpty == false {
+            sections.append(
+                GroceryItemSection(
+                    kind: .onSale,
+                    title: "On sale",
+                    itemCount: onSaleItems.count,
+                    colorHex: "#f59e0b",
+                    items: onSaleItems
+                )
+            )
+        }
 
         let groupedActiveItems = Dictionary(grouping: activeItems) { item in
             item.categoryID.map(GroceryItemSectionKind.category) ?? .uncategorized

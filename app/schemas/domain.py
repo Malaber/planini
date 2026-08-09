@@ -1,9 +1,42 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.common import ORMModel
+
+SALE_WINDOW_FIELDS = frozenset({"sale_starts_at", "sale_ends_at"})
+
+
+class GroceryItemSaleWindowInput(BaseModel):
+    sale_starts_at: datetime | None = None
+    sale_ends_at: datetime | None = None
+
+    @field_validator("sale_starts_at", "sale_ends_at")
+    @classmethod
+    def normalize_sale_datetime(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.utcoffset() is None:
+            raise ValueError("Sale schedule datetimes must include a timezone offset.")
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_sale_window(self) -> "GroceryItemSaleWindowInput":
+        provided_fields = self.model_fields_set & SALE_WINDOW_FIELDS
+        if provided_fields and provided_fields != SALE_WINDOW_FIELDS:
+            raise ValueError("sale_starts_at and sale_ends_at must be provided together.")
+        if (self.sale_starts_at is None) != (self.sale_ends_at is None):
+            raise ValueError(
+                "sale_starts_at and sale_ends_at must both be null or both be datetimes."
+            )
+        if (
+            self.sale_starts_at is not None
+            and self.sale_ends_at is not None
+            and self.sale_starts_at >= self.sale_ends_at
+        ):
+            raise ValueError("sale_starts_at must be before sale_ends_at.")
+        return self
 
 
 class HouseholdCreate(BaseModel):
@@ -93,7 +126,7 @@ class ListDisabledCategoriesOut(BaseModel):
     category_ids: list[UUID]
 
 
-class GroceryItemCreate(BaseModel):
+class GroceryItemCreate(GroceryItemSaleWindowInput):
     name: str
     quantity_text: str | None = None
     note: str | None = None
@@ -101,7 +134,7 @@ class GroceryItemCreate(BaseModel):
     sort_order: int = 0
 
 
-class GroceryItemUpdate(BaseModel):
+class GroceryItemUpdate(GroceryItemSaleWindowInput):
     name: str | None = None
     list_id: UUID | None = None
     quantity_text: str | None = None
@@ -122,7 +155,18 @@ class GroceryItemOut(ORMModel):
     checked_at: datetime | None
     checked_state_recorded_at: datetime | None
     hidden_until: datetime | None
+    sale_starts_at: datetime | None
+    sale_ends_at: datetime | None
     sort_order: int
+
+    @field_validator("sale_starts_at", "sale_ends_at")
+    @classmethod
+    def normalize_stored_sale_datetime(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.utcoffset() is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
 
 class GroceryItemsWindowOut(BaseModel):
