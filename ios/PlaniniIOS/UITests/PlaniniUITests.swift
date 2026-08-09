@@ -676,7 +676,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(
             waitForItemCategory(
                 named: updatedName,
-                categoryNamed: "Konserven",
+                categoryNamed: "Canned Goods",
                 inListNamed: initialListName,
                 accessToken: session.accessToken,
                 timeout: 20

@@ -133,6 +133,24 @@
               <span>{{ t("list_detail.note") }}</span>
               <input type="text" name="note" placeholder="{{ t("list_detail.note_placeholder") }}" />
             </label>
+            <fieldset class="dashboard-field item-sale-fields">
+              <legend>{{ t("list_detail.sale_section") }}</legend>
+              <label class="item-sale-toggle">
+                <input type="checkbox" name="sale_enabled" />
+                <span>{{ t("list_detail.sale_enabled") }}</span>
+              </label>
+              <p class="dashboard-helper">{{ t("list_detail.sale_explanation") }}</p>
+              <div class="item-sale-window" data-sale-window-fields hidden>
+                <label class="dashboard-field">
+                  <span>{{ t("list_detail.sale_starts_at") }}</span>
+                  <input type="datetime-local" name="sale_starts_at" disabled />
+                </label>
+                <label class="dashboard-field">
+                  <span>{{ t("list_detail.sale_ends_at") }}</span>
+                  <input type="datetime-local" name="sale_ends_at" disabled />
+                </label>
+              </div>
+            </fieldset>
           </div>
         </details>
       </form>
@@ -259,6 +277,24 @@
           <span>{{ t("list_detail.note") }}</span>
           <input type="text" name="note" />
         </label>
+        <fieldset class="dashboard-field item-sale-fields">
+          <legend>{{ t("list_detail.sale_section") }}</legend>
+          <label class="item-sale-toggle">
+            <input type="checkbox" name="sale_enabled" />
+            <span>{{ t("list_detail.sale_enabled") }}</span>
+          </label>
+          <p class="dashboard-helper">{{ t("list_detail.sale_explanation") }}</p>
+          <div class="item-sale-window" data-sale-window-fields hidden>
+            <label class="dashboard-field">
+              <span>{{ t("list_detail.sale_starts_at") }}</span>
+              <input type="datetime-local" name="sale_starts_at" disabled />
+            </label>
+            <label class="dashboard-field">
+              <span>{{ t("list_detail.sale_ends_at") }}</span>
+              <input type="datetime-local" name="sale_ends_at" disabled />
+            </label>
+          </div>
+        </fieldset>
         <label class="dashboard-field" data-item-edit-list-field hidden>
           <span>{{ t("list_detail.move_to_list") }}</span>
           <select name="list_id" data-item-edit-list-select></select>
