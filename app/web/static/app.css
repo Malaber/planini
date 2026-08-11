@@ -5,6 +5,8 @@
   --brand-aqua-soft: #f1e6dc;
   --brand-lime: #b59676;
   --brand-lime-soft: #f8efe6;
+  --sale: #f59e0b;
+  --sale-soft: #fff4d6;
   --surface: rgba(255, 255, 255, 0.86);
   --surface-strong: #ffffff;
   --surface-muted: #f8f3ee;
@@ -287,6 +289,44 @@ main {
   background: var(--surface-strong);
   color: var(--text);
   font-size: 16px;
+}
+
+.item-sale-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.item-sale-fields legend {
+  margin-bottom: 0.5rem;
+  padding: 0;
+  font-weight: 700;
+}
+
+.item-sale-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-weight: 700;
+}
+
+.dashboard-field .item-sale-toggle input {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--sale);
+}
+
+.item-sale-window {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.item-sale-window[hidden] {
+  display: none;
 }
 
 .category-radio-group {
@@ -978,6 +1018,14 @@ a.public-list-entry:hover {
   background: var(--brand-lime-soft);
 }
 
+.item-card.is-on-sale {
+  background: var(--sale-soft);
+}
+
+.item-card.is-on-sale.is-checked {
+  background: linear-gradient(90deg, var(--sale-soft), var(--brand-lime-soft));
+}
+
 .item-card.is-highlighted {
   box-shadow: inset 0 0 0 2px var(--brand-aqua);
 }
@@ -1090,6 +1138,25 @@ a.public-list-entry:hover {
 
 .item-copy {
   min-width: 0;
+}
+
+.item-name-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.item-sale-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.14rem 0.48rem;
+  background: var(--sale);
+  color: #4d2d00;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
 .item-name {
@@ -1244,6 +1311,11 @@ a.public-list-entry:hover {
   background: var(--surface-strong);
   overflow: visible;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.item-sale-group {
+  border-color: rgba(245, 158, 11, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.18);
 }
 
 .item-category-header {
@@ -2192,6 +2264,10 @@ a.public-list-entry:hover {
 }
 
 @media (max-width: 720px) {
+  .item-sale-window {
+    grid-template-columns: 1fr;
+  }
+
   html {
     font-size: 16px;
   }

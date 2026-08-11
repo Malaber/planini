@@ -105,6 +105,12 @@ def test_review_e2e_seed_fixture_contains_private_passkey_material() -> None:
         for grocery_list in primary_household["lists"]
         if grocery_list["name"] == payload["e2e"]["checked_stress_list"]
     )
+    primary_list = next(
+        grocery_list
+        for grocery_list in primary_household["lists"]
+        if grocery_list["name"] == payload["e2e"]["primary_list"]
+    )
+    sale_item = next(item for item in primary_list["items"] if item["name"] == "Sale apples")
 
     assert payload["e2e"]["owner_email"] == "planini@schaedler.rocks"
     assert payload["e2e"]["invitee_email"] == "preview-invitee@example.com"
@@ -113,6 +119,8 @@ def test_review_e2e_seed_fixture_contains_private_passkey_material() -> None:
     assert all(category["name"] for category in payload["categories"])
     assert all(category["translations"]["de"] for category in payload["categories"])
     assert sum(1 for item in checked_stress_list["items"] if item["checked"]) == 258
+    assert sale_item["sale_starts_at"] == "2020-01-01T00:00:00+00:00"
+    assert sale_item["sale_ends_at"] == "2099-01-01T00:00:00+00:00"
     assert users["planini@schaedler.rocks"]["passkey"]["private_key_pkcs8_b64"]
     assert users["planini@schaedler.rocks"]["passkey"]["user_handle_b64"]
     assert users["preview-invitee@example.com"]["passkey"]["private_key_pkcs8_b64"]

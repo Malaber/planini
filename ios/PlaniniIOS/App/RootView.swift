@@ -2092,6 +2092,7 @@ private struct ListDetailScreen: View {
     @State private var isRunningUndo = false
     @State private var showingListSettings = false
     @State private var targetedDropSectionID: String?
+    @State private var saleClock = Date()
 
     init(
         listID: UUID,
@@ -2151,7 +2152,7 @@ private struct ListDetailScreen: View {
     }
 
     private var displaySections: [ListDisplaySection] {
-        var sections = viewModel.sections.map(ListDisplaySection.init)
+        var sections = currentSections.map(ListDisplaySection.init)
         guard let moveNotice else { return sections }
 
         let noticeSection = displaySection(for: moveNotice)
@@ -2163,6 +2164,22 @@ private struct ListDetailScreen: View {
 
         sections.insert(noticeSection, at: insertionIndex(for: noticeSection, in: sections))
         return sections
+    }
+
+    private var currentSections: [GroceryItemSection] {
+        GroceryItemSectionBuilder.build(
+            items: viewModel.items,
+            categories: viewModel.categories,
+            categoryOrder: viewModel.categoryOrder,
+            now: saleClock
+        )
+    }
+
+    private var nextSaleBoundary: Date? {
+        viewModel.items
+            .flatMap { [$0.saleStartsAt, $0.saleEndsAt].compactMap { $0 } }
+            .filter { $0 > saleClock }
+            .min()
     }
 
     private var visibleRowIDs: [String] {
@@ -2186,8 +2203,8 @@ private struct ListDetailScreen: View {
                             l10n.t(
                                 "ios.list.item_summary",
                                 [
-                                    "items": viewModel.sections.reduce(0) { $0 + $1.itemCount },
-                                    "sections": viewModel.sections.count,
+                                    "items": viewModel.items.count,
+                                    "sections": currentSections.count,
                                 ]
                             )
                         )
@@ -2212,7 +2229,7 @@ private struct ListDetailScreen: View {
                         ForEach(section.rows) { row in
                             switch row {
                             case let .item(item):
-                                ItemRow(item: item) {
+                                ItemRow(item: item, isOnSaleProjection: section.kind == .onSale) {
                                     editingItem = item
                                 } onDelete: {
                                     deleteItem(item)
@@ -2319,6 +2336,20 @@ private struct ListDetailScreen: View {
                 await viewModel.selectList(id: displayedListID)
             }
         }
+        .task(id: nextSaleBoundary) {
+            guard let nextSaleBoundary else { return }
+            while true {
+                let delay = nextSaleBoundary.timeIntervalSinceNow
+                guard delay > 0 else { break }
+                do {
+                    let sleepSeconds = min(delay, 24 * 60 * 60)
+                    try await Task.sleep(nanoseconds: UInt64(sleepSeconds * 1_000_000_000))
+                } catch {
+                    return
+                }
+            }
+            saleClock = Date()
+        }
         .onChange(of: listID) { newValue in
             displayedListID = newValue
         }
@@ -2403,6 +2434,8 @@ private struct ListDetailScreen: View {
 
     private func sectionID(for kind: GroceryItemSectionKind) -> String {
         switch kind {
+        case .onSale:
+            return "on-sale"
         case .uncategorized:
             return "uncategorized"
         case let .category(categoryID):
@@ -2416,8 +2449,10 @@ private struct ListDetailScreen: View {
 
     private func insertionIndex(for section: ListDisplaySection, in sections: [ListDisplaySection]) -> Int {
         switch section.kind {
-        case .uncategorized:
+        case .onSale:
             return 0
+        case .uncategorized:
+            return sections.firstIndex { $0.kind != .onSale } ?? sections.endIndex
         case .hidden:
             return sections.firstIndex { $0.kind == .checked } ?? sections.endIndex
         case .checked:
@@ -2431,7 +2466,7 @@ private struct ListDetailScreen: View {
                 case let .category(existingID):
                     let existingSortOrder = viewModel.categoryOrder.first { $0.categoryID == existingID }?.sortOrder ?? Int.max
                     return existingSortOrder > sortOrder
-                case .uncategorized:
+                case .onSale, .uncategorized:
                     return false
                 }
             } ?? sections.endIndex
@@ -2571,7 +2606,10 @@ private struct ListDetailScreen: View {
     }
 
     private func rowHighlight(for item: GroceryItemRecord) -> Color {
-        item.id == highlightedItemID ? Color.accentColor.opacity(0.16) : Color.clear
+        if item.id == highlightedItemID {
+            return Color.accentColor.opacity(0.16)
+        }
+        return item.isOnSale() ? Color.orange.opacity(0.14) : Color.clear
     }
 
     private func runUndoToast(_ toast: ListUndoToast) {
@@ -2592,6 +2630,8 @@ private struct ListDetailScreen: View {
 
     private func localizedTitle(for section: ListDisplaySection) -> String {
         switch section.kind {
+        case .onSale:
+            return l10n.t("ios.list.on_sale")
         case .uncategorized:
             return l10n.t("ios.list.uncategorized")
         case .hidden:
@@ -3191,7 +3231,7 @@ private struct SectionHeader: View {
 
     private var allowsQuickAdd: Bool {
         switch section.kind {
-        case .hidden, .checked:
+        case .onSale, .hidden, .checked:
             return false
         case .uncategorized, .category:
             return true
@@ -3200,7 +3240,7 @@ private struct SectionHeader: View {
 
     private var quickAddCategoryID: UUID? {
         switch section.kind {
-        case .uncategorized, .hidden, .checked:
+        case .onSale, .uncategorized, .hidden, .checked:
             return nil
         case let .category(categoryID):
             return categoryID
@@ -3292,12 +3332,20 @@ private struct ItemRow: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
     let item: GroceryItemRecord
+    let isOnSaleProjection: Bool
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onUndoableAction: (String, @escaping ListUndoAction) -> Void
 
     private var isHiddenForLater: Bool {
         item.isHiddenForLater()
+    }
+
+    private func presentationIdentifier(_ prefix: String) -> String {
+        if isOnSaleProjection {
+            return "\(prefix)-on-sale-\(item.id.uuidString)"
+        }
+        return "\(prefix)-\(item.id.uuidString)"
     }
 
     private var toggleSystemImageName: String {
@@ -3383,15 +3431,26 @@ private struct ItemRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("toggle-item-\(item.id.uuidString)")
+            .accessibilityIdentifier(presentationIdentifier("toggle-item"))
             .accessibilityLabel(toggleAccessibilityLabel)
 
             Button(action: onEdit) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(item.name)
-                            .strikethrough(item.checked)
-                            .foregroundStyle(item.checked ? .secondary : .primary)
+                        HStack(spacing: 6) {
+                            Text(item.name)
+                                .strikethrough(item.checked)
+                                .foregroundStyle(item.checked ? .secondary : .primary)
+
+                            if item.isOnSale() {
+                                Label(l10n.t("ios.item.on_sale_badge"), systemImage: "tag.fill")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.orange)
+                                    .accessibilityIdentifier(
+                                        presentationIdentifier("item-on-sale-badge")
+                                    )
+                            }
+                        }
 
                         if let quantity = item.quantityText, quantity.isEmpty == false {
                             Text(l10n.t("ios.item.quantity_value", ["quantity": quantity]))
@@ -3411,11 +3470,11 @@ private struct ItemRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("edit-item-row-\(item.id.uuidString)")
+            .accessibilityIdentifier(presentationIdentifier("edit-item-row"))
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("item-row-\(item.id.uuidString)")
+        .accessibilityIdentifier(presentationIdentifier("item-row"))
         .onDrag {
             AppHaptics.dragStart()
             return NSItemProvider(object: item.id.uuidString as NSString)
@@ -3437,7 +3496,7 @@ private struct ItemRow: View {
                     Label(l10n.t("ios.item.show_hidden", ["name": item.name]), systemImage: "hourglass.circle")
                 }
                 .tint(.orange)
-                .accessibilityIdentifier("unhide-item-\(item.id.uuidString)")
+                .accessibilityIdentifier(presentationIdentifier("unhide-item"))
             } else if item.checked == false {
                 Button {
                     Task {
@@ -3447,7 +3506,7 @@ private struct ItemRow: View {
                     Label(l10n.t("ios.item.hide_for_later_short"), systemImage: "hourglass")
                 }
                 .tint(.orange)
-                .accessibilityIdentifier("hide-item-\(item.id.uuidString)")
+                .accessibilityIdentifier(presentationIdentifier("hide-item"))
             }
         }
         .swipeActions {
@@ -3456,7 +3515,7 @@ private struct ItemRow: View {
             } label: {
                 Label(l10n.t("common.delete"), systemImage: "trash")
             }
-            .accessibilityIdentifier("delete-item-\(item.id.uuidString)")
+            .accessibilityIdentifier(presentationIdentifier("delete-item"))
 
             Button {
                 onEdit()
@@ -3464,7 +3523,7 @@ private struct ItemRow: View {
                 Label(l10n.t("common.edit"), systemImage: "pencil")
             }
             .tint(.blue)
-            .accessibilityIdentifier("edit-item-\(item.id.uuidString)")
+            .accessibilityIdentifier(presentationIdentifier("edit-item"))
         }
     }
 }
@@ -3930,6 +3989,9 @@ private struct EditItemSheet: View {
     @State private var quantity: String
     @State private var note: String
     @State private var categoryID: UUID?
+    @State private var saleEnabled: Bool
+    @State private var saleStartsAt: Date
+    @State private var saleEndsAt: Date
     @State private var history: GroceryItemEditHistory
     @State private var lastSavedPayload: GroceryItemEditPayload
     @State private var saveTask: Task<Void, Never>?
@@ -3942,7 +4004,8 @@ private struct EditItemSheet: View {
         case saved
         case saving
         case offline
-        case invalid
+        case invalidName
+        case invalidSaleWindow
 
         var labelKey: String {
             switch self {
@@ -3952,8 +4015,10 @@ private struct EditItemSheet: View {
                 return "ios.item.status_saving"
             case .offline:
                 return "ios.item.status_saved_offline"
-            case .invalid:
+            case .invalidName:
                 return "ios.item.status_name_required"
+            case .invalidSaleWindow:
+                return "ios.item.status_sale_window_invalid"
             }
         }
 
@@ -3965,8 +4030,10 @@ private struct EditItemSheet: View {
                 return "saving"
             case .offline:
                 return "saved-offline"
-            case .invalid:
-                return "invalid"
+            case .invalidName:
+                return "invalid-name"
+            case .invalidSaleWindow:
+                return "invalid-sale-window"
             }
         }
 
@@ -3978,8 +4045,17 @@ private struct EditItemSheet: View {
                 return "arrow.triangle.2.circlepath"
             case .offline:
                 return "icloud.slash"
-            case .invalid:
+            case .invalidName, .invalidSaleWindow:
                 return "exclamationmark.triangle"
+            }
+        }
+
+        var isInvalid: Bool {
+            switch self {
+            case .invalidName, .invalidSaleWindow:
+                return true
+            case .saved, .saving, .offline:
+                return false
             }
         }
     }
@@ -3997,6 +4073,16 @@ private struct EditItemSheet: View {
         _quantity = State(initialValue: item.quantityText ?? "")
         _note = State(initialValue: item.note ?? "")
         _categoryID = State(initialValue: item.categoryID)
+        let saleDefaultNow = Date()
+        let defaultSaleStart = item.saleStartsAt ?? saleDefaultNow.addingTimeInterval(-60 * 60)
+        let defaultSaleEndReference = item.saleStartsAt ?? saleDefaultNow
+        _saleEnabled = State(initialValue: item.saleStartsAt != nil && item.saleEndsAt != nil)
+        _saleStartsAt = State(initialValue: defaultSaleStart)
+        _saleEndsAt = State(
+            initialValue: item.saleEndsAt
+                ?? Calendar.current.date(byAdding: .day, value: 7, to: defaultSaleEndReference)
+                ?? defaultSaleEndReference.addingTimeInterval(7 * 24 * 60 * 60)
+        )
         _history = State(initialValue: Self.loadHistory(itemID: item.id))
         _lastSavedPayload = State(initialValue: payload)
     }
@@ -4008,105 +4094,13 @@ private struct EditItemSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(l10n.t("ios.item.item_section")) {
-                    TextField(l10n.t("ios.item.name"), text: $name)
-                        .accessibilityIdentifier("edit-item-name-field")
-                    TextField(l10n.t("ios.item.quantity"), text: $quantity)
-                        .accessibilityIdentifier("edit-item-quantity-field")
-                }
-
-                Section(l10n.t("ios.item.category_section")) {
-                    NavigationLink {
-                        CategorySelectionScreen(
-                            selectedCategoryID: $categoryID,
-                            categories: viewModel.categories,
-                            items: viewModel.items,
-                            categoryOrder: viewModel.categoryOrder
-                        )
-                    } label: {
-                        SelectedCategorySummary(
-                            category: selectedCategory,
-                            itemCount: selectedCategoryItemCount
-                        )
-                    }
-                    .accessibilityIdentifier("edit-item-category-link")
-                }
-
-                if moveTargets.count > 1 {
-                    Section(l10n.t("ios.item.move_section")) {
-                        ForEach(moveTargets) { list in
-                            if list.id == item.listID {
-                                Label {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(list.name)
-                                        Text(l10n.t("ios.item.current_list"))
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                } icon: {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                }
-                                .accessibilityIdentifier("edit-item-current-list-\(list.id.uuidString)")
-                            } else {
-                                Button {
-                                    move(to: list.id)
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        Text(list.name)
-                                        Spacer()
-                                        Image(systemName: "arrow.right")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .contentShape(Rectangle())
-                                }
-                                .disabled(isMoving)
-                                .accessibilityIdentifier("edit-item-move-list-\(list.id.uuidString)")
-                                .accessibilityLabel(l10n.t("ios.item.move_to_list_named", ["list": list.name]))
-                            }
-                        }
-
-                        if isMoving {
-                            Label(l10n.t("ios.item.moving"), systemImage: "arrow.right")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                Section(l10n.t("ios.item.notes_section")) {
-                    TextField(l10n.t("ios.item.note"), text: $note, axis: .vertical)
-                        .accessibilityIdentifier("edit-item-note-field")
-                }
-
-                Section {
-                    Label(l10n.t(saveStatus.labelKey), systemImage: saveStatus.systemImage)
-                        .font(.footnote)
-                        .foregroundStyle(saveStatus == .invalid ? .red : .secondary)
-                        .accessibilityIdentifier("edit-item-save-status")
-                        .accessibilityValue(saveStatus.accessibilityValue)
-                }
-
-                if item.checked == false {
-                    Section {
-                        Button {
-                            performHiddenForLaterAction()
-                        } label: {
-                            Label(
-                                isHiddenForLater
-                                    ? l10n.t("ios.item.show_now_action")
-                                    : l10n.t("ios.item.save_for_later_action"),
-                                systemImage: isHiddenForLater ? "hourglass.circle" : "hourglass"
-                            )
-                        }
-                        .foregroundStyle(.orange)
-                        .accessibilityIdentifier(
-                            isHiddenForLater
-                                ? "edit-item-restore-hidden-button"
-                                : "edit-item-hide-for-later-button"
-                        )
-                    }
-                }
+                itemDetailsSection
+                categorySection
+                moveSection
+                notesSection
+                saleSection
+                saveStatusSection
+                hiddenForLaterSection
             }
             .navigationTitle(l10n.t("ios.item.edit_title"))
             .navigationBarTitleDisplayMode(.inline)
@@ -4148,6 +4142,9 @@ private struct EditItemSheet: View {
         .onChange(of: quantity) { _ in scheduleAutosave() }
         .onChange(of: note) { _ in scheduleAutosave() }
         .onChange(of: categoryID) { _ in scheduleAutosave() }
+        .onChange(of: saleEnabled) { _ in scheduleAutosave() }
+        .onChange(of: saleStartsAt) { _ in scheduleAutosave() }
+        .onChange(of: saleEndsAt) { _ in scheduleAutosave() }
         .onDisappear {
             persistHistory()
             if didMoveItem == false {
@@ -4157,12 +4154,172 @@ private struct EditItemSheet: View {
         .accessibilityIdentifier("edit-item-sheet")
     }
 
+    private var itemDetailsSection: some View {
+        Section(l10n.t("ios.item.item_section")) {
+            TextField(l10n.t("ios.item.name"), text: $name)
+                .accessibilityIdentifier("edit-item-name-field")
+            TextField(l10n.t("ios.item.quantity"), text: $quantity)
+                .accessibilityIdentifier("edit-item-quantity-field")
+        }
+    }
+
+    private var categorySection: some View {
+        Section(l10n.t("ios.item.category_section")) {
+            NavigationLink {
+                CategorySelectionScreen(
+                    selectedCategoryID: $categoryID,
+                    categories: viewModel.categories,
+                    items: viewModel.items,
+                    categoryOrder: viewModel.categoryOrder
+                )
+            } label: {
+                SelectedCategorySummary(
+                    category: selectedCategory,
+                    itemCount: selectedCategoryItemCount
+                )
+            }
+            .accessibilityIdentifier("edit-item-category-link")
+        }
+    }
+
+    @ViewBuilder
+    private var moveSection: some View {
+        if moveTargets.count > 1 {
+            Section(l10n.t("ios.item.move_section")) {
+                ForEach(moveTargets) { list in
+                    moveTargetRow(for: list)
+                }
+
+                if isMoving {
+                    Label(l10n.t("ios.item.moving"), systemImage: "arrow.right")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func moveTargetRow(for list: GroceryListSummary) -> some View {
+        if list.id == item.listID {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(list.name)
+                    Text(l10n.t("ios.item.current_list"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            }
+            .accessibilityIdentifier("edit-item-current-list-\(list.id.uuidString)")
+        } else {
+            Button {
+                move(to: list.id)
+            } label: {
+                HStack(spacing: 12) {
+                    Text(list.name)
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .disabled(isMoving)
+            .accessibilityIdentifier("edit-item-move-list-\(list.id.uuidString)")
+            .accessibilityLabel(l10n.t("ios.item.move_to_list_named", ["list": list.name]))
+        }
+    }
+
+    private var notesSection: some View {
+        Section(l10n.t("ios.item.notes_section")) {
+            TextField(l10n.t("ios.item.note"), text: $note, axis: .vertical)
+                .accessibilityIdentifier("edit-item-note-field")
+        }
+    }
+
+    private var saleSection: some View {
+        Section {
+            saleControls
+        } header: {
+            Text(l10n.t("ios.item.sale_section"))
+        } footer: {
+            Text(l10n.t("ios.item.sale_explanation"))
+        }
+    }
+
+    @ViewBuilder
+    private var saleControls: some View {
+        Toggle(l10n.t("ios.item.sale_enabled"), isOn: $saleEnabled)
+            .accessibilityIdentifier("edit-item-sale-toggle")
+
+        if saleEnabled {
+            DatePicker(
+                l10n.t("ios.item.sale_starts_at"),
+                selection: $saleStartsAt,
+                displayedComponents: [.date, .hourAndMinute]
+            )
+            .accessibilityIdentifier("edit-item-sale-start-picker")
+
+            DatePicker(
+                l10n.t("ios.item.sale_ends_at"),
+                selection: $saleEndsAt,
+                displayedComponents: [.date, .hourAndMinute]
+            )
+            .accessibilityIdentifier("edit-item-sale-end-picker")
+
+            if saleStartsAt >= saleEndsAt {
+                Label(l10n.t("ios.item.sale_window_invalid"), systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("edit-item-sale-window-error")
+            }
+        }
+    }
+
+    private var saveStatusSection: some View {
+        Section {
+            Label(l10n.t(saveStatus.labelKey), systemImage: saveStatus.systemImage)
+                .font(.footnote)
+                .foregroundStyle(saveStatus.isInvalid ? .red : .secondary)
+                .accessibilityIdentifier("edit-item-save-status")
+                .accessibilityValue(saveStatus.accessibilityValue)
+        }
+    }
+
+    @ViewBuilder
+    private var hiddenForLaterSection: some View {
+        if item.checked == false {
+            Section {
+                Button {
+                    performHiddenForLaterAction()
+                } label: {
+                    Label(
+                        isHiddenForLater
+                            ? l10n.t("ios.item.show_now_action")
+                            : l10n.t("ios.item.save_for_later_action"),
+                        systemImage: isHiddenForLater ? "hourglass.circle" : "hourglass"
+                    )
+                }
+                .foregroundStyle(.orange)
+                .accessibilityIdentifier(
+                    isHiddenForLater
+                        ? "edit-item-restore-hidden-button"
+                        : "edit-item-hide-for-later-button"
+                )
+            }
+        }
+    }
+
     private var currentPayload: GroceryItemEditPayload {
         GroceryItemEditPayload(
             name: name,
             quantityText: quantity,
             note: note,
-            categoryID: categoryID
+            categoryID: categoryID,
+            saleStartsAt: saleEnabled ? saleStartsAt : nil,
+            saleEndsAt: saleEnabled ? saleEndsAt : nil
         )
     }
 
@@ -4208,8 +4365,12 @@ private struct EditItemSheet: View {
     private func scheduleAutosave(recordHistory: Bool) {
         saveTask?.cancel()
         let payload = currentPayload
+        guard payload.name.isEmpty == false else {
+            saveStatus = .invalidName
+            return
+        }
         guard payload.isValid else {
-            saveStatus = .invalid
+            saveStatus = .invalidSaleWindow
             return
         }
         if recordHistory {
@@ -4227,7 +4388,7 @@ private struct EditItemSheet: View {
                     lastSavedPayload = payload
                     saveStatus = viewModel.hasPendingEdit(for: item.id) ? .offline : .saved
                 } else {
-                    saveStatus = .invalid
+                    saveStatus = .invalidSaleWindow
                 }
             }
         }
@@ -4239,6 +4400,13 @@ private struct EditItemSheet: View {
         quantity = payload.quantityText ?? ""
         note = payload.note ?? ""
         categoryID = payload.categoryID
+        if let startsAt = payload.saleStartsAt, let endsAt = payload.saleEndsAt {
+            saleStartsAt = startsAt
+            saleEndsAt = endsAt
+            saleEnabled = true
+        } else {
+            saleEnabled = false
+        }
         persistHistory()
         scheduleAutosave(recordHistory: false)
         DispatchQueue.main.async {
@@ -4299,7 +4467,7 @@ private struct EditItemSheet: View {
         saveTask?.cancel()
         let payload = currentPayload
         guard payload.isValid else {
-            saveStatus = .invalid
+            saveStatus = payload.name.isEmpty ? .invalidName : .invalidSaleWindow
             return
         }
 

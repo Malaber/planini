@@ -2194,8 +2194,45 @@ async function main() {
       () => document.querySelector('[data-item-edit-form] input[name="quantity_text"]')?.value === "4 loaves",
       { timeout: 5000 },
     );
+    await editForm.getByLabel("On sale").check();
+    await expectVisible(
+      editForm.locator("[data-sale-window-fields]"),
+      "Enabling a sale should reveal its start and end controls",
+    );
     await page.locator("[data-item-edit-panel] .add-item-close[data-item-edit-close]").click();
     await expectHidden(page.locator("[data-item-edit-overlay]"), "Edit modal should close before opening settings");
+    const promotedTomaten = page.locator("[data-item-sale-card]", { hasText: "Tomaten" }).first();
+    await expectVisible(promotedTomaten, "Active sale item should be promoted in the On sale section");
+    await expectVisible(
+      itemCard(page, "Tomaten").locator(".item-sale-badge"),
+      "Normal item row should stay highlighted as on sale",
+    );
+    await promotedTomaten.locator("[data-item-toggle]").click();
+    await page.waitForFunction(
+      () => {
+        const promoted = [...document.querySelectorAll("[data-item-sale-card]")].find((node) =>
+          node.textContent?.includes("Tomaten"),
+        );
+        const normal = [...document.querySelectorAll("[data-item-card]")].find((node) =>
+          node.textContent?.includes("Tomaten"),
+        );
+        return Boolean(promoted?.classList.contains("is-checked") && normal?.classList.contains("is-checked"));
+      },
+      { timeout: 5000 },
+    );
+    await promotedTomaten.locator("[data-item-toggle]").click();
+    await page.waitForFunction(
+      () => {
+        const promoted = [...document.querySelectorAll("[data-item-sale-card]")].find((node) =>
+          node.textContent?.includes("Tomaten"),
+        );
+        const normal = [...document.querySelectorAll("[data-item-card]")].find((node) =>
+          node.textContent?.includes("Tomaten"),
+        );
+        return Boolean(promoted && normal && !promoted.classList.contains("is-checked") && !normal.classList.contains("is-checked"));
+      },
+      { timeout: 5000 },
+    );
 
     await page.getByRole("button", { name: "Add item" }).click();
     const moveThingName = `Move target ${Date.now()}`;
@@ -2261,7 +2298,7 @@ async function main() {
     scenario.listName = renamedListName;
     await assertSeedSettingsCategoryColors(page);
     const topCategoryBefore = (
-      await textList(page.locator(".item-category-group > .item-category-header h3"))
+      await textList(page.locator(".item-category-group:not(.item-sale-group) > .item-category-header h3"))
     ).slice(0, 3);
     assert.equal(topCategoryBefore[0], "Uncategorized", "Uncategorized should stay on top");
 

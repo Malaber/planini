@@ -14,6 +14,7 @@ from webauthn.helpers import bytes_to_base64url
 from app.api.v1.routes.households import _as_utc, _claim_invite_use
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token
+from app.schemas.domain import GroceryItemOut
 from app.models import (
     AuthSession,
     HouseholdInvite,
@@ -1004,6 +1005,138 @@ def test_item_window_limits_checked_items_and_pages_older_checked_items(client) 
     assert active_item["id"] in {item["id"] for item in visible_window["items"]}
 
 
+def test_item_sale_schedule_round_trips_and_persists_through_checked_state(client) -> None:
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=headers,
+    ).json()
+    local_timezone = timezone(timedelta(hours=2))
+    sale_starts_at = datetime(2026, 7, 23, 10, 0, tzinfo=local_timezone)
+    sale_ends_at = datetime(2026, 7, 24, 10, 0, tzinfo=local_timezone)
+
+    created = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/items",
+        json={
+            "name": "Sale apples",
+            "sale_starts_at": sale_starts_at.isoformat(),
+            "sale_ends_at": sale_ends_at.isoformat(),
+        },
+        headers=headers,
+    )
+
+    assert created.status_code == 200
+    item = created.json()
+    item_id = item["id"]
+    assert datetime.fromisoformat(item["sale_starts_at"].replace("Z", "+00:00")) == (
+        sale_starts_at.astimezone(UTC)
+    )
+    assert datetime.fromisoformat(item["sale_ends_at"].replace("Z", "+00:00")) == (
+        sale_ends_at.astimezone(UTC)
+    )
+
+    with client.websocket_connect(
+        f"/api/v1/ws/lists/{grocery_list['id']}?token={headers['Authorization'][7:]}"
+    ) as ws:
+        snapshot = ws.receive_json()
+        snapshot_item = next(
+            entry for entry in snapshot["payload"]["items"] if entry["id"] == item_id
+        )
+        assert snapshot_item["sale_starts_at"] == item["sale_starts_at"]
+        assert snapshot_item["sale_ends_at"] == item["sale_ends_at"]
+
+        updated_starts_at = sale_starts_at + timedelta(days=1)
+        updated_ends_at = sale_ends_at + timedelta(days=2)
+        updated = client.patch(
+            f"/api/v1/items/{item_id}",
+            json={
+                "sale_starts_at": updated_starts_at.isoformat(),
+                "sale_ends_at": updated_ends_at.isoformat(),
+            },
+            headers=headers,
+        )
+        assert updated.status_code == 200
+        item = updated.json()
+        update_event = ws.receive_json()
+        assert update_event["type"] == "item_updated"
+        assert update_event["payload"]["item"]["sale_starts_at"] == item["sale_starts_at"]
+        assert update_event["payload"]["item"]["sale_ends_at"] == item["sale_ends_at"]
+
+    checked = client.post(f"/api/v1/items/{item_id}/check", headers=headers).json()
+    assert checked["sale_starts_at"] == item["sale_starts_at"]
+    assert checked["sale_ends_at"] == item["sale_ends_at"]
+    unchecked = client.post(f"/api/v1/items/{item_id}/uncheck", headers=headers).json()
+    assert unchecked["sale_starts_at"] == item["sale_starts_at"]
+    assert unchecked["sale_ends_at"] == item["sale_ends_at"]
+
+    listed_item = next(
+        entry
+        for entry in client.get(f"/api/v1/lists/{grocery_list['id']}/items", headers=headers).json()
+        if entry["id"] == item_id
+    )
+    assert listed_item["sale_starts_at"] == item["sale_starts_at"]
+    assert listed_item["sale_ends_at"] == item["sale_ends_at"]
+
+    cleared = client.patch(
+        f"/api/v1/items/{item_id}",
+        json={"sale_starts_at": None, "sale_ends_at": None},
+        headers=headers,
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["sale_starts_at"] is None
+    assert cleared.json()["sale_ends_at"] is None
+
+
+def test_item_sale_schedule_rejects_incomplete_naive_and_reversed_windows(client) -> None:
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=headers,
+    ).json()
+    starts_at = datetime(2026, 7, 23, 10, 0, tzinfo=UTC)
+    ends_at = starts_at + timedelta(hours=4)
+    invalid_payloads = [
+        {"sale_starts_at": starts_at.isoformat()},
+        {
+            "sale_starts_at": starts_at.replace(tzinfo=None).isoformat(),
+            "sale_ends_at": ends_at.replace(tzinfo=None).isoformat(),
+        },
+        {
+            "sale_starts_at": ends_at.isoformat(),
+            "sale_ends_at": starts_at.isoformat(),
+        },
+        {
+            "sale_starts_at": starts_at.isoformat(),
+            "sale_ends_at": None,
+        },
+    ]
+
+    for index, payload in enumerate(invalid_payloads):
+        response = client.post(
+            f"/api/v1/lists/{grocery_list['id']}/items",
+            json={"name": f"Invalid sale {index}", **payload},
+            headers=headers,
+        )
+        assert response.status_code == 422
+
+    item = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/items",
+        json={"name": "Valid item"},
+        headers=headers,
+    ).json()
+    partial_update = client.patch(
+        f"/api/v1/items/{item['id']}",
+        json={"sale_ends_at": ends_at.isoformat()},
+        headers=headers,
+    )
+    assert partial_update.status_code == 422
+    assert GroceryItemOut.normalize_stored_sale_datetime(starts_at) == starts_at
+
+
 def test_lists_include_open_item_count(client) -> None:
     headers = _auth_headers(client, f"{uuid4()}@example.com")
     household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
@@ -1333,6 +1466,83 @@ def test_offline_item_sync_accepts_create_without_client_item_id(client) -> None
 
     assert response.status_code == 200
     assert response.json()["items"][0]["name"] == "One-shot"
+
+
+def test_offline_item_sync_round_trips_sale_schedule(client) -> None:
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=headers,
+    ).json()
+    recorded_at = datetime.now(UTC)
+    initial_starts_at = recorded_at - timedelta(hours=1)
+    initial_ends_at = recorded_at + timedelta(hours=1)
+    updated_starts_at = recorded_at - timedelta(hours=2)
+    updated_ends_at = recorded_at + timedelta(hours=2)
+
+    response = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/items/sync",
+        json={
+            "mutations": [
+                {
+                    "mutation_id": "create-sale",
+                    "type": "create",
+                    "client_item_id": "local-sale",
+                    "recorded_at": recorded_at.isoformat(),
+                    "payload": {
+                        "name": "Offline sale",
+                        "sale_starts_at": initial_starts_at.isoformat(),
+                        "sale_ends_at": initial_ends_at.isoformat(),
+                    },
+                },
+                {
+                    "mutation_id": "update-sale",
+                    "type": "update",
+                    "item_id": "local-sale",
+                    "recorded_at": (recorded_at + timedelta(seconds=1)).isoformat(),
+                    "payload": {
+                        "sale_starts_at": updated_starts_at.isoformat(),
+                        "sale_ends_at": updated_ends_at.isoformat(),
+                    },
+                },
+                {
+                    "mutation_id": "check-sale",
+                    "type": "set_checked",
+                    "item_id": "local-sale",
+                    "recorded_at": (recorded_at + timedelta(seconds=2)).isoformat(),
+                    "checked": True,
+                },
+            ]
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["checked"] is True
+    assert datetime.fromisoformat(item["sale_starts_at"].replace("Z", "+00:00")) == (
+        updated_starts_at
+    )
+    assert datetime.fromisoformat(item["sale_ends_at"].replace("Z", "+00:00")) == updated_ends_at
+
+    invalid_update = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/items/sync",
+        json={
+            "mutations": [
+                {
+                    "mutation_id": "invalid-sale-update",
+                    "type": "update",
+                    "item_id": item["id"],
+                    "recorded_at": (recorded_at + timedelta(seconds=3)).isoformat(),
+                    "payload": {"sale_ends_at": updated_ends_at.isoformat()},
+                }
+            ]
+        },
+        headers=headers,
+    )
+    assert invalid_update.status_code == 422
 
 
 def test_offline_item_sync_rejects_invalid_mutations(client) -> None:
