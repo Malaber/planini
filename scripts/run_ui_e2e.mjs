@@ -911,10 +911,13 @@ async function loginAsAdmin(page, user) {
 async function runAdminTableControlsFlow(page) {
   logStep("Checking admin table sorting, page size persistence, and reset controls");
   await page.goto(new URL("/admin/user/list", baseUrl).toString(), { waitUntil: "networkidle" });
-  await expectVisible(page.getByRole("link", { name: "50 / Page" }), "Expected 50 row default");
+  const pageSizeDropdown = page.locator(".card-footer .dropdown");
+  const pageSizeToggle = pageSizeDropdown.locator('[data-bs-toggle="dropdown"]');
+  await expectVisible(pageSizeToggle, "Expected 50 row default");
+  assert.match((await pageSizeToggle.textContent()) ?? "", /50 \/ Page/);
 
-  await page.getByRole("link", { name: "50 / Page" }).click();
-  await page.locator(".dropdown-menu .dropdown-item", { hasText: "100 / Page" }).click();
+  await pageSizeToggle.click();
+  await pageSizeDropdown.getByRole("link", { name: "100 / Page", exact: true }).click();
   await page.waitForURL(/\/admin\/user\/list\?pageSize=100/);
 
   await page.getByRole("link", { name: "Email" }).click();

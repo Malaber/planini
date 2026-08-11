@@ -8,7 +8,6 @@ Create Date: 2026-07-23
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "0017_add_list_accent_color"
 down_revision = "0016_add_multi_use_invites"
 branch_labels = None

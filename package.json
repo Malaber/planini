@@ -9,8 +9,8 @@
     "test:js": "node -e \"console.log('Running JavaScript unit tests and coverage gate...')\" && node ./node_modules/c8/bin/c8.js --all --include app/web/static/*.js --branches 100 --functions 100 --lines 100 node --test && node -e \"console.log('JavaScript unit tests and coverage gate passed.')\""
   },
   "devDependencies": {
-    "c8": "^11.0.0",
-    "jsdom": "^29.0.0",
-    "playwright": "^1.52.0"
+    "c8": "^12.0.0",
+    "jsdom": "^30.0.1",
+    "playwright": "^1.62.1"
   }
 }

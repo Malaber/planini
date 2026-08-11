@@ -33,7 +33,6 @@ from app.services.backups import (
 from app.services.passkey_reset import build_passkey_add_link, issue_passkey_reset
 from app.web.routes import _get_session_user
 
-
 PASSKEY_ADD_LINK_DEFAULT_HOURS = 24
 PASSKEY_ADD_LINK_MIN_HOURS = 1
 PASSKEY_ADD_LINK_MAX_HOURS = 720
@@ -287,6 +286,17 @@ class CategoryAdmin(ModelView, model=Category):
             for locale in available_locales()
             if locale != DEFAULT_LOCALE
         }
+
+    async def get_form_data_for_edit(self, obj: Category) -> dict[str, object]:
+        data = await super().get_form_data_for_edit(obj)
+        data.update(
+            {
+                _category_translation_field(locale): obj.translations.get(locale, "")
+                for locale in available_locales()
+                if locale != DEFAULT_LOCALE
+            }
+        )
+        return data
 
 
 class BackupAdmin(BaseView):

@@ -13,13 +13,13 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Restore marketing Xcode cache
         uses: actions/cache@v6
         with:
           path: ios/PlaniniIOS/.derived-marketing-screenshots
           key: ios-marketing-${{ runner.os }}-${{ runner.arch }}-xcode26-${{ hashFiles('ios/PlaniniIOS/Package.resolved') }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install Invoke
@@ -36,7 +36,7 @@ jobs:
         run: python -m invoke check-ios-marketing-screenshots --preserve-derived-data
       - name: Upload App Store screenshot bundle
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ios-marketing-screenshots
           retention-days: 7
