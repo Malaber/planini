@@ -11,7 +11,9 @@ jobs:
   capture:
     name: Capture upload bundle
     runs-on: macos-26
-    timeout-minutes: 35
+    # The two simulator passes can consume almost 35 minutes on hosted runners;
+    # leave enough time for artifact upload and action cleanup.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - name: Restore marketing Xcode cache
