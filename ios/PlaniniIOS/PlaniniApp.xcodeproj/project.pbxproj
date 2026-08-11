@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		142B222D9AF4456A414702B8 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DD17D440ED10778295E1855 /* WatchRootView.swift */; };
 		1762001ECBF396E6038B3335 /* de.json in Resources */ = {isa = PBXBuildFile; fileRef = 0B9F178CF03EA47741BB75CC /* de.json */; };
+		1D2A1C7E4CD44D0541004266 /* CategorySuggestionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CE25571DA7AC986896938D /* CategorySuggestionService.swift */; };
 		1EE4C0BA89B1304ABB8EF270 /* AppGroupSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FA6FAB5BF0777FEBF85FFD /* AppGroupSupport.swift */; };
 		22ABDECD56E908533F61F12B /* PlaniniUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC0DDEFF1265803A638BC83 /* PlaniniUITests.swift */; };
 		250FF99C2969A78D7407C4FE /* PlaniniWatchWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C49069FE00F2CBEEBA975C11 /* PlaniniWatchWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -101,6 +102,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		06CE25571DA7AC986896938D /* CategorySuggestionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategorySuggestionService.swift; sourceTree = "<group>"; };
 		0B9F178CF03EA47741BB75CC /* de.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = de.json; sourceTree = "<group>"; };
 		1F02701FC01526A4FEE42211 /* PlaniniWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaniniWatchApp.swift; sourceTree = "<group>"; };
 		20B83DD3FDFA519C2128AC67 /* BuildConfiguration.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildConfiguration.generated.swift; sourceTree = "<group>"; };
@@ -247,6 +249,7 @@
 				7D9440F383C21A058EA39C13 /* ApplePasskeyClient.swift */,
 				9DEEA95181710CC9F8714BAF /* AppLocalization.swift */,
 				20B83DD3FDFA519C2128AC67 /* BuildConfiguration.generated.swift */,
+				06CE25571DA7AC986896938D /* CategorySuggestionService.swift */,
 				53D8F0E8983062553D42950A /* MobileAppViewModel.swift */,
 				976E7E216506A44F10DDD3A5 /* Planini.entitlements */,
 				2403081BBCE4A9CDD0BB942C /* PlaniniApp.swift */,
@@ -503,6 +506,7 @@
 				CAD0D61C08D5E9E772F22CE9 /* AppearanceSettings.swift in Sources */,
 				D5800F3309DEA622AA24ADC4 /* ApplePasskeyClient.swift in Sources */,
 				F3A245BA428BCA7DD2FECEEF /* BuildConfiguration.generated.swift in Sources */,
+				1D2A1C7E4CD44D0541004266 /* CategorySuggestionService.swift in Sources */,
 				AC5D4AD62F388A35CB4ACC27 /* MobileAppViewModel.swift in Sources */,
 				AC437810451B5D89D3EAF270 /* PlaniniApp.swift in Sources */,
 				E5C536B66A3D79943044C922 /* PlaniniAppIntents.swift in Sources */,
