@@ -964,6 +964,7 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
     assert ci_workflow.count("check-ios-ui-e2e") == 1
     assert "uses: ./.github/workflows/app-store-screenshots.yml" in ci_workflow
     assert "if: github.ref != 'refs/heads/main'" in ci_workflow
+    assert "timeout-minutes: 60" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in screenshot_workflow
     assert "check-ios-e2e" not in testflight_workflow
