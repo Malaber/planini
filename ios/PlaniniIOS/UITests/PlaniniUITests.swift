@@ -625,18 +625,39 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 5))
         editNameField.typeText(" Updated")
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
-        XCTAssertTrue(waitForEditSaveCompletion(app: app))
+        XCTAssertTrue(
+            waitForItem(
+                named: updatedName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
 
         XCTAssertTrue(undoButton.waitForExistence(timeout: 3))
         undoButton.tap()
         XCTAssertTrue(waitForFieldValue(editNameField, contains: itemName))
         XCTAssertFalse(editNameField.valueText.contains("Updated"))
-        XCTAssertTrue(waitForEditSaveCompletion(app: app))
+        XCTAssertTrue(
+            waitForItem(
+                named: itemName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
 
         XCTAssertTrue(redoButton.waitForExistence(timeout: 3))
         redoButton.tap()
         XCTAssertTrue(waitForFieldValue(editNameField, contains: updatedName))
-        XCTAssertTrue(waitForEditSaveCompletion(app: app))
+        XCTAssertTrue(
+            waitForItem(
+                named: updatedName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
 
         chooseCategory(
             named: "Canned Goods",
@@ -652,7 +673,15 @@ final class PlaniniUITests: XCTestCase {
                 containing: "Canned Goods"
             )
         )
-        XCTAssertTrue(waitForEditSaveCompletion(app: app))
+        XCTAssertTrue(
+            waitForItemCategory(
+                named: updatedName,
+                categoryNamed: "Canned Goods",
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
         captureScreenshot(named: "ios-ui-live-edit-autosave")
         tapElement(closeButton)
         XCTAssertTrue(
@@ -1362,6 +1391,122 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(
             waitForElementToDisappear(itemRow(itemID: itemID, in: app), timeout: 20),
             "Expected live-deleted item to disappear without manual refresh."
+        )
+    }
+
+    func testOnSaleItemStaysInSyncAcrossPromotedAndNormalRows() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let uniqueSuffix = UUID().uuidString.prefix(8)
+        let itemName = "A UI Sale \(uniqueSuffix)"
+        let itemID = try createItem(
+            named: itemName,
+            note: "On-sale UI e2e",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+
+        let app = launchedApp(session: session, initialListName: initialListName)
+        defer {
+            terminateAndWait(app)
+            try? deleteItem(itemID: itemID, accessToken: session.accessToken)
+        }
+
+        let listTitle = app.staticTexts["list-detail-title"]
+        XCTAssertTrue(
+            openInitialListDetail(in: app, listTitle: listTitle),
+            "Expected bootstrapped initial list before on-sale checks."
+        )
+        XCTAssertEqual(listTitle.label, initialListName)
+        XCTAssertTrue(
+            waitForItemRow(itemID: itemID, named: itemName, in: app, timeout: 20),
+            "Expected created item row before enabling sale window."
+        )
+
+        try setItemSaleWindow(
+            itemID: itemID,
+            startsAt: Date().addingTimeInterval(-60 * 60),
+            endsAt: Date().addingTimeInterval(60 * 60),
+            accessToken: session.accessToken
+        )
+        XCTAssertTrue(
+            waitForItemSaleWindow(
+                named: itemName,
+                active: true,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            ),
+            "Expected backend sale window after scheduling sale."
+        )
+
+        let onSaleBadge = app.staticTexts["section-count-badge-on-sale"]
+        XCTAssertTrue(
+            onSaleBadge.waitForExistence(timeout: 15),
+            "Expected On sale section after scheduling sale window."
+        )
+        let promotedRow = app.descendants(matching: .any)[
+            "item-row-on-sale-\(itemID.uuidString)"
+        ]
+        let normalRow = app.descendants(matching: .any)["item-row-\(itemID.uuidString)"]
+        scrollToListTop(in: app, maxSwipes: 12)
+        XCTAssertTrue(
+            promotedRow.waitForExistence(timeout: 10),
+            "Expected promoted On sale item row."
+        )
+        XCTAssertTrue(
+            normalRow.waitForExistence(timeout: 10),
+            "Expected normal category item row to remain visible."
+        )
+
+        let promotedToggle = app.buttons["toggle-item-on-sale-\(itemID.uuidString)"]
+        XCTAssertTrue(
+            waitForElementLabel(promotedToggle, containing: "Check \(itemName)"),
+            "Expected promoted toggle to start unchecked."
+        )
+        captureScreenshot(named: "ios-ui-on-sale-item")
+        tapElement(promotedToggle)
+        XCTAssertTrue(
+            waitForItemCheckedState(
+                named: itemName,
+                checked: true,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        XCTAssertTrue(
+            waitForElementLabel(promotedToggle, containing: "Uncheck \(itemName)"),
+            "Expected promoted toggle to reflect checked state."
+        )
+
+        let normalToggle = app.buttons["toggle-item-\(itemID.uuidString)"]
+        scrollToElement(normalToggle, in: app, maxSwipes: 16)
+        XCTAssertTrue(
+            waitForElementLabel(normalToggle, containing: "Uncheck \(itemName)"),
+            "Expected normal toggle to mirror promoted checked state."
+        )
+
+        tapElement(normalToggle)
+        XCTAssertTrue(
+            waitForItemCheckedState(
+                named: itemName,
+                checked: false,
+                inListNamed: initialListName,
+                accessToken: session.accessToken
+            )
+        )
+        scrollToListTop(in: app, maxSwipes: 16)
+        XCTAssertTrue(
+            waitForElementLabel(promotedToggle, containing: "Check \(itemName)"),
+            "Expected promoted toggle to mirror unchecked state."
+        )
+        XCTAssertTrue(
+            waitForElementLabel(normalToggle, containing: "Check \(itemName)"),
+            "Expected normal toggle to mirror unchecked state."
         )
     }
 
@@ -2163,6 +2308,26 @@ final class PlaniniUITests: XCTestCase {
         return false
     }
 
+    private func waitForItemSaleWindow(
+        named itemName: String,
+        active: Bool,
+        inListNamed listName: String,
+        accessToken: String,
+        timeout: TimeInterval = 8
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let item = try? fetchItems(inListNamed: listName, accessToken: accessToken)
+                .first(where: { $0.name == itemName }),
+                (item.saleStartsAt != nil && item.saleEndsAt != nil) == active
+            {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        }
+        return false
+    }
+
     private func waitForItem(
         named itemName: String,
         inListNamed listName: String,
@@ -2397,22 +2562,6 @@ final class PlaniniUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.35))
         }
         return false
-    }
-
-    private func waitForEditSaveCompletion(
-        app: XCUIApplication,
-        timeout: TimeInterval = 20
-    ) -> Bool {
-        let statusLabel = app.staticTexts["edit-item-save-status"]
-        let completedStatuses = ["saved", "saved-offline"]
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if statusLabel.exists && completedStatuses.contains(statusLabel.valueText) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-        }
-        return statusLabel.exists && completedStatuses.contains(statusLabel.valueText)
     }
 
     private func waitForElementLabel(
@@ -3646,6 +3795,26 @@ final class PlaniniUITests: XCTestCase {
         _ = try performRequest(request)
     }
 
+    private func setItemSaleWindow(
+        itemID: UUID,
+        startsAt: Date,
+        endsAt: Date,
+        accessToken: String
+    ) throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let request = jsonRequest(
+            path: "/api/v1/items/\(itemID.uuidString)",
+            method: "PATCH",
+            token: accessToken,
+            body: [
+                "sale_starts_at": formatter.string(from: startsAt),
+                "sale_ends_at": formatter.string(from: endsAt),
+            ]
+        )
+        _ = try performRequest(request)
+    }
+
     private func checkItem(itemID: UUID, accessToken: String) throws {
         let request = jsonRequest(
             path: "/api/v1/items/\(itemID.uuidString)/check",
@@ -3992,6 +4161,8 @@ private struct UITestItem: Decodable {
     let checked: Bool
     let categoryID: UUID?
     let hiddenUntil: String?
+    let saleStartsAt: String?
+    let saleEndsAt: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -3999,6 +4170,8 @@ private struct UITestItem: Decodable {
         case checked
         case categoryID = "category_id"
         case hiddenUntil = "hidden_until"
+        case saleStartsAt = "sale_starts_at"
+        case saleEndsAt = "sale_ends_at"
     }
 }
 

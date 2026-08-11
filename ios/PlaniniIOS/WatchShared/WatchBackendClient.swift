@@ -118,6 +118,8 @@ struct WatchBackendClient {
                 "quantity_text": item.quantityText ?? NSNull(),
                 "note": item.note ?? NSNull(),
                 "category_id": item.categoryID?.uuidString ?? NSNull(),
+                "sale_starts_at": item.saleStartsAt.map(apiTimestamp) ?? NSNull(),
+                "sale_ends_at": item.saleEndsAt.map(apiTimestamp) ?? NSNull(),
             ],
             token: session.authToken
         )
@@ -276,6 +278,12 @@ struct WatchBackendClient {
             throw WatchBackendClientError.missingFavoriteList
         }
         return favoriteListID
+    }
+
+    private func apiTimestamp(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 
     private func requestArray(

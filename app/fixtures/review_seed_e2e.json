@@ -221,6 +221,12 @@
               "created_by_email": "planini@schaedler.rocks"
             },
             {
+              "name": "Sale apples",
+              "sale_starts_at": "2020-01-01T00:00:00+00:00",
+              "sale_ends_at": "2099-01-01T00:00:00+00:00",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
               "name": "Spaghetti",
               "category": "Pasta",
               "quantity_text": "2 packs",
