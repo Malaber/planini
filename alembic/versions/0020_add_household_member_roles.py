@@ -1,7 +1,7 @@
 """add household member roles
 
-Revision ID: 0019_add_household_member_roles
-Revises: 0018_add_category_translations
+Revision ID: 0020_add_household_member_roles
+Revises: 0019_merge_sale_revision_heads
 Create Date: 2026-07-24
 """
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0019_add_household_member_roles"
-down_revision = "0018_add_category_translations"
+revision = "0020_add_household_member_roles"
+down_revision = "0019_merge_sale_revision_heads"
 branch_labels = None
 depends_on = None
 

@@ -63,7 +63,7 @@ def _payload_model(model, payload: dict[str, object | None] | None):
     except ValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=exc.errors(),
+            detail=exc.errors(include_context=False),
         ) from exc
 
 
@@ -170,6 +170,8 @@ async def create_item(
         note=payload.note,
         category_id=payload.category_id,
         sort_order=payload.sort_order,
+        sale_starts_at=payload.sale_starts_at,
+        sale_ends_at=payload.sale_ends_at,
         created_by=user.id,
         updated_by=user.id,
         checked_state_recorded_at=datetime.now(UTC),
@@ -341,6 +343,8 @@ async def sync_offline_items(
                     note=create_payload.note,
                     category_id=create_payload.category_id,
                     sort_order=create_payload.sort_order,
+                    sale_starts_at=create_payload.sale_starts_at,
+                    sale_ends_at=create_payload.sale_ends_at,
                     created_by=user.id,
                     updated_by=user.id,
                     checked_state_recorded_at=recorded_at,

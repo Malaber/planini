@@ -320,6 +320,8 @@ struct ListPresentationTests {
                 "checked": true,
                 "checked_at": "2026-04-09T10:00:00.123Z",
                 "hidden_until": "2026-04-09T14:00:00",
+                "sale_starts_at": "2026-04-09T09:00:00.123Z",
+                "sale_ends_at": "2026-04-09T18:00:00Z",
                 "sort_order": 7,
             ]
         )
@@ -334,6 +336,8 @@ struct ListPresentationTests {
         #expect(item?.sortOrder == 7)
         #expect(item?.checkedAt != nil)
         #expect(item?.hiddenUntil != nil)
+        #expect(item?.saleStartsAt != nil)
+        #expect(item?.saleEndsAt != nil)
     }
 
     @Test func groceryItemRecordParsesJSONWithoutFractionalCheckedAtAndDefaults() {
@@ -355,6 +359,8 @@ struct ListPresentationTests {
         #expect(item?.sortOrder == 0)
         #expect(item?.checkedAt != nil)
         #expect(item?.hiddenUntil == nil)
+        #expect(item?.saleStartsAt == nil)
+        #expect(item?.saleEndsAt == nil)
     }
 
     @Test func groceryItemRecordLeavesCheckedAtNilWhenMissing() {
@@ -385,12 +391,96 @@ struct ListPresentationTests {
                 "category_id": "not-a-uuid",
                 "checked_at": "not-a-date",
                 "hidden_until": "not-a-date",
+                "sale_starts_at": "not-a-date",
+                "sale_ends_at": "not-a-date",
             ]
         )
 
         #expect(item?.categoryID == nil)
         #expect(item?.checkedAt == nil)
         #expect(item?.hiddenUntil == nil)
+        #expect(item?.saleStartsAt == nil)
+        #expect(item?.saleEndsAt == nil)
+    }
+
+    @Test func groceryItemSaleScheduleUsesInclusiveStartAndExclusiveEnd() throws {
+        let startsAt = Date(timeIntervalSince1970: 100)
+        let endsAt = Date(timeIntervalSince1970: 200)
+        let item = GroceryItemRecord(
+            id: UUID(),
+            listID: UUID(),
+            name: "Milk",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            checked: true,
+            checkedAt: nil,
+            hiddenUntil: Date(timeIntervalSince1970: 500),
+            saleStartsAt: startsAt,
+            saleEndsAt: endsAt,
+            sortOrder: 0
+        )
+        let missingEnd = GroceryItemRecord(
+            id: UUID(),
+            listID: UUID(),
+            name: "Bread",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            checked: false,
+            checkedAt: nil,
+            saleStartsAt: startsAt,
+            sortOrder: 0
+        )
+        let reversed = GroceryItemRecord(
+            id: UUID(),
+            listID: UUID(),
+            name: "Eggs",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            checked: false,
+            checkedAt: nil,
+            saleStartsAt: endsAt,
+            saleEndsAt: startsAt,
+            sortOrder: 0
+        )
+
+        #expect(item.saleStartsAt == startsAt)
+        #expect(item.saleEndsAt == endsAt)
+        #expect(item.isOnSale(at: Date(timeIntervalSince1970: 99)) == false)
+        #expect(item.isOnSale(at: startsAt))
+        #expect(item.isOnSale(at: Date(timeIntervalSince1970: 199.999)))
+        #expect(item.isOnSale(at: endsAt) == false)
+        #expect(missingEnd.isOnSale(at: startsAt) == false)
+        #expect(reversed.isOnSale(at: Date(timeIntervalSince1970: 150)) == false)
+
+        let decoded = try JSONDecoder().decode(
+            GroceryItemRecord.self,
+            from: JSONEncoder().encode(item)
+        )
+        #expect(decoded == item)
+    }
+
+    @Test func groceryItemRecordDecodesLegacyCachedStateWithoutSaleSchedule() throws {
+        let itemID = UUID()
+        let listID = UUID()
+        let payload = """
+        {
+          "id": "\(itemID.uuidString)",
+          "listID": "\(listID.uuidString)",
+          "name": "Milk",
+          "checked": false,
+          "sortOrder": 0
+        }
+        """
+
+        let item = try JSONDecoder().decode(GroceryItemRecord.self, from: Data(payload.utf8))
+
+        #expect(item.id == itemID)
+        #expect(item.listID == listID)
+        #expect(item.saleStartsAt == nil)
+        #expect(item.saleEndsAt == nil)
     }
 
     @Test func itemSuggestionMatcherFindsExactPrefixSubstringAndFuzzyMatches() {
@@ -490,6 +580,15 @@ struct ListPresentationTests {
 
         #expect(
             GroceryItemSection(
+                kind: .onSale,
+                title: "On sale",
+                itemCount: 0,
+                colorHex: nil,
+                items: []
+            ).id == "on-sale"
+        )
+        #expect(
+            GroceryItemSection(
                 kind: .uncategorized,
                 title: "Uncategorized",
                 itemCount: 0,
@@ -524,6 +623,81 @@ struct ListPresentationTests {
                 items: []
             ).id == "checked"
         )
+    }
+
+    @Test func activeSaleSectionIsFirstAndKeepsItemsInTheirNormalSections() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let listID = UUID()
+        let category = GroceryCategorySummary(id: UUID(), name: "Dairy", colorHex: "#ffffff")
+        let active = makeItem(
+            name: "Milk",
+            listID: listID,
+            categoryID: category.id,
+            checked: false,
+            sortOrder: 0,
+            saleStartsAt: Date(timeIntervalSince1970: 900),
+            saleEndsAt: Date(timeIntervalSince1970: 1_100)
+        )
+        let checked = makeItem(
+            name: "Cheese",
+            listID: listID,
+            categoryID: category.id,
+            checked: true,
+            sortOrder: 1,
+            saleStartsAt: Date(timeIntervalSince1970: 900),
+            saleEndsAt: Date(timeIntervalSince1970: 1_100)
+        )
+        let hidden = makeItem(
+            name: "Yogurt",
+            listID: listID,
+            categoryID: category.id,
+            checked: false,
+            sortOrder: 2,
+            hiddenUntil: Date(timeIntervalSince1970: 1_200),
+            saleStartsAt: Date(timeIntervalSince1970: 900),
+            saleEndsAt: Date(timeIntervalSince1970: 1_100)
+        )
+        let upcoming = makeItem(
+            name: "Butter",
+            listID: listID,
+            categoryID: category.id,
+            checked: false,
+            sortOrder: 3,
+            saleStartsAt: Date(timeIntervalSince1970: 1_001),
+            saleEndsAt: Date(timeIntervalSince1970: 1_100)
+        )
+        let ended = makeItem(
+            name: "Cream",
+            listID: listID,
+            categoryID: category.id,
+            checked: false,
+            sortOrder: 4,
+            saleStartsAt: Date(timeIntervalSince1970: 800),
+            saleEndsAt: now
+        )
+
+        let sections = GroceryItemSectionBuilder.build(
+            items: [ended, hidden, checked, upcoming, active],
+            categories: [category],
+            categoryOrder: [ListCategoryOrderEntry(categoryID: category.id, sortOrder: 0)],
+            now: now
+        )
+
+        let onSale = try! #require(sections.first)
+        let categorySection = try! #require(sections.first { $0.kind == .category(category.id) })
+        let hiddenSection = try! #require(sections.first { $0.kind == .hidden })
+        let checkedSection = try! #require(sections.first { $0.kind == .checked })
+
+        #expect(onSale.kind == .onSale)
+        #expect(onSale.title == "On sale")
+        #expect(onSale.colorHex == "#f59e0b")
+        #expect(onSale.items.map(\.id) == [active.id, checked.id, hidden.id])
+        #expect(categorySection.items.map(\.id) == [active.id, upcoming.id, ended.id])
+        #expect(hiddenSection.items.map(\.id) == [hidden.id])
+        #expect(checkedSection.items.map(\.id) == [checked.id])
+        #expect(sections.flatMap(\.items).filter { $0.id == active.id }.count == 2)
+        #expect(sections.flatMap(\.items).filter { $0.id == checked.id }.count == 2)
+        #expect(sections.flatMap(\.items).filter { $0.id == hidden.id }.count == 2)
     }
 
     @Test func buildsSectionsInWebParityOrder() {
@@ -941,7 +1115,9 @@ struct ListPresentationTests {
         categoryID: UUID? = nil,
         checked: Bool,
         sortOrder: Int = 0,
-        hiddenUntil: Date? = nil
+        hiddenUntil: Date? = nil,
+        saleStartsAt: Date? = nil,
+        saleEndsAt: Date? = nil
     ) -> GroceryItemRecord {
         GroceryItemRecord(
             id: UUID(),
@@ -953,6 +1129,8 @@ struct ListPresentationTests {
             checked: checked,
             checkedAt: checked ? Date() : nil,
             hiddenUntil: hiddenUntil,
+            saleStartsAt: saleStartsAt,
+            saleEndsAt: saleEndsAt,
             sortOrder: sortOrder
         )
     }

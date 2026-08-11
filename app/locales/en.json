@@ -343,8 +343,15 @@
     "quantity_placeholder": "2 bottles",
     "note": "Note",
     "note_placeholder": "Low fat if possible",
+    "sale_section": "Sale",
+    "sale_enabled": "On sale",
+    "sale_starts_at": "Starts",
+    "sale_ends_at": "Ends",
+    "sale_explanation": "Items are highlighted and promoted while this time window is active.",
+    "sale_window_invalid": "Sale end must be after its start.",
+    "on_sale_badge": "On sale",
     "more_fields": "More",
-    "more_fields_hint": "Category and note",
+    "more_fields_hint": "Category, note, and sale schedule",
     "list_settings": "List settings",
     "list_settings_short": "Settings",
     "list_name": "List name",
@@ -592,6 +599,7 @@
       "item_summary": "{items} items across {sections} sections",
       "empty_title": "Nothing on this list",
       "empty_message": "Add an item to start grouping it into categories.",
+      "on_sale": "On sale",
       "uncategorized": "Uncategorized",
       "hidden_for_later": "Saved for later",
       "checked_off": "Checked off",
@@ -629,6 +637,13 @@
       "category_option_accessibility": "{name}, {count} items",
       "notes_section": "Notes",
       "note": "Note",
+      "sale_section": "Sale",
+      "sale_enabled": "On sale",
+      "sale_starts_at": "Starts",
+      "sale_ends_at": "Ends",
+      "sale_explanation": "Items are highlighted and promoted while this time window is active.",
+      "sale_window_invalid": "Sale end must be after its start.",
+      "on_sale_badge": "On sale",
       "add_title": "Add item",
       "edit_title": "Edit item",
       "move_section": "Move",
@@ -650,7 +665,8 @@
       "status_saved": "Saved",
       "status_saving": "Saving...",
       "status_saved_offline": "Saved offline",
-      "status_name_required": "Name required"
+      "status_name_required": "Name required",
+      "status_sale_window_invalid": "Sale end must be after its start"
     }
   }
 }

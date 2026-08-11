@@ -1176,21 +1176,50 @@ function normalizeNullableItemEditValue(value) {
   return normalized || null;
 }
 
+function dateTimeLocalValue(value) {
+  const date = value instanceof Date ? value : new Date(value || "");
+  if (!Number.isFinite(date.getTime())) {
+    return "";
+  }
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function dateTimeLocalToIso(value) {
+  const date = new Date(String(value || ""));
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function defaultSaleWindow(now = new Date()) {
+  return {
+    startsAt: dateTimeLocalValue(new Date(now.getTime() - 60 * 60_000)),
+    endsAt: dateTimeLocalValue(new Date(now.getTime() + 24 * 60 * 60_000)),
+  };
+}
+
 function normalizeItemEditPayload(payload) {
+  const saleEnabled = Boolean(payload?.sale_enabled);
   return {
     name: String(payload?.name || "").trim(),
     quantity_text: normalizeNullableItemEditValue(payload?.quantity_text),
     note: normalizeNullableItemEditValue(payload?.note),
     category_id: normalizeNullableItemEditValue(payload?.category_id),
+    sale_enabled: saleEnabled,
+    sale_starts_at: saleEnabled ? normalizeNullableItemEditValue(payload?.sale_starts_at) : null,
+    sale_ends_at: saleEnabled ? normalizeNullableItemEditValue(payload?.sale_ends_at) : null,
   };
 }
 
 function itemEditPayloadFromItem(item) {
+  const saleEnabled = Boolean(item?.sale_starts_at && item?.sale_ends_at);
   return normalizeItemEditPayload({
     name: item?.name,
     quantity_text: item?.quantity_text,
     note: item?.note,
     category_id: item?.category_id,
+    sale_enabled: saleEnabled,
+    sale_starts_at: item?.sale_starts_at,
+    sale_ends_at: item?.sale_ends_at,
   });
 }
 
@@ -1201,8 +1230,63 @@ function itemEditPayloadsEqual(left, right) {
     normalizedLeft.name === normalizedRight.name &&
     normalizedLeft.quantity_text === normalizedRight.quantity_text &&
     normalizedLeft.note === normalizedRight.note &&
-    normalizedLeft.category_id === normalizedRight.category_id
+    normalizedLeft.category_id === normalizedRight.category_id &&
+    normalizedLeft.sale_enabled === normalizedRight.sale_enabled &&
+    normalizedLeft.sale_starts_at === normalizedRight.sale_starts_at &&
+    normalizedLeft.sale_ends_at === normalizedRight.sale_ends_at
   );
+}
+
+function isValidSaleWindowPayload(payload) {
+  const normalized = normalizeItemEditPayload(payload);
+  if (!normalized.sale_enabled) {
+    return true;
+  }
+  const startsAt = Date.parse(normalized.sale_starts_at || "");
+  const endsAt = Date.parse(normalized.sale_ends_at || "");
+  return Number.isFinite(startsAt) && Number.isFinite(endsAt) && startsAt < endsAt;
+}
+
+function itemEditApiPayload(payload, previousItem = null) {
+  const normalized = normalizeItemEditPayload(payload);
+  const apiPayload = {
+    name: normalized.name,
+    quantity_text: normalized.quantity_text,
+    note: normalized.note,
+    category_id: normalized.category_id,
+  };
+  if (normalized.sale_enabled || itemEditPayloadFromItem(previousItem).sale_enabled) {
+    apiPayload.sale_starts_at = normalized.sale_starts_at;
+    apiPayload.sale_ends_at = normalized.sale_ends_at;
+  }
+  return apiPayload;
+}
+
+function syncSaleWindowControls(form, { useDefaults = false } = {}) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const enabledInput = form.elements.namedItem("sale_enabled");
+  const startsInput = form.elements.namedItem("sale_starts_at");
+  const endsInput = form.elements.namedItem("sale_ends_at");
+  if (
+    !(enabledInput instanceof HTMLInputElement) ||
+    !(startsInput instanceof HTMLInputElement) ||
+    !(endsInput instanceof HTMLInputElement)
+  ) {
+    return;
+  }
+
+  if (enabledInput.checked && useDefaults && (!startsInput.value || !endsInput.value)) {
+    const defaults = defaultSaleWindow();
+    startsInput.value = startsInput.value || defaults.startsAt;
+    endsInput.value = endsInput.value || defaults.endsAt;
+  }
+  startsInput.disabled = !enabledInput.checked;
+  endsInput.disabled = !enabledInput.checked;
+  startsInput.required = enabledInput.checked;
+  endsInput.required = enabledInput.checked;
+  form.querySelector("[data-sale-window-fields]")?.toggleAttribute("hidden", !enabledInput.checked);
 }
 
 function cloneItemEditHistoryItem(item) {
@@ -1389,11 +1473,15 @@ function readItemEditFormPayload(root) {
   }
 
   const formData = new FormData(form);
+  const saleEnabled = Boolean(form.elements.namedItem("sale_enabled")?.checked);
   return normalizeItemEditPayload({
     name: formData.get("name"),
     quantity_text: formData.get("quantity_text"),
     note: formData.get("note"),
     category_id: formData.get("edit_category_id"),
+    sale_enabled: saleEnabled,
+    sale_starts_at: saleEnabled ? dateTimeLocalToIso(formData.get("sale_starts_at")) : null,
+    sale_ends_at: saleEnabled ? dateTimeLocalToIso(formData.get("sale_ends_at")) : null,
   });
 }
 
@@ -1407,6 +1495,19 @@ function setItemEditFormValues(root, state, item) {
   form.elements.namedItem("name").value = normalized.name;
   form.elements.namedItem("quantity_text").value = normalized.quantity_text || "";
   form.elements.namedItem("note").value = normalized.note || "";
+  const saleEnabledInput = form.elements.namedItem("sale_enabled");
+  const saleStartsInput = form.elements.namedItem("sale_starts_at");
+  const saleEndsInput = form.elements.namedItem("sale_ends_at");
+  if (saleEnabledInput instanceof HTMLInputElement) {
+    saleEnabledInput.checked = normalized.sale_enabled;
+  }
+  if (saleStartsInput instanceof HTMLInputElement) {
+    saleStartsInput.value = dateTimeLocalValue(normalized.sale_starts_at);
+  }
+  if (saleEndsInput instanceof HTMLInputElement) {
+    saleEndsInput.value = dateTimeLocalValue(normalized.sale_ends_at);
+  }
+  syncSaleWindowControls(form);
   setCategoryRadioValue(root, 'input[name="edit_category_id"]', normalized.category_id || "");
   syncCategoryRadioGroups(root, state);
 }
@@ -1472,6 +1573,14 @@ async function applyItemEditPayload(root, state, itemId, payload, { recordHistor
     return false;
   }
 
+  if (!isValidSaleWindowPayload(normalized)) {
+    const message = translate("list_detail.sale_window_invalid", {}, "Sale end must be after its start.");
+    setItemEditStatus(root, "error", message);
+    setListMessage(root, "error", message);
+    updateItemEditUndoButton(root, state);
+    return false;
+  }
+
   const previousItem = state.items.get(itemId);
   if (!previousItem) {
     const message = translate("list_detail.item_not_found", {}, "Could not find that item.");
@@ -1489,7 +1598,12 @@ async function applyItemEditPayload(root, state, itemId, payload, { recordHistor
 
   setItemEditStatus(root, "saving", translate("list_detail.item_saving", {}, "Saving..."));
   try {
-    const updatedItem = await updateItemWithOfflineFallback(root, state, itemId, normalized);
+    const updatedItem = await updateItemWithOfflineFallback(
+      root,
+      state,
+      itemId,
+      itemEditApiPayload(normalized, previousItem),
+    );
     if (recordHistory) {
       pushItemEditHistory(root, state, itemId, previousItem);
       clearItemEditRedoHistory(root, state, itemId);
@@ -2943,11 +3057,17 @@ async function moveEditingItemToList(root, state, targetListId) {
     setListMessage(root, "error", translate("list_detail.item_name_required", {}, "Please enter an item name."));
     return false;
   }
+  if (!isValidSaleWindowPayload(payload)) {
+    const message = translate("list_detail.sale_window_invalid", {}, "Sale end must be after its start.");
+    setItemEditStatus(root, "error", message);
+    setListMessage(root, "error", message);
+    return false;
+  }
 
   setItemEditStatus(root, "saving", translate("list_detail.item_saving", {}, "Saving..."));
   try {
     const movedItem = await moveItemWithOfflineFallback(root, state, itemId, {
-      ...payload,
+      ...itemEditApiPayload(payload, existingItem),
       list_id: targetListId,
     });
     removeItem(state, movedItem.id);
@@ -3727,6 +3847,101 @@ function createMovedItemNoticeElement(root, state, notice) {
   return article;
 }
 
+function isItemOnSale(item, now = Date.now()) {
+  const startsAt = Date.parse(item?.sale_starts_at || "");
+  const endsAt = Date.parse(item?.sale_ends_at || "");
+  return Number.isFinite(startsAt) && Number.isFinite(endsAt) && startsAt <= now && now < endsAt;
+}
+
+function createItemCopy(item, onSale) {
+  const copy = document.createElement("div");
+  copy.className = "item-copy";
+
+  const titleRow = document.createElement("div");
+  titleRow.className = "item-name-row";
+  const title = document.createElement("h3");
+  title.className = "item-name";
+  title.textContent = item.name;
+  titleRow.appendChild(title);
+  if (onSale) {
+    const badge = document.createElement("span");
+    badge.className = "item-sale-badge";
+    badge.textContent = translate("list_detail.on_sale_badge", {}, "On sale");
+    titleRow.appendChild(badge);
+  }
+  copy.appendChild(titleRow);
+
+  if (item.quantity_text) {
+    const quantity = document.createElement("p");
+    quantity.className = "item-meta";
+    quantity.textContent = translate("list_detail.quantity_prefix", { quantity: item.quantity_text }, "Qty: {quantity}");
+    copy.appendChild(quantity);
+  }
+
+  if (item.note) {
+    const note = document.createElement("p");
+    note.className = "item-meta";
+    note.textContent = item.note;
+    copy.appendChild(note);
+  }
+  return copy;
+}
+
+function createOnSaleSection(state, items) {
+  const section = document.createElement("section");
+  section.className = "item-category-group item-sale-group";
+  section.dataset.itemSaleSection = "";
+
+  const heading = document.createElement("div");
+  heading.className = "item-category-header";
+  const swatch = document.createElement("span");
+  swatch.className = "item-category-swatch";
+  swatch.style.background = "#f59e0b";
+  heading.appendChild(swatch);
+  const headingCopy = document.createElement("div");
+  headingCopy.className = "item-category-copy";
+  const headingTitle = document.createElement("h3");
+  headingTitle.textContent = translate("list_detail.sale_section", {}, "On sale");
+  headingCopy.appendChild(headingTitle);
+  const headingMeta = document.createElement("p");
+  headingMeta.className = "item-category-meta";
+  headingMeta.textContent = translatePlural("list_detail.item_count", items.length, {}, { one: "{count} item", other: "{count} items" });
+  headingCopy.appendChild(headingMeta);
+  heading.appendChild(headingCopy);
+  section.appendChild(heading);
+
+  items.forEach((item) => {
+    const article = document.createElement("article");
+    article.className = `item-card is-on-sale${item.checked ? " is-checked" : ""}${
+      state.highlightedItemId === item.id ? " is-highlighted" : ""
+    }`;
+    article.dataset.itemSaleCard = item.id;
+    article.dataset.itemEdit = item.id;
+
+    const cardContent = document.createElement("div");
+    cardContent.className = "item-card-content";
+    const main = document.createElement("div");
+    main.className = "item-main";
+    const checkButton = document.createElement("button");
+    checkButton.className = `item-check${item.checked ? " is-checked" : ""}`;
+    checkButton.type = "button";
+    checkButton.dataset.itemToggle = item.id;
+    checkButton.setAttribute(
+      "aria-label",
+      item.checked
+        ? translate("list_detail.uncheck_item", { name: item.name }, "Uncheck {name}")
+        : translate("list_detail.check_item", { name: item.name }, "Check {name}"),
+    );
+    main.appendChild(checkButton);
+    main.appendChild(createItemCopy(item, true));
+    cardContent.appendChild(main);
+    article.appendChild(cardContent);
+    section.appendChild(article);
+  });
+
+  return section;
+}
+
 function renderItems(root, state) {
   const container = root.querySelector("[data-item-list]");
   const emptyState = root.querySelector("[data-item-empty]");
@@ -3738,6 +3953,9 @@ function renderItems(root, state) {
   const decoratedItems = [...state.items.values()].map((item) => decorateItem(state, item));
   const movedNoticeItems = [...(state.movedItemNotices?.values() || [])].map(movedItemNoticeRenderItem);
   const renderableItems = decoratedItems.concat(movedNoticeItems);
+  const onSaleItems = decoratedItems
+    .filter((item) => isItemOnSale(item, renderNow))
+    .sort((left, right) => compareActiveItems(state, left, right));
   const activeItems = renderableItems
     .filter((item) => !item.checked && !isItemHidden(item, renderNow))
     .sort((left, right) => compareActiveItems(state, left, right));
@@ -3754,6 +3972,10 @@ function renderItems(root, state) {
   emptyState.style.display = hasItems ? "none" : "";
   if (!hasItems) {
     return;
+  }
+
+  if (onSaleItems.length > 0) {
+    container.appendChild(createOnSaleSection(state, onSaleItems));
   }
 
   const groupedActiveItems = new Map();
@@ -3821,10 +4043,11 @@ function renderItems(root, state) {
       }
 
       const menuIsOpen = state.openItemMenuId === item.id;
+      const onSale = isItemOnSale(item, renderNow);
       const article = document.createElement("article");
       article.className = `item-card${item.checked ? " is-checked" : ""}${
         state.highlightedItemId === item.id ? " is-highlighted" : ""
-      }${menuIsOpen ? " has-open-menu" : ""}`;
+      }${menuIsOpen ? " has-open-menu" : ""}${onSale ? " is-on-sale" : ""}`;
       article.dataset.itemCard = item.id;
       if (state.canEdit) {
         article.dataset.itemEdit = item.id;
@@ -3860,29 +4083,7 @@ function renderItems(root, state) {
       }
       main.appendChild(checkButton);
 
-      const copy = document.createElement("div");
-      copy.className = "item-copy";
-
-      const title = document.createElement("h3");
-      title.className = "item-name";
-      title.textContent = item.name;
-      copy.appendChild(title);
-
-      if (item.quantity_text) {
-        const quantity = document.createElement("p");
-        quantity.className = "item-meta";
-        quantity.textContent = translate("list_detail.quantity_prefix", { quantity: item.quantity_text }, "Qty: {quantity}");
-        copy.appendChild(quantity);
-      }
-
-      if (item.note) {
-        const note = document.createElement("p");
-        note.className = "item-meta";
-        note.textContent = item.note;
-        copy.appendChild(note);
-      }
-
-      main.appendChild(copy);
+      main.appendChild(createItemCopy(item, onSale));
       cardContent.appendChild(main);
 
       if (state.canEdit) {
@@ -3964,9 +4165,10 @@ function renderItems(root, state) {
       }
 
       const article = document.createElement("article");
+      const onSale = isItemOnSale(item, renderNow);
       article.className = `item-card is-hidden${
         state.highlightedItemId === item.id ? " is-highlighted" : ""
-      }`;
+      }${onSale ? " is-on-sale" : ""}`;
       article.dataset.itemCard = item.id;
       if (state.canEdit) {
         article.dataset.itemEdit = item.id;
@@ -3991,29 +4193,7 @@ function renderItems(root, state) {
       unhideButton.textContent = formatHiddenUntilLabel(item, renderNow);
       main.appendChild(unhideButton);
 
-      const copy = document.createElement("div");
-      copy.className = "item-copy";
-
-      const title = document.createElement("h3");
-      title.className = "item-name";
-      title.textContent = item.name;
-      copy.appendChild(title);
-
-      if (item.quantity_text) {
-        const quantity = document.createElement("p");
-        quantity.className = "item-meta";
-        quantity.textContent = translate("list_detail.quantity_prefix", { quantity: item.quantity_text }, "Qty: {quantity}");
-        copy.appendChild(quantity);
-      }
-
-      if (item.note) {
-        const note = document.createElement("p");
-        note.className = "item-meta";
-        note.textContent = item.note;
-        copy.appendChild(note);
-      }
-
-      main.appendChild(copy);
+      main.appendChild(createItemCopy(item, onSale));
       cardContent.appendChild(main);
       article.appendChild(cardContent);
       section.appendChild(article);
@@ -4058,9 +4238,10 @@ function renderItems(root, state) {
       }
 
       const article = document.createElement("article");
+      const onSale = isItemOnSale(item, renderNow);
       article.className = `item-card is-checked${
         state.highlightedItemId === item.id ? " is-highlighted" : ""
-      }`;
+      }${onSale ? " is-on-sale" : ""}`;
       article.dataset.itemCard = item.id;
       if (state.canEdit) {
         article.dataset.itemEdit = item.id;
@@ -4086,29 +4267,7 @@ function renderItems(root, state) {
       }
       main.appendChild(checkButton);
 
-      const copy = document.createElement("div");
-      copy.className = "item-copy";
-
-      const title = document.createElement("h3");
-      title.className = "item-name";
-      title.textContent = item.name;
-      copy.appendChild(title);
-
-      if (item.quantity_text) {
-        const quantity = document.createElement("p");
-        quantity.className = "item-meta";
-        quantity.textContent = translate("list_detail.quantity_prefix", { quantity: item.quantity_text }, "Qty: {quantity}");
-        copy.appendChild(quantity);
-      }
-
-      if (item.note) {
-        const note = document.createElement("p");
-        note.className = "item-meta";
-        note.textContent = item.note;
-        copy.appendChild(note);
-      }
-
-      main.appendChild(copy);
+      main.appendChild(createItemCopy(item, onSale));
       cardContent.appendChild(main);
       article.appendChild(cardContent);
       section.appendChild(article);
@@ -4576,6 +4735,9 @@ async function initListDetail() {
     undoTimerId: null,
   };
 
+  syncSaleWindowControls(itemForm);
+  syncSaleWindowControls(itemEditForm);
+
   const refresh = async () => {
     setListMessage(root, "", "");
     await loadListDetail(root, state);
@@ -4726,7 +4888,7 @@ async function initListDetail() {
     const target = event.target;
     if (
       target instanceof HTMLInputElement &&
-      ["name", "quantity_text", "note"].includes(target.name)
+      ["name", "quantity_text", "note", "sale_starts_at", "sale_ends_at"].includes(target.name)
     ) {
       scheduleItemEditSave(root, state);
     }
@@ -4743,7 +4905,7 @@ async function initListDetail() {
     }
     if (
       target instanceof HTMLInputElement &&
-      ["name", "quantity_text", "note"].includes(target.name)
+      ["name", "quantity_text", "note", "sale_starts_at", "sale_ends_at"].includes(target.name)
     ) {
       void flushItemEditSave(root, state);
     }
@@ -4751,6 +4913,11 @@ async function initListDetail() {
 
   itemEditForm?.addEventListener("change", (event) => {
     const target = event.target;
+    if (target instanceof HTMLInputElement && target.name === "sale_enabled") {
+      syncSaleWindowControls(itemEditForm, { useDefaults: true });
+      void flushItemEditSave(root, state);
+      return;
+    }
     if (target instanceof HTMLInputElement && target.name === "edit_category_id") {
       void flushItemEditSave(root, state);
       return;
@@ -4882,6 +5049,10 @@ async function initListDetail() {
     gesture.card.style.removeProperty("--item-swipe-x");
   });
 
+  itemForm.querySelector('input[name="sale_enabled"]')?.addEventListener("change", () => {
+    syncSaleWindowControls(itemForm, { useDefaults: true });
+  });
+
   itemForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(itemForm);
@@ -4904,11 +5075,27 @@ async function initListDetail() {
     if (note) {
       payload.note = note;
     }
+    const saleEnabled = Boolean(itemForm.elements.namedItem("sale_enabled")?.checked);
+    if (saleEnabled) {
+      const salePayload = normalizeItemEditPayload({
+        name,
+        sale_enabled: true,
+        sale_starts_at: dateTimeLocalToIso(formData.get("sale_starts_at")),
+        sale_ends_at: dateTimeLocalToIso(formData.get("sale_ends_at")),
+      });
+      if (!isValidSaleWindowPayload(salePayload)) {
+        setListMessage(root, "error", translate("list_detail.sale_window_invalid", {}, "Sale end must be after its start."));
+        return;
+      }
+      payload.sale_starts_at = salePayload.sale_starts_at;
+      payload.sale_ends_at = salePayload.sale_ends_at;
+    }
 
     try {
       const createdItem = await createItemWithOfflineFallback(root, state, listId, payload);
       upsertItem(state, createdItem);
       itemForm.reset();
+      syncSaleWindowControls(itemForm);
       const addSearch = root.querySelector("[data-item-category-search]");
       if (addSearch instanceof HTMLInputElement) {
         addSearch.value = "";
@@ -5461,9 +5648,15 @@ export {
   bindListSwitcher,
   itemEditHistoryStorageKey,
   itemEditRedoHistoryStorageKey,
+  dateTimeLocalValue,
+  dateTimeLocalToIso,
+  defaultSaleWindow,
   normalizeItemEditPayload,
   itemEditPayloadFromItem,
   itemEditPayloadsEqual,
+  isValidSaleWindowPayload,
+  itemEditApiPayload,
+  syncSaleWindowControls,
   loadItemEditHistory,
   loadItemEditRedoHistory,
   pushItemEditHistory,
@@ -5564,6 +5757,7 @@ export {
   renderCategoryOrderSettings,
   setListSettingsOpen,
   renderItemSuggestions,
+  isItemOnSale,
   highlightItem,
   compareActiveItems,
   compareCheckedItems,
