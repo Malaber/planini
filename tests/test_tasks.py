@@ -20,6 +20,38 @@ class RunResult:
         self.stderr = stderr
 
 
+def test_wait_for_healthcheck_retries_connection_reset(monkeypatch) -> None:
+    sleeps: list[float] = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+    attempts = iter([ConnectionResetError("reset during startup"), Response()])
+
+    def fake_urlopen(url, timeout):
+        result = next(attempts)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(tasks, "urlopen", fake_urlopen)
+    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    tasks._wait_for_healthcheck(
+        "http://127.0.0.1:8020/health",
+        attempts=2,
+        sleep_seconds=0.25,
+    )
+
+    assert sleeps == [0.25]
+
+
 def test_database_url_for_device_uses_distinct_sqlite_file() -> None:
     database_url = "sqlite+aiosqlite:///./tmp-ci-ui-e2e.db"
 

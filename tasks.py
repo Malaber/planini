@@ -821,7 +821,7 @@ def _wait_for_healthcheck(url: str, attempts: int, sleep_seconds: float) -> None
                 if 200 <= response.status < 400:
                     return
                 last_error = f"unexpected status {response.status}"
-        except URLError as exc:
+        except OSError as exc:
             last_error = str(exc)
         time.sleep(sleep_seconds)
     raise Exit(f"App never became healthy at {url}: {last_error}")
