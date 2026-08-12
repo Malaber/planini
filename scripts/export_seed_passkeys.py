@@ -48,8 +48,7 @@ def main() -> int:
         raise SystemExit("Missing --database-url (or DATABASE_URL).")
 
     emails = tuple(args.emails) if args.emails else DEFAULT_EMAILS
-    query = text(
-        """
+    query = text("""
         SELECT
           u.email,
           p.credential_id,
@@ -60,8 +59,7 @@ def main() -> int:
         JOIN passkeys AS p ON p.user_id = u.id
         WHERE u.email IN :emails
         ORDER BY u.email ASC, p.created_at ASC
-        """
-    ).bindparams(bindparam("emails", expanding=True))
+        """).bindparams(bindparam("emails", expanding=True))
 
     engine = create_engine(database_url)
     with engine.connect() as conn:

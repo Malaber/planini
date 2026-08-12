@@ -5,7 +5,6 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 

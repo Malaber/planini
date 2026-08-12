@@ -199,7 +199,7 @@ async def _last_list_redirect(
     try:
         parsed_list_id = UUID(last_list_id)
         await get_list_for_user(db, parsed_list_id, user.id)
-    except (ValueError, HTTPException):
+    except ValueError, HTTPException:
         request.session.pop("last_list_id", None)
         return None
 

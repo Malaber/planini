@@ -40,10 +40,10 @@ jobs:
       release_version: ${{ steps.version.outputs.release_version }}
       git_tag: ${{ steps.version.outputs.git_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - name: Install Invoke
@@ -153,8 +153,8 @@ jobs:
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install Invoke
@@ -483,21 +483,21 @@ jobs:
           echo "ipa_path=$ad_hoc_artifact" >> "$GITHUB_OUTPUT"
       - name: Upload archive artifact
         if: steps.variant.outputs.skip != 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.variant.outputs.ipa_basename }}-archive
           retention-days: 14
           path: ${{ runner.temp }}/${{ steps.variant.outputs.ipa_basename }}.xcarchive
       - name: Upload App Store IPA artifact
         if: steps.variant.outputs.skip != 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.variant.outputs.ipa_basename }}-app-store-ipa
           retention-days: 14
           path: ${{ runner.temp }}/artifacts/${{ steps.variant.outputs.ipa_basename }}-app-store.ipa
       - name: Upload ad-hoc IPA artifact
         if: steps.variant.outputs.skip != 'true' && env.EXPORT_AD_HOC == 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.variant.outputs.ipa_basename }}-ad-hoc-ipa
           retention-days: 14

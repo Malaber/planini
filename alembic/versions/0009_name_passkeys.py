@@ -9,7 +9,6 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.sql import text
 
-
 revision = "0009_name_passkeys"
 down_revision = "0008_normalize_passkeys"
 branch_labels = None
@@ -26,14 +25,12 @@ def upgrade() -> None:
     user_ids = [row[0] for row in bind.execute(text("SELECT id FROM users ORDER BY id"))]
     for user_id in user_ids:
         passkeys = bind.execute(
-            text(
-                """
+            text("""
                 SELECT id
                 FROM passkeys
                 WHERE user_id = :user_id
                 ORDER BY created_at ASC, id ASC
-                """
-            ),
+                """),
             {"user_id": user_id},
         ).fetchall()
         for index, (passkey_id,) in enumerate(passkeys, start=1):

@@ -3573,6 +3573,7 @@ private struct AddItemSheet: View {
     @EnvironmentObject private var l10n: AppLocalization
     let initialCategoryID: UUID?
     let onUndoableAction: (String, @escaping ListUndoAction) -> Void
+    private let categorySuggestionService: CategorySuggestionService
 
     private enum FocusedField {
         case name
@@ -3583,13 +3584,18 @@ private struct AddItemSheet: View {
     @State private var note = ""
     @State private var categoryID: UUID?
     @State private var isSaving = false
+    @State private var isCategorySuggestionAvailable = false
+    @State private var isSuggestingCategory = false
+    @State private var categorySuggestionMessage: String?
     @FocusState private var focusedField: FocusedField?
 
     init(
         initialCategoryID: UUID? = nil,
+        categorySuggestionService: CategorySuggestionService = .live(),
         onUndoableAction: @escaping (String, @escaping ListUndoAction) -> Void
     ) {
         self.initialCategoryID = initialCategoryID
+        self.categorySuggestionService = categorySuggestionService
         self.onUndoableAction = onUndoableAction
         _categoryID = State(initialValue: initialCategoryID)
     }
@@ -3652,6 +3658,37 @@ private struct AddItemSheet: View {
                         )
                     }
                     .accessibilityIdentifier("add-item-category-link")
+
+                    if isCategorySuggestionAvailable {
+                        Button {
+                            Task { await suggestCategory() }
+                        } label: {
+                            if isSuggestingCategory {
+                                HStack {
+                                    ProgressView()
+                                    Text(l10n.t("ios.item.suggesting_category"))
+                                }
+                            } else {
+                                Label(
+                                    l10n.t("ios.item.suggest_category"),
+                                    systemImage: "apple.intelligence"
+                                )
+                            }
+                        }
+                        .disabled(
+                            isSaving
+                                || isSuggestingCategory
+                                || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        )
+                        .accessibilityIdentifier("add-item-suggest-category-button")
+
+                        if let categorySuggestionMessage {
+                            Text(categorySuggestionMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("add-item-category-suggestion-status")
+                        }
+                    }
                 }
 
                 Section(l10n.t("ios.item.notes_section")) {
@@ -3678,6 +3715,7 @@ private struct AddItemSheet: View {
         }
         .task {
             categoryID = initialCategoryID
+            isCategorySuggestionAvailable = categorySuggestionService.isAvailable
             try? await Task.sleep(nanoseconds: 250_000_000)
             focusedField = .name
         }
@@ -3697,7 +3735,46 @@ private struct AddItemSheet: View {
     }
 
     private var canSave: Bool {
-        isSaving == false && name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        isSaving == false
+            && isSuggestingCategory == false
+            && name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    @MainActor
+    private func suggestCategory() async {
+        guard isSuggestingCategory == false else { return }
+        let request = GroceryCategorySuggestionRequest(
+            name: name,
+            quantity: quantity,
+            note: note
+        )
+        guard request.name.isEmpty == false else { return }
+
+        let categories = ListCategoryPresentation.availableCategories(
+            categories: viewModel.categories,
+            disabledCategoryIDs: viewModel.disabledCategoryIDs
+        )
+        isSuggestingCategory = true
+        categorySuggestionMessage = nil
+        defer { isSuggestingCategory = false }
+
+        do {
+            let suggestedCategoryID = try await categorySuggestionService.suggestCategory(
+                request: request,
+                categories: categories
+            )
+            guard let suggestedCategory = categories.first(where: { $0.id == suggestedCategoryID }) else {
+                throw CategorySuggestionService.SuggestionError.invalidResponse
+            }
+            categoryID = suggestedCategoryID
+            categorySuggestionMessage = l10n.t(
+                "ios.item.category_suggested",
+                ["category": suggestedCategory.name]
+            )
+            AppHaptics.confirmation()
+        } catch {
+            categorySuggestionMessage = l10n.t("ios.item.category_suggestion_failed")
+        }
     }
 
     private func saveItem() {

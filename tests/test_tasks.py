@@ -85,8 +85,7 @@ def test_ios_ui_e2e_failure_summaries_reads_failed_test_messages(tmp_path: Path)
     database_path = bundle_path / "database.sqlite3"
 
     with closing(sqlite3.connect(database_path)) as connection:
-        connection.executescript(
-            """
+        connection.executescript("""
             CREATE TABLE TestCases (name TEXT);
             CREATE TABLE TestCaseRuns (testCase_fk INTEGER, result TEXT);
             CREATE TABLE TestIssues (
@@ -103,8 +102,7 @@ def test_ios_ui_e2e_failure_summaries_reads_failed_test_messages(tmp_path: Path)
                 detailedDescription,
                 orderInOwner
             ) VALUES (1, 'Compact failure', 'Detailed failure', 0);
-            """
-        )
+            """)
 
     assert tasks._ios_ui_e2e_failure_summaries(bundle_path) == [
         "testListViewFlow() [Failure]: Detailed failure"
@@ -170,8 +168,7 @@ def test_ios_ui_e2e_failure_summaries_include_xcresult_details_and_activity(
         commands.append(command)
         assert kwargs == {"capture_output": True, "text": True, "check": False}
         if command[4] == "summary":
-            return Result(
-                """
+            return Result("""
                 {
                   "testFailures": [
                     {
@@ -181,11 +178,9 @@ def test_ios_ui_e2e_failure_summaries_include_xcresult_details_and_activity(
                     }
                   ]
                 }
-                """
-            )
+                """)
         if command[4] == "test-details":
-            return Result(
-                """
+            return Result("""
                 {
                   "testName": "PlaniniUITests.testListViewFlow()",
                   "testRuns": [
@@ -205,11 +200,9 @@ def test_ios_ui_e2e_failure_summaries_include_xcresult_details_and_activity(
                     }
                   ]
                 }
-                """
-            )
+                """)
         assert command[4] == "activities"
-        return Result(
-            """
+        return Result("""
             {
               "testName": "PlaniniUITests.testListViewFlow()",
               "testRuns": {
@@ -226,8 +219,7 @@ def test_ios_ui_e2e_failure_summaries_include_xcresult_details_and_activity(
                 ]
               }
             }
-            """
-        )
+            """)
 
     monkeypatch.setattr(tasks.subprocess, "run", fake_run)
 
@@ -964,6 +956,7 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
     assert ci_workflow.count("check-ios-ui-e2e") == 1
     assert "uses: ./.github/workflows/app-store-screenshots.yml" in ci_workflow
     assert "if: github.ref != 'refs/heads/main'" in ci_workflow
+    assert "timeout-minutes: 45" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in screenshot_workflow
     assert "check-ios-e2e" not in testflight_workflow
