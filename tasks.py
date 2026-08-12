@@ -49,6 +49,9 @@ DEFAULT_PRIVACY_EMAIL = "privacy@example.com"
 DEFAULT_SUPPORT_EMAIL = "support@example.com"
 DEFAULT_APP_LOG_PATH = "ui-e2e-server.log"
 DEFAULT_APP_PID_PATH = "ui-e2e-server.pid"
+DEFAULT_CONTAINER_SMOKE_ARTIFACT_DIR = "e2e-artifacts/container-smoke"
+DEFAULT_CONTAINER_SMOKE_LEGACY_REVISION = "0019_add_household_member_roles"
+DEFAULT_CONTAINER_SMOKE_PORT = 8020
 DEFAULT_IOS_E2E_PORT = 8017
 DEFAULT_IOS_E2E_BASE_URL = f"http://localhost:{DEFAULT_IOS_E2E_PORT}"
 DEFAULT_IOS_E2E_DATABASE_URL = "sqlite+aiosqlite:///./tmp-ios-e2e.db"
@@ -1666,6 +1669,89 @@ def stop_app(c, pid_path=DEFAULT_APP_PID_PATH) -> None:
 )
 def wait_for_app(c, url=DEFAULT_HEALTH_URL, attempts=30, sleep_seconds=1.0) -> None:
     _wait_for_healthcheck(url=url, attempts=int(attempts), sleep_seconds=float(sleep_seconds))
+
+
+@task(
+    help={
+        "image": "Published container image and tag to smoke test.",
+        "legacy_revision": "Previously deployed migration revision used to seed the database.",
+        "artifact_dir": "Host directory mounted as persistent container data.",
+        "port": "Host port used for the container healthcheck.",
+    }
+)
+def check_container_smoke(
+    c,
+    image,
+    legacy_revision=DEFAULT_CONTAINER_SMOKE_LEGACY_REVISION,
+    artifact_dir=DEFAULT_CONTAINER_SMOKE_ARTIFACT_DIR,
+    port=DEFAULT_CONTAINER_SMOKE_PORT,
+) -> None:
+    """Start the published image against a previously deployed persistent database."""
+    data_path = ROOT / artifact_dir
+    shutil.rmtree(data_path, ignore_errors=True)
+    data_path.mkdir(parents=True)
+    data_path.chmod(0o777)
+
+    container_name = f"planini-container-smoke-{os.getpid()}"
+    database_url = "sqlite+aiosqlite:////data/planini.db"
+    mount = f"{data_path.resolve()}:/data"
+    migration_code = (
+        "from alembic import command; "
+        "from app.core.database import _build_alembic_config; "
+        f"command.upgrade(_build_alembic_config(), {legacy_revision!r})"
+    )
+    prepare_command = " ".join(
+        [
+            "docker run --rm",
+            f"--volume {shlex.quote(mount)}",
+            f"--env DATABASE_URL={shlex.quote(database_url)}",
+            "--entrypoint python",
+            shlex.quote(image),
+            f"-c {shlex.quote(migration_code)}",
+        ]
+    )
+    start_command = " ".join(
+        [
+            "docker run --detach --rm",
+            f"--name {shlex.quote(container_name)}",
+            f"--publish 127.0.0.1:{int(port)}:8000",
+            f"--volume {shlex.quote(mount)}",
+            f"--env DATABASE_URL={shlex.quote(database_url)}",
+            "--env SECRET_KEY=container-smoke-secret",
+            "--env PRIVACY_EMAIL=privacy@example.com",
+            "--env SUPPORT_EMAIL=support@example.com",
+            shlex.quote(image),
+        ]
+    )
+    try:
+        c.run(prepare_command, pty=False, shell="/bin/bash")
+        c.run(start_command, pty=False, shell="/bin/bash")
+        _wait_for_healthcheck(
+            url=f"http://127.0.0.1:{int(port)}/health",
+            attempts=30,
+            sleep_seconds=2.0,
+        )
+        c.run(
+            f"docker exec {shlex.quote(container_name)} " "python -m alembic current --check-heads",
+            pty=False,
+            shell="/bin/bash",
+        )
+    except Exception:
+        c.run(
+            f"docker logs {shlex.quote(container_name)}",
+            warn=True,
+            pty=False,
+            shell="/bin/bash",
+        )
+        raise
+    finally:
+        c.run(
+            f"docker rm --force {shlex.quote(container_name)}",
+            warn=True,
+            hide=True,
+            pty=False,
+            shell="/bin/bash",
+        )
 
 
 @task(

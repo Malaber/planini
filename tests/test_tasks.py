@@ -956,6 +956,10 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
     assert ci_workflow.count("check-ios-ui-e2e") == 1
     assert "uses: ./.github/workflows/app-store-screenshots.yml" in ci_workflow
     assert "if: github.ref != 'refs/heads/main'" in ci_workflow
+    assert (
+        "docker_smoke:\n    runs-on: ubuntu-latest\n    needs:\n      - docker_build" in ci_workflow
+    )
+    assert "python -m invoke check-container-smoke" in ci_workflow
     assert "timeout-minutes: 60" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in screenshot_workflow
@@ -987,6 +991,101 @@ def test_ci_skips_work_repeated_by_main_release() -> None:
     assert f"ios_marketing_screenshots:\n    {main_skip}" in workflow
     assert f"version:\n    {main_skip}" in workflow
     assert f"docker_build_platform:\n    {main_skip}" in workflow
+
+
+def test_review_deploy_waits_for_preview_health() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "pr-review.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "id: wake" in workflow
+    assert 'output.write("triggered=true\\n")' in workflow
+    assert "if: steps.wake.outputs.triggered == 'true'" in workflow
+    assert "python -m invoke wait-for-app" in workflow
+    assert '--url="$REVIEW_URL/health"' in workflow
+
+
+def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monkeypatch) -> None:
+    calls: list[tuple[str, dict]] = []
+    healthchecks: list[dict] = []
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return RunResult(exited=0)
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks.os, "getpid", lambda: 4321)
+    monkeypatch.setattr(
+        tasks,
+        "_wait_for_healthcheck",
+        lambda **kwargs: healthchecks.append(kwargs),
+    )
+
+    tasks.check_container_smoke.body(
+        Context(),
+        image="ghcr.io/malaber/planini:sha-test",
+        port="8123",
+    )
+
+    assert (tmp_path / "e2e-artifacts" / "container-smoke").exists()
+    prepare_args = shlex.split(calls[0][0])
+    assert prepare_args[:3] == ["docker", "run", "--rm"]
+    assert "0019_add_household_member_roles" in prepare_args[-1]
+    assert prepare_args[-2] == "-c"
+    start_args = shlex.split(calls[1][0])
+    assert start_args[:3] == ["docker", "run", "--detach"]
+    assert "127.0.0.1:8123:8000" in start_args
+    assert "ghcr.io/malaber/planini:sha-test" == start_args[-1]
+    assert healthchecks == [
+        {
+            "url": "http://127.0.0.1:8123/health",
+            "attempts": 30,
+            "sleep_seconds": 2.0,
+        }
+    ]
+    assert calls[2][0] == (
+        "docker exec planini-container-smoke-4321 " "python -m alembic current --check-heads"
+    )
+    assert calls[3] == (
+        "docker rm --force planini-container-smoke-4321",
+        {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"},
+    )
+
+
+def test_check_container_smoke_prints_logs_when_healthcheck_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return RunResult(exited=0)
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks.os, "getpid", lambda: 9876)
+    monkeypatch.setattr(
+        tasks,
+        "_wait_for_healthcheck",
+        lambda **kwargs: (_ for _ in ()).throw(tasks.Exit("container unhealthy")),
+    )
+
+    try:
+        tasks.check_container_smoke.body(Context(), image="planini:test")
+    except tasks.Exit as exc:
+        assert str(exc) == "container unhealthy"
+    else:
+        raise AssertionError("expected container smoke test to fail")
+
+    assert calls[-2] == (
+        "docker logs planini-container-smoke-9876",
+        {"warn": True, "pty": False, "shell": "/bin/bash"},
+    )
+    assert calls[-1] == (
+        "docker rm --force planini-container-smoke-9876",
+        {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"},
+    )
 
 
 def test_ios_project_uses_icon_composer_for_app_and_watch() -> None:
