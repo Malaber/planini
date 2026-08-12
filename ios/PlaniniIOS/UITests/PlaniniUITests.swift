@@ -47,6 +47,119 @@ final class PlaniniUITests: XCTestCase {
         }
     }
 
+    func testAppleIntelligenceCategorySuggestion() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+
+        let unavailableApp = launchedApp(
+            session: session,
+            initialListName: initialListName,
+            extraLaunchEnvironment: [
+                "PLANINI_UI_TEST_APPLE_INTELLIGENCE_AVAILABLE": "0",
+            ]
+        )
+        let unavailableListTitle = unavailableApp.staticTexts["list-detail-title"]
+        XCTAssertTrue(
+            openInitialListDetail(in: unavailableApp, listTitle: unavailableListTitle),
+            "Expected initial list before checking unavailable Apple Intelligence UI."
+        )
+        XCTAssertTrue(openAddItemSheet(in: unavailableApp))
+        XCTAssertFalse(
+            unavailableApp.buttons["add-item-suggest-category-button"].exists,
+            "Suggestion control must stay hidden when Apple Intelligence is unavailable."
+        )
+        terminateAndWait(unavailableApp)
+
+        let itemName = "AI category \(UUID().uuidString.prefix(8))"
+        let itemQuantity = "2 cartons"
+        let itemNote = "for breakfast"
+        let categoryName = "Dairy & Eggs"
+        let app = launchedApp(
+            session: session,
+            initialListName: initialListName,
+            extraLaunchEnvironment: [
+                "PLANINI_UI_TEST_APPLE_INTELLIGENCE_AVAILABLE": "1",
+                "PLANINI_UI_TEST_CATEGORY_SUGGESTION": categoryName,
+                "PLANINI_UI_TEST_CATEGORY_SUGGESTION_EXPECTED_NAME": itemName,
+                "PLANINI_UI_TEST_CATEGORY_SUGGESTION_EXPECTED_QUANTITY": itemQuantity,
+                "PLANINI_UI_TEST_CATEGORY_SUGGESTION_EXPECTED_NOTE": itemNote,
+            ]
+        )
+        var createdItemID: UUID?
+        defer {
+            terminateAndWait(app)
+            if let createdItemID {
+                try? deleteItem(itemID: createdItemID, accessToken: session.accessToken)
+            }
+        }
+
+        let listTitle = app.staticTexts["list-detail-title"]
+        XCTAssertTrue(
+            openInitialListDetail(in: app, listTitle: listTitle),
+            "Expected initial list before checking Apple Intelligence suggestion."
+        )
+        XCTAssertTrue(openAddItemSheet(in: app))
+
+        let suggestionButton = app.buttons["add-item-suggest-category-button"]
+        XCTAssertTrue(suggestionButton.waitForExistence(timeout: 5))
+        XCTAssertFalse(suggestionButton.isEnabled, "Suggestion needs an item name.")
+
+        let nameField = app.textFields["add-item-name-field"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 3))
+        nameField.tap()
+        XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 3))
+        nameField.typeText(itemName)
+        XCTAssertTrue(waitForFieldValue(nameField, contains: itemName))
+
+        let quantityField = app.textFields["add-item-quantity-field"]
+        quantityField.tap()
+        quantityField.typeText(itemQuantity)
+        XCTAssertTrue(waitForFieldValue(quantityField, contains: itemQuantity))
+
+        let noteField = app.textFields["add-item-note-field"]
+        scrollToHittable(noteField, in: app)
+        noteField.tap()
+        noteField.typeText(itemNote)
+        XCTAssertTrue(waitForFieldValue(noteField, contains: itemNote))
+
+        scrollToHittable(suggestionButton, in: app)
+        XCTAssertTrue(suggestionButton.isEnabled)
+        tapElement(suggestionButton)
+        XCTAssertTrue(
+            waitForElementLabel(
+                app.staticTexts["add-item-category-suggestion-status"],
+                containing: "Suggested \(categoryName).",
+                timeout: 8
+            )
+        )
+        XCTAssertTrue(
+            waitForElementLabel(
+                app.buttons["add-item-category-link"].firstMatch,
+                containing: categoryName
+            )
+        )
+
+        XCTAssertTrue(tapAddItemSaveAndWaitForDismissal(in: app))
+        XCTAssertTrue(
+            waitForItemCategory(
+                named: itemName,
+                categoryNamed: categoryName,
+                inListNamed: initialListName,
+                accessToken: session.accessToken,
+                timeout: 20
+            )
+        )
+        createdItemID = try itemID(
+            named: itemName,
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+    }
+
     private func captureMarketingScreenshots(for variant: MarketingScreenshotVariant) {
         let platformDirectory = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
         let artifactDirectory = "\(platformDirectory)/\(variant.localeDirectory)"

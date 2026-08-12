@@ -11,6 +11,8 @@ jobs:
   capture:
     name: Capture upload bundle
     runs-on: macos-26
+    # The two simulator passes can consume almost 35 minutes on hosted runners;
+    # leave enough time for artifact upload and action cleanup.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
