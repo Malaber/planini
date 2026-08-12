@@ -4169,8 +4169,10 @@ final class PlaniniUITests: XCTestCase {
     ) -> URLRequest {
         let targetBaseURL = overrideBaseURL ?? baseURL
         var request = URLRequest(url: targetBaseURL.appending(path: path))
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue("en", forHTTPHeaderField: "Accept-Language")
         request.httpMethod = method
         if let token {
@@ -4203,9 +4205,11 @@ final class PlaniniUITests: XCTestCase {
         let semaphore = DispatchSemaphore(value: 0)
         var capturedData: Data?
         var capturedError: Error?
-        URLSession.shared.dataTask(with: request) { data, _, error in
+        var capturedResponse: URLResponse?
+        URLSession.shared.dataTask(with: request) { data, response, error in
             capturedData = data
             capturedError = error
+            capturedResponse = response
             semaphore.signal()
         }.resume()
         let waitResult = semaphore.wait(timeout: .now() + 10)
@@ -4225,6 +4229,19 @@ final class PlaniniUITests: XCTestCase {
         }
         guard let capturedData else {
             throw NSError(domain: "PlaniniUITests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing bootstrap response"])
+        }
+        if let response = capturedResponse as? HTTPURLResponse,
+            (200..<300).contains(response.statusCode) == false
+        {
+            let responseBody = String(data: capturedData, encoding: .utf8) ?? "<non-UTF-8 body>"
+            throw NSError(
+                domain: "PlaniniUITests",
+                code: response.statusCode,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "HTTP \(response.statusCode) from \(request.url?.absoluteString ?? "unknown request"): \(responseBody)"
+                ]
+            )
         }
         return capturedData
     }
