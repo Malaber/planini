@@ -8,7 +8,6 @@ Create Date: 2026-07-23
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "0018_add_item_sale_window"
 down_revision = "0017_add_list_accent_color"
 branch_labels = None

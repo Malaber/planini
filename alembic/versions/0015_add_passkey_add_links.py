@@ -8,7 +8,6 @@ Create Date: 2026-05-15
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "0015_add_passkey_add_links"
 down_revision = "0014_merge_item_hidden_until_and_disabled_categories"
 branch_labels = None

@@ -8,7 +8,6 @@ Create Date: 2026-04-04
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "0011_add_passkey_reset_links"
 down_revision = "0010_add_auth_sessions"
 branch_labels = None

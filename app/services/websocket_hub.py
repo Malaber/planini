@@ -36,7 +36,7 @@ class WebSocketHub:
         for conn in list(self._connections.get(list_id, [])):
             try:
                 await asyncio.wait_for(conn.send_json(event), timeout=self._send_timeout_seconds)
-            except (TimeoutError, RuntimeError, WebSocketDisconnect):
+            except TimeoutError, RuntimeError, WebSocketDisconnect:
                 stale_connections.append(conn)
 
         for conn in stale_connections:
