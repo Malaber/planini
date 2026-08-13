@@ -1676,20 +1676,30 @@ final class PlaniniUITests: XCTestCase {
         )
 
         let normalToggle = app.buttons["toggle-item-\(itemID.uuidString)"]
-        scrollToElement(normalToggle, in: app, maxSwipes: 16)
+        scrollToHittable(normalToggle, in: app, maxSwipes: 20)
+        XCTAssertTrue(
+            normalToggle.waitForExistence(timeout: 10),
+            "Expected normal toggle in the checked-items area after the promoted row update."
+        )
         XCTAssertTrue(
             waitForElementLabel(normalToggle, containing: "Uncheck \(itemName)"),
             "Expected normal toggle to mirror promoted checked state."
         )
-
-        tapElement(normalToggle)
         XCTAssertTrue(
-            waitForItemCheckedState(
+            normalToggle.isHittable,
+            "Expected normal toggle to be on-screen before tapping it."
+        )
+
+        XCTAssertTrue(
+            tapItemToggleButton(
+                itemID: itemID,
                 named: itemName,
                 checked: false,
+                in: app,
                 inListNamed: initialListName,
                 accessToken: session.accessToken
-            )
+            ),
+            "Expected tapping the on-screen normal toggle to uncheck the item."
         )
         scrollToListTop(in: app, maxSwipes: 16)
         XCTAssertTrue(
