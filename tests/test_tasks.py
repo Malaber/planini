@@ -52,13 +52,13 @@ def test_wait_for_healthcheck_retries_connection_reset(monkeypatch) -> None:
     assert sleeps == [0.25]
 
 
-def test_wait_for_container_startup_retries_until_complete(monkeypatch) -> None:
+def test_wait_for_container_health_endpoint_retries_until_ready(monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
     sleeps: list[float] = []
     results = iter(
         [
-            RunResult(exited=0, stderr="Waiting for application startup.\n"),
-            RunResult(exited=0, stderr="Application startup complete.\n"),
+            RunResult(exited=1, stderr="Connection refused\n"),
+            RunResult(exited=0),
         ]
     )
 
@@ -69,17 +69,24 @@ def test_wait_for_container_startup_retries_until_complete(monkeypatch) -> None:
 
     monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
 
-    tasks._wait_for_container_startup(
+    tasks._wait_for_container_health_endpoint(
         Context(),
         "planini-container-smoke",
         attempts=2,
         sleep_seconds=0.25,
     )
 
-    assert [command for command, _ in calls] == [
-        "docker logs planini-container-smoke",
-        "docker logs planini-container-smoke",
+    assert len(calls) == 2
+    probe_args = shlex.split(calls[0][0])
+    assert probe_args[:5] == [
+        "docker",
+        "exec",
+        "planini-container-smoke",
+        "python",
+        "-c",
     ]
+    assert "json.load(response) == {'status': 'ok'}" in probe_args[-1]
+    assert calls[1][0] == calls[0][0]
     assert all(
         kwargs == {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"}
         for _, kwargs in calls
@@ -87,36 +94,28 @@ def test_wait_for_container_startup_retries_until_complete(monkeypatch) -> None:
     assert sleeps == [0.25]
 
 
-def test_wait_for_container_startup_reports_log_failure(capsys) -> None:
+def test_wait_for_container_health_endpoint_reports_timeout(monkeypatch, capsys) -> None:
     class Context:
         def run(self, command, **kwargs):
-            return RunResult(exited=1, stderr="No such container\n")
+            return RunResult(exited=1, stderr="Connection refused\n")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
 
     try:
-        tasks._wait_for_container_startup(Context(), "planini-smoke")
+        tasks._wait_for_container_health_endpoint(
+            Context(), "planini-smoke", attempts=2, sleep_seconds=0.25
+        )
     except tasks.Exit as exc:
-        assert str(exc) == "Could not inspect container startup logs: docker logs planini-smoke"
-    else:
-        raise AssertionError("expected container inspection to fail")
-
-    assert capsys.readouterr().out == "No such container\n"
-
-
-def test_wait_for_container_startup_reports_timeout(monkeypatch) -> None:
-    class Context:
-        def run(self, command, **kwargs):
-            return RunResult(exited=0, stderr="Waiting for application startup.\n")
-
-    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: None)
-
-    try:
-        tasks._wait_for_container_startup(Context(), "planini-smoke", attempts=0)
-    except tasks.Exit as exc:
-        assert str(exc) == (
-            "Container did not complete application startup after 1 attempt(s): planini-smoke"
+        assert str(exc).startswith(
+            "Container health endpoint did not become ready after 2 attempt(s): "
+            "docker exec planini-smoke python -c "
         )
     else:
         raise AssertionError("expected container health timeout")
+
+    assert capsys.readouterr().out == "Connection refused\n"
+    assert sleeps == [0.25]
 
 
 def test_database_url_for_device_uses_distinct_sqlite_file() -> None:
@@ -1135,7 +1134,7 @@ def test_ghcr_workflows_retry_registry_login() -> None:
 def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
     healthchecks: list[dict] = []
-    container_startup_checks: list[dict] = []
+    container_healthchecks: list[dict] = []
 
     class Context:
         def run(self, command, **kwargs):
@@ -1151,8 +1150,8 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
     )
     monkeypatch.setattr(
         tasks,
-        "_wait_for_container_startup",
-        lambda c, container_name, **kwargs: container_startup_checks.append(
+        "_wait_for_container_health_endpoint",
+        lambda c, container_name, **kwargs: container_healthchecks.append(
             {"container_name": container_name, **kwargs}
         ),
     )
@@ -1179,10 +1178,10 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
             "sleep_seconds": 2.0,
         }
     ]
-    assert container_startup_checks == [
+    assert container_healthchecks == [
         {
             "container_name": "planini-container-smoke-4321",
-            "attempts": 60,
+            "attempts": 150,
             "sleep_seconds": 2.0,
         }
     ]
@@ -1208,7 +1207,7 @@ def test_check_container_smoke_prints_logs_when_healthcheck_fails(
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(tasks.os, "getpid", lambda: 9876)
-    monkeypatch.setattr(tasks, "_wait_for_container_startup", lambda *args, **kwargs: None)
+    monkeypatch.setattr(tasks, "_wait_for_container_health_endpoint", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         tasks,
         "_wait_for_healthcheck",

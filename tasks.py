@@ -1671,37 +1671,46 @@ def wait_for_app(c, url=DEFAULT_HEALTH_URL, attempts=30, sleep_seconds=1.0) -> N
     _wait_for_healthcheck(url=url, attempts=int(attempts), sleep_seconds=float(sleep_seconds))
 
 
-def _wait_for_container_startup(
+def _wait_for_container_health_endpoint(
     c,
     container_name: str,
-    attempts: int = 60,
+    attempts: int = 150,
     sleep_seconds: float = 2.0,
 ) -> None:
-    command = f"docker logs {shlex.quote(container_name)}"
+    healthcheck_code = (
+        "import json; from urllib.request import urlopen; "
+        "response = urlopen('http://127.0.0.1:8000/health', timeout=2); "
+        "assert response.status == 200; "
+        "assert json.load(response) == {'status': 'ok'}"
+    )
+    command = " ".join(
+        [
+            "docker exec",
+            shlex.quote(container_name),
+            "python -c",
+            shlex.quote(healthcheck_code),
+        ]
+    )
     max_attempts = max(1, int(attempts))
+    last_result = None
     for attempt in range(max_attempts):
-        result = c.run(
+        last_result = c.run(
             command,
             warn=True,
             hide=True,
             pty=False,
             shell="/bin/bash",
         )
-        if result.exited != 0:
-            _print_hidden_output(result)
-            raise Exit(f"Could not inspect container startup logs: {command}")
-
-        output = "\n".join(
-            stream for stream in (result.stdout or "", result.stderr or "") if stream
-        )
-        if "Application startup complete." in output:
+        if last_result.exited == 0:
             return
         if attempt < max_attempts - 1:
             time.sleep(float(sleep_seconds))
 
+    assert last_result is not None
+    _print_hidden_output(last_result)
     raise Exit(
-        f"Container did not complete application startup after {max_attempts} attempt(s): "
-        f"{container_name}"
+        f"Container health endpoint did not become ready after {max_attempts} attempt(s): "
+        f"{command}"
     )
 
 
@@ -1760,10 +1769,10 @@ def check_container_smoke(
     try:
         c.run(prepare_command, pty=False, shell="/bin/bash")
         c.run(start_command, pty=False, shell="/bin/bash")
-        _wait_for_container_startup(
+        _wait_for_container_health_endpoint(
             c,
             container_name,
-            attempts=60,
+            attempts=150,
             sleep_seconds=2.0,
         )
         _wait_for_healthcheck(
