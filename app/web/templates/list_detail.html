@@ -183,32 +183,45 @@
           &times;
         </button>
       </div>
-      <form class="dashboard-form settings-list-name-form" data-list-name-form>
-        <label class="dashboard-field">
-          <span>{{ t("list_detail.list_name") }}</span>
-          <input
-            type="text"
-            name="name"
-            maxlength="255"
-            required
-            autocomplete="off"
-            data-list-name-input
-          />
-        </label>
-        <div class="settings-list-name-actions">
-          <button type="submit" class="primary-button" data-list-name-submit>
-            {{ t("list_detail.save_list_name") }}
-          </button>
+      <div data-list-settings-management>
+        <form class="dashboard-form settings-list-name-form" data-list-name-form>
+          <label class="dashboard-field">
+            <span>{{ t("list_detail.list_name") }}</span>
+            <input
+              type="text"
+              name="name"
+              maxlength="255"
+              required
+              autocomplete="off"
+              data-list-name-input
+            />
+          </label>
+          <div class="settings-list-name-actions">
+            <button type="submit" class="primary-button" data-list-name-submit>
+              {{ t("list_detail.save_list_name") }}
+            </button>
+          </div>
+        </form>
+        <div class="dashboard-section-heading settings-subsection-heading">
+          <div>
+            <p class="dashboard-label">{{ t("list_detail.categories_label") }}</p>
+            <h3>{{ t("list_detail.category_order") }}</h3>
+          </div>
         </div>
-      </form>
-      <div class="dashboard-section-heading settings-subsection-heading">
-        <div>
-          <p class="dashboard-label">{{ t("list_detail.categories_label") }}</p>
-          <h3>{{ t("list_detail.category_order") }}</h3>
-        </div>
+        <p class="dashboard-helper">{{ t("list_detail.category_order_body") }}</p>
+        <div class="settings-category-list" data-list-settings-category-list></div>
       </div>
-      <p class="dashboard-helper">{{ t("list_detail.category_order_body") }}</p>
-      <div class="settings-category-list" data-list-settings-category-list></div>
+      <div class="dashboard-section-heading settings-subsection-heading list-history-heading">
+        <div>
+          <p class="dashboard-label">{{ t("list_detail.history_label") }}</p>
+          <h3>{{ t("list_detail.history_title") }}</h3>
+        </div>
+        <button class="secondary-button" type="button" data-list-history-refresh>
+          {{ t("list_detail.history_refresh") }}
+        </button>
+      </div>
+      <p class="dashboard-helper">{{ t("list_detail.history_body") }}</p>
+      <div class="list-history" data-list-history aria-live="polite"></div>
     </section>
   </div>
 

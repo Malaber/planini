@@ -135,6 +135,10 @@ final class MobileAppViewModel: ObservableObject {
     @Published private(set) var passkeyManagementErrorMessage: String?
     @Published private(set) var households: [HouseholdSummary] = []
     @Published private(set) var membersByHousehold: [UUID: [HouseholdMemberSummary]] = [:]
+    @Published private(set) var listHistory: [ListHistoryEntrySummary] = []
+    @Published private(set) var listHistoryListID: UUID?
+    @Published private(set) var isLoadingListHistory = false
+    @Published private(set) var listHistoryErrorMessage: String?
     @Published private(set) var lists: [GroceryListSummary] = []
     @Published private(set) var items: [GroceryItemRecord] = []
     @Published private(set) var categories: [GroceryCategorySummary] = []
@@ -900,6 +904,10 @@ final class MobileAppViewModel: ObservableObject {
         passkeyManagementErrorMessage = nil
         households = []
         membersByHousehold = [:]
+        listHistory = []
+        listHistoryListID = nil
+        isLoadingListHistory = false
+        listHistoryErrorMessage = nil
         lists = []
         items = []
         categories = []
@@ -1231,6 +1239,43 @@ final class MobileAppViewModel: ObservableObject {
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadListHistory(listID: UUID) async {
+        listHistoryListID = listID
+        listHistoryErrorMessage = nil
+        if isLocalMode {
+            listHistory = []
+            isLoadingListHistory = false
+            return
+        }
+        guard let backendURL, let authToken else {
+            listHistory = []
+            isLoadingListHistory = false
+            return
+        }
+
+        isLoadingListHistory = true
+        defer {
+            if listHistoryListID == listID {
+                isLoadingListHistory = false
+            }
+        }
+        do {
+            let payload = try await requestArray(
+                backendURL: backendURL,
+                path: "/api/v1/lists/\(listID.uuidString)/history",
+                token: authToken
+            )
+            guard listHistoryListID == listID else { return }
+            listHistory = payload.compactMap(ListHistoryEntrySummary.init(json:))
+        } catch {
+            guard listHistoryListID == listID else { return }
+            listHistory = []
+            if handleSessionExpired(error) == false {
+                listHistoryErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -2465,6 +2510,10 @@ final class MobileAppViewModel: ObservableObject {
         authToken = nil
         passkeys = []
         passkeyManagementErrorMessage = nil
+        listHistory = []
+        listHistoryListID = nil
+        isLoadingListHistory = false
+        listHistoryErrorMessage = nil
         lists = []
         items = []
         categories = []

@@ -2037,6 +2037,64 @@ main {
   margin-top: 1.25rem;
 }
 
+.list-history-heading {
+  align-items: center;
+}
+
+.list-history {
+  margin-top: 1rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.list-history-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.list-history-row:last-child {
+  border-bottom: 0;
+}
+
+.list-history-marker {
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-top: 0.35rem;
+  border-radius: 999px;
+  background: var(--brand-aqua);
+  box-shadow: 0 0 0 0.25rem rgba(54, 169, 185, 0.14);
+}
+
+.list-history-row p,
+.list-history-row time {
+  display: block;
+  margin: 0;
+}
+
+.list-history-row p {
+  line-height: 1.4;
+}
+
+.list-history-row time {
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.list-history-state {
+  margin: 0;
+  padding: 1rem;
+}
+
+.list-history-state.is-error {
+  color: #be123c;
+}
+
 .item-edit-live-status {
   display: flex;
   align-items: center;

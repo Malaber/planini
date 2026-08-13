@@ -1113,6 +1113,14 @@ final class PlaniniUITests: XCTestCase {
                 accessToken: session.accessToken
             )
         )
+        let historySection = app.descendants(matching: .any)["list-history-section"]
+        scrollToHittable(historySection, in: app, maxSwipes: 14)
+        XCTAssertTrue(historySection.waitForExistence(timeout: 8))
+        let colorHistoryEntry = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "changed the list color"))
+            .firstMatch
+        XCTAssertTrue(colorHistoryEntry.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["list-history-refresh-button"].exists)
         captureScreenshot(named: "ios-ui-list-settings")
 
         let disabledKonservenToggle = firstExistingElement(

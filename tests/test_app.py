@@ -14,7 +14,7 @@ from webauthn.helpers import bytes_to_base64url
 from app.api.v1.routes.households import _as_utc, _claim_invite_use
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token
-from app.schemas.domain import GroceryItemOut
+from app.schemas.domain import GroceryItemOut, ListHistoryEntryOut
 from app.models import (
     AuthSession,
     HouseholdInvite,
@@ -1681,6 +1681,215 @@ def test_api_role_boundaries_are_enforced(client) -> None:
         ).status_code
         == 403
     )
+
+
+def test_list_history_tracks_list_item_setting_and_member_changes(client) -> None:
+    aware_now = datetime.now(UTC)
+    assert ListHistoryEntryOut.normalize_created_at(aware_now) == aware_now
+    owner_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    member_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    outsider_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    owner_headers = {"Authorization": f"Bearer {create_access_token(owner_id)}"}
+    member_headers = {"Authorization": f"Bearer {create_access_token(member_id)}"}
+    outsider_headers = {"Authorization": f"Bearer {create_access_token(outsider_id)}"}
+    admin_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+
+    household = client.post(
+        "/api/v1/households",
+        json={"name": "History home"},
+        headers=owner_headers,
+    ).json()
+    first_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=owner_headers,
+    ).json()
+    second_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Hardware"},
+        headers=owner_headers,
+    ).json()
+
+    renamed = client.patch(
+        f"/api/v1/lists/{first_list['id']}",
+        json={"name": "Market", "accent_color": "#A1B2C3"},
+        headers=owner_headers,
+    )
+    assert renamed.status_code == 200
+    assert (
+        client.patch(
+            f"/api/v1/lists/{first_list['id']}",
+            json={"name": "Market", "accent_color": "#A1B2C3"},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+
+    category = client.post(
+        "/api/v1/categories",
+        json={"name": "Produce"},
+        headers=admin_headers,
+    ).json()
+    category_order_url = f"/api/v1/lists/{first_list['id']}/category-order"
+    assert (
+        client.put(
+            category_order_url,
+            json={"category_ids": [category["id"]]},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.put(
+            category_order_url,
+            json={"category_ids": [category["id"]]},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    disabled_url = f"/api/v1/lists/{first_list['id']}/disabled-categories"
+    assert (
+        client.put(
+            disabled_url,
+            json={"category_ids": [category["id"]]},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.put(
+            disabled_url,
+            json={"category_ids": [category["id"]]},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+
+    item = client.post(
+        f"/api/v1/lists/{first_list['id']}/items",
+        json={"name": "Milk"},
+        headers=owner_headers,
+    ).json()
+    assert (
+        client.patch(
+            f"/api/v1/items/{item['id']}",
+            json={"name": "Milk"},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/items/{item['id']}",
+            json={"quantity_text": "2 bottles"},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(f"/api/v1/items/{item['id']}/check", headers=owner_headers).status_code == 200
+    )
+    assert (
+        client.post(f"/api/v1/items/{item['id']}/check", headers=owner_headers).status_code == 200
+    )
+    assert (
+        client.post(f"/api/v1/items/{item['id']}/uncheck", headers=owner_headers).status_code == 200
+    )
+    assert (
+        client.post(f"/api/v1/items/{item['id']}/uncheck", headers=owner_headers).status_code == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/items/{item['id']}",
+            json={"list_id": second_list["id"]},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert client.delete(f"/api/v1/items/{item['id']}", headers=owner_headers).status_code == 200
+
+    invite = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        json={"role": "editor"},
+        headers=owner_headers,
+    ).json()
+    invite_token = invite["invite_url"].rsplit("/", 1)[-1]
+    assert (
+        client.post(
+            f"/api/v1/households/invites/{invite_token}/accept",
+            headers=member_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/households/{household['id']}/members/{member_id}",
+            json={"role": "viewer"},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/households/{household['id']}/members/{member_id}",
+            json={"role": "viewer"},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+
+    history_url = f"/api/v1/lists/{first_list['id']}/history"
+    member_history = client.get(history_url, headers=member_headers)
+    assert member_history.status_code == 200
+    assert client.get(history_url, headers=outsider_headers).status_code == 403
+
+    assert (
+        client.delete(
+            f"/api/v1/households/{household['id']}/members/{member_id}",
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    history_response = client.get(history_url, headers=owner_headers)
+    assert history_response.status_code == 200
+    history = history_response.json()
+    event_types = [entry["event_type"] for entry in history]
+    assert event_types.count("list_created") == 1
+    assert event_types.count("list_renamed") == 1
+    assert event_types.count("list_accent_changed") == 1
+    assert event_types.count("category_order_changed") == 1
+    assert event_types.count("list_categories_changed") == 1
+    assert event_types.count("item_created") == 1
+    assert event_types.count("item_updated") == 1
+    assert event_types.count("item_checked") == 1
+    assert event_types.count("item_unchecked") == 1
+    assert event_types.count("item_moved_out") == 1
+    assert event_types.count("member_added") == 1
+    assert event_types.count("member_role_changed") == 1
+    assert event_types.count("member_removed") == 1
+    assert "item_moved_in" not in event_types
+    assert "item_deleted" not in event_types
+
+    renamed_entry = next(entry for entry in history if entry["event_type"] == "list_renamed")
+    assert renamed_entry["details"] == {"old_name": "Weekly", "new_name": "Market"}
+    updated_entry = next(entry for entry in history if entry["event_type"] == "item_updated")
+    assert updated_entry["subject_name"] == "Milk"
+    assert updated_entry["details"] == {"fields": "quantity_text"}
+    assert all(entry["actor_display_name"] == "User" for entry in history)
+
+    page = client.get(f"{history_url}?offset=1&limit=2", headers=owner_headers)
+    assert page.status_code == 200
+    assert [entry["id"] for entry in page.json()] == [entry["id"] for entry in history[1:3]]
+    assert client.get(f"{history_url}?limit=201", headers=owner_headers).status_code == 422
+
+    second_history = client.get(
+        f"/api/v1/lists/{second_list['id']}/history", headers=owner_headers
+    ).json()
+    second_event_types = [entry["event_type"] for entry in second_history]
+    assert "item_moved_in" in second_event_types
+    assert "item_deleted" in second_event_types
+    assert "member_added" in second_event_types
+    assert "item_created" not in second_event_types
 
 
 def test_household_roles_enforce_access_and_owner_member_management(client) -> None:
@@ -3398,6 +3607,8 @@ def test_web_pages_render_for_logged_in_user(client, monkeypatch) -> None:
     assert "danger-button" in list_detail.text
     assert "data-list-sync-status" in list_detail.text
     assert "data-list-switcher" in list_detail.text
+    assert "data-list-history" in list_detail.text
+    assert "History" in list_detail.text
     assert "All lists" in list_detail.text
     assert 'name="apple-itunes-app"' in list_detail.text
     assert (

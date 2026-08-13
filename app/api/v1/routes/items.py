@@ -17,12 +17,25 @@ from app.schemas.domain import (
     GroceryItemsWindowOut,
     GroceryItemUpdate,
 )
+from app.services.list_history import record_list_history
 from app.services.websocket_hub import hub
 
 router = APIRouter(tags=["items"])
 
 CHECKED_ITEMS_INITIAL_LIMIT = 10
 CHECKED_ITEMS_PAGE_SIZE = 100
+
+
+def _item_update_values(
+    item: GroceryItem, update_values: dict[str, object | None]
+) -> dict[str, object | None]:
+    return {field: getattr(item, field) for field in update_values}
+
+
+def _changed_item_fields(item: GroceryItem, previous_values: dict[str, object | None]) -> list[str]:
+    return sorted(
+        field for field, previous in previous_values.items() if getattr(item, field) != previous
+    )
 
 
 async def _broadcast(event_type: str, user_id: UUID, item: GroceryItem) -> None:
@@ -177,6 +190,16 @@ async def create_item(
         checked_state_recorded_at=datetime.now(UTC),
     )
     db.add(item)
+    await db.flush()
+    record_list_history(
+        db,
+        household_id=grocery_list.household_id,
+        list_id=list_id,
+        actor=user,
+        event_type="item_created",
+        subject_id=item.id,
+        subject_name=item.name,
+    )
     await db.commit()
     await db.refresh(item)
     await _broadcast("item_created", user.id, item)
@@ -247,10 +270,45 @@ async def update_item(
         target_list,
         payload.category_id if "category_id" in payload.model_fields_set else None,
     )
-    for key, value in payload.model_dump(exclude_unset=True, exclude={"list_id"}).items():
+    update_values = payload.model_dump(exclude_unset=True, exclude={"list_id"})
+    previous_values = _item_update_values(item, update_values)
+    for key, value in update_values.items():
         setattr(item, key, value)
     item.list_id = target_list.id
     item.updated_by = user.id
+    changed_fields = _changed_item_fields(item, previous_values)
+    if is_moving_lists:
+        record_list_history(
+            db,
+            household_id=source_list.household_id,
+            list_id=source_list.id,
+            actor=user,
+            event_type="item_moved_out",
+            subject_id=item.id,
+            subject_name=item.name,
+            details={"other_list": target_list.name},
+        )
+        record_list_history(
+            db,
+            household_id=target_list.household_id,
+            list_id=target_list.id,
+            actor=user,
+            event_type="item_moved_in",
+            subject_id=item.id,
+            subject_name=item.name,
+            details={"other_list": source_list.name},
+        )
+    elif changed_fields:
+        record_list_history(
+            db,
+            household_id=source_list.household_id,
+            list_id=source_list.id,
+            actor=user,
+            event_type="item_updated",
+            subject_id=item.id,
+            subject_name=item.name,
+            details={"fields": ", ".join(changed_fields)},
+        )
     await db.commit()
     await db.refresh(item)
     if is_moving_lists:
@@ -267,7 +325,8 @@ async def check_item(
 ) -> GroceryItem:
     result = await db.execute(select(GroceryItem).where(GroceryItem.id == item_id))
     item = result.scalar_one()
-    await get_list_for_editor(db, item.list_id, user.id)
+    grocery_list = await get_list_for_editor(db, item.list_id, user.id)
+    was_checked = item.checked
     item.checked = True
     recorded_at = datetime.now(UTC)
     item.checked_at = recorded_at
@@ -275,6 +334,17 @@ async def check_item(
     item.hidden_until = None
     item.checked_by = user.id
     item.updated_by = user.id
+    if not was_checked:
+        record_list_history(
+            db,
+            household_id=grocery_list.household_id,
+            list_id=item.list_id,
+            actor=user,
+            event_type="item_checked",
+            subject_id=item.id,
+            subject_name=item.name,
+            occurred_at=recorded_at,
+        )
     await db.commit()
     await db.refresh(item)
     await _broadcast("item_checked", user.id, item)
@@ -287,13 +357,25 @@ async def uncheck_item(
 ) -> GroceryItem:
     result = await db.execute(select(GroceryItem).where(GroceryItem.id == item_id))
     item = result.scalar_one()
-    await get_list_for_editor(db, item.list_id, user.id)
+    grocery_list = await get_list_for_editor(db, item.list_id, user.id)
+    was_checked = item.checked
     item.checked = False
     item.checked_at = None
     item.checked_state_recorded_at = datetime.now(UTC)
     item.hidden_until = None
     item.checked_by = None
     item.updated_by = user.id
+    if was_checked:
+        record_list_history(
+            db,
+            household_id=grocery_list.household_id,
+            list_id=item.list_id,
+            actor=user,
+            event_type="item_unchecked",
+            subject_id=item.id,
+            subject_name=item.name,
+            occurred_at=item.checked_state_recorded_at,
+        )
     await db.commit()
     await db.refresh(item)
     await _broadcast("item_unchecked", user.id, item)
@@ -353,6 +435,16 @@ async def sync_offline_items(
                 db.add(item)
                 await db.flush()
                 event_type = "item_created"
+                record_list_history(
+                    db,
+                    household_id=grocery_list.household_id,
+                    list_id=list_id,
+                    actor=user,
+                    event_type="item_created",
+                    subject_id=item.id,
+                    subject_name=item.name,
+                    occurred_at=recorded_at,
+                )
             if mutation.client_item_id:
                 client_item_ids[mutation.client_item_id] = item.id
             changed_items[item.id] = item
@@ -370,11 +462,26 @@ async def sync_offline_items(
             )
             item = await _sync_item_for_mutation(db, list_id, mutation.item_id, client_item_ids)
             if item is not None:
-                for key, value in update_payload.model_dump(exclude_unset=True).items():
+                update_values = update_payload.model_dump(exclude_unset=True, exclude={"list_id"})
+                previous_values = _item_update_values(item, update_values)
+                for key, value in update_values.items():
                     setattr(item, key, value)
                 item.updated_by = user.id
                 changed_items[item.id] = item
                 event_type = "item_updated"
+                changed_fields = _changed_item_fields(item, previous_values)
+                if changed_fields:
+                    record_list_history(
+                        db,
+                        household_id=grocery_list.household_id,
+                        list_id=list_id,
+                        actor=user,
+                        event_type="item_updated",
+                        subject_id=item.id,
+                        subject_name=item.name,
+                        details={"fields": ", ".join(changed_fields)},
+                        occurred_at=recorded_at,
+                    )
 
         elif mutation.type == "set_checked":
             if mutation.checked is None:
@@ -386,6 +493,7 @@ async def sync_offline_items(
             if item is not None:
                 changed_items[item.id] = item
                 if recorded_at >= _checked_state_recorded_at(item):
+                    checked_changed = item.checked != mutation.checked
                     item.checked = mutation.checked
                     item.checked_at = recorded_at if mutation.checked else None
                     item.checked_state_recorded_at = recorded_at
@@ -393,10 +501,31 @@ async def sync_offline_items(
                     item.checked_by = user.id if mutation.checked else None
                     item.updated_by = user.id
                     event_type = "item_checked" if mutation.checked else "item_unchecked"
+                    if checked_changed:
+                        record_list_history(
+                            db,
+                            household_id=grocery_list.household_id,
+                            list_id=list_id,
+                            actor=user,
+                            event_type=event_type,
+                            subject_id=item.id,
+                            subject_name=item.name,
+                            occurred_at=recorded_at,
+                        )
 
         elif mutation.type == "delete":
             item = await _sync_item_for_mutation(db, list_id, mutation.item_id, client_item_ids)
             if item is not None:
+                record_list_history(
+                    db,
+                    household_id=grocery_list.household_id,
+                    list_id=list_id,
+                    actor=user,
+                    event_type="item_deleted",
+                    subject_id=item.id,
+                    subject_name=item.name,
+                    occurred_at=recorded_at,
+                )
                 deleted_item_id_set.add(item.id)
                 deleted_item_ids.append(str(item.id))
                 broadcasts.append(("item_deleted", item.id))
@@ -441,7 +570,16 @@ async def delete_item(
 ) -> dict[str, str]:
     result = await db.execute(select(GroceryItem).where(GroceryItem.id == item_id))
     item = result.scalar_one()
-    await get_list_for_editor(db, item.list_id, user.id)
+    grocery_list = await get_list_for_editor(db, item.list_id, user.id)
+    record_list_history(
+        db,
+        household_id=grocery_list.household_id,
+        list_id=item.list_id,
+        actor=user,
+        event_type="item_deleted",
+        subject_id=item.id,
+        subject_name=item.name,
+    )
     await db.delete(item)
     await db.commit()
     await _broadcast_deleted(item.list_id, user.id, item.id)

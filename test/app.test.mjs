@@ -173,7 +173,9 @@ function listDetailHtml() {
       <div data-list-settings-overlay hidden>
         <button type="button" data-list-settings-close>Close settings</button>
         <section data-list-settings-panel hidden>
-          <div data-list-settings-category-list></div>
+          <div data-list-settings-management><div data-list-settings-category-list></div></div>
+          <button type="button" data-list-history-refresh>Refresh history</button>
+          <div data-list-history></div>
         </section>
       </div>
       <div data-item-edit-overlay hidden>
@@ -706,6 +708,7 @@ test("household roles shape dashboard controls and viewer list access", async ()
     <section data-list-detail>
       <button data-item-form-toggle>Add</button>
       <button data-list-settings-toggle>Settings</button>
+      <div data-list-settings-management>Management</div>
       <div data-list-read-only hidden>Read only</div>
     </section>
   `);
@@ -773,19 +776,160 @@ test("household roles shape dashboard controls and viewer list access", async ()
     assert.equal(state.canEdit, false);
     assert.equal(state.canManage, false);
     assert.equal(listRoot.querySelector("[data-item-form-toggle]").hidden, true);
-    assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, true);
+    assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, false);
+    assert.equal(listRoot.querySelector("[data-list-settings-management]").hidden, true);
     assert.equal(listRoot.querySelector("[data-list-read-only]").hidden, false);
 
     app.applyListAccess(listRoot, state, "editor");
     assert.equal(state.canEdit, true);
     assert.equal(state.canManage, false);
     assert.equal(listRoot.querySelector("[data-item-form-toggle]").hidden, false);
-    assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, true);
+    assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, false);
+    assert.equal(listRoot.querySelector("[data-list-settings-management]").hidden, true);
 
     app.applyListAccess(listRoot, state, "owner");
     assert.equal(state.canManage, true);
     assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, false);
+    assert.equal(listRoot.querySelector("[data-list-settings-management]").hidden, false);
   } finally {
+    env.restore();
+  }
+});
+
+test("list history formats, renders, and loads every activity type", async () => {
+  const env = installDom(`
+    <section data-list-detail data-list-id="list-1">
+      <div data-list-history></div>
+    </section>
+  `);
+  try {
+    const app = await loadApp();
+    globalThis.__appI18n = { locale: "en", catalog: {} };
+    const root = document.querySelector("[data-list-detail]");
+    const base = {
+      id: "history-1",
+      actor_user_id: "actor-1",
+      actor_display_name: "Alex",
+      subject_name: "Milk",
+      details: {},
+      created_at: "2026-08-13T12:34:56Z",
+    };
+    const entries = [
+      { ...base, event_type: "list_created" },
+      {
+        ...base,
+        event_type: "list_renamed",
+        subject_name: "Market",
+        details: { old_name: "Weekly", new_name: "Market" },
+      },
+      { ...base, event_type: "list_accent_changed" },
+      { ...base, event_type: "category_order_changed" },
+      { ...base, event_type: "list_categories_changed" },
+      { ...base, event_type: "item_created" },
+      { ...base, event_type: "item_updated" },
+      { ...base, event_type: "item_checked" },
+      { ...base, event_type: "item_unchecked" },
+      { ...base, event_type: "item_deleted" },
+      { ...base, event_type: "item_moved_out", details: { other_list: "Hardware" } },
+      { ...base, event_type: "item_moved_in", details: { other_list: "Weekly" } },
+      { ...base, event_type: "member_added", subject_name: "Sam" },
+      {
+        ...base,
+        event_type: "member_role_changed",
+        subject_name: "Sam",
+        details: { new_role: "viewer" },
+      },
+      { ...base, event_type: "member_removed", subject_name: "Sam" },
+      {
+        ...base,
+        event_type: "unknown",
+        actor_display_name: "",
+        subject_name: "",
+        details: null,
+        created_at: "",
+      },
+    ];
+
+    assert.deepEqual(entries.map(app.listHistoryMessage), [
+      "Alex created this list.",
+      "Alex renamed Weekly to Market.",
+      "Alex changed the list color.",
+      "Alex changed the category order.",
+      "Alex changed enabled categories.",
+      "Alex added Milk.",
+      "Alex edited Milk.",
+      "Alex checked off Milk.",
+      "Alex restored Milk.",
+      "Alex removed Milk.",
+      "Alex moved Milk to Hardware.",
+      "Alex moved Milk here from Weekly.",
+      "Alex added Sam to the household.",
+      "Alex changed Sam's role to viewer.",
+      "Alex removed Sam from the household.",
+      "Someone updated this list.",
+    ]);
+    assert.equal(
+      app.listHistoryMessage({ ...base, event_type: "list_renamed", subject_name: "" }),
+      "Alex renamed this list to this list.",
+    );
+    assert.equal(
+      app.listHistoryMessage({ ...base, event_type: "item_moved_out", details: {} }),
+      "Alex moved Milk to another list.",
+    );
+    assert.equal(
+      app.listHistoryMessage({ ...base, event_type: "item_moved_in", details: {} }),
+      "Alex moved Milk here from another list.",
+    );
+    assert.equal(
+      app.listHistoryMessage({ ...base, event_type: "member_role_changed", details: {} }),
+      "Alex changed Milk's role to a new role.",
+    );
+    assert.notEqual(app.formatListHistoryTimestamp(base.created_at), "");
+    assert.equal(app.formatListHistoryTimestamp("not-a-date"), "");
+
+    app.renderListHistory(root, null);
+    assert.match(root.querySelector("[data-list-history]").textContent, /No activity yet/);
+    app.renderListHistory(root, [], "loading");
+    assert.match(root.querySelector("[data-list-history]").textContent, /Loading history/);
+    app.renderListHistory(root, [], "error");
+    assert.match(root.querySelector("[data-list-history]").textContent, /Could not load history/);
+    app.renderListHistory(root, [], "error", "History unavailable");
+    assert.equal(root.querySelector("[data-list-history]").textContent, "History unavailable");
+    app.renderListHistory(root, entries);
+    assert.equal(root.querySelectorAll("[data-history-event]").length, entries.length);
+    assert.match(root.querySelector("[data-list-history]").textContent, /Alex added Milk/);
+
+    const missingRoot = document.createElement("section");
+    app.renderListHistory(missingRoot, entries);
+    assert.deepEqual(await app.loadListHistory(missingRoot, {}), []);
+
+    let state = {};
+    globalThis.fetch = async () => createResponse({ jsonData: entries });
+    env.dom.window.fetch = globalThis.fetch;
+    assert.equal((await app.loadListHistory(root, state)).length, entries.length);
+    assert.equal(state.listHistory.length, entries.length);
+
+    globalThis.fetch = async () => createResponse({ jsonData: {} });
+    env.dom.window.fetch = globalThis.fetch;
+    assert.deepEqual(await app.loadListHistory(root, state), []);
+
+    root.dataset.listMode = "demo";
+    assert.deepEqual(await app.loadListHistory(root, state), []);
+    delete root.dataset.listMode;
+
+    globalThis.fetch = async () => createResponse({ ok: false, status: 500, jsonData: { detail: "Denied" } });
+    env.dom.window.fetch = globalThis.fetch;
+    assert.deepEqual(await app.loadListHistory(root, state), []);
+    assert.equal(root.querySelector("[data-list-history]").textContent, "Denied");
+
+    globalThis.fetch = async () => {
+      throw "offline";
+    };
+    env.dom.window.fetch = globalThis.fetch;
+    assert.deepEqual(await app.loadListHistory(root, state), []);
+    assert.match(root.querySelector("[data-list-history]").textContent, /Could not load history/);
+  } finally {
+    delete globalThis.__appI18n;
     env.restore();
   }
 });
