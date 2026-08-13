@@ -21,6 +21,7 @@ def test_sale_migration_keeps_single_head_with_legacy_revision(tmp_path: Path) -
 
     assert scripts.get_heads() == ["0020_merge_public_sale_heads"]
     assert scripts.get_revision("0017_add_item_sale_window") is not None
+    assert scripts.get_revision("0018_add_public_list_links") is not None
     assert scripts.get_revision("0019_add_public_list_links") is not None
 
 
@@ -99,5 +100,31 @@ def test_public_list_database_upgrades_to_sale_and_merged_head(tmp_path: Path) -
         ).scalar_one()
     engine.dispose()
 
+    assert {"sale_starts_at", "sale_ends_at"} <= item_columns
+    assert current_revision == "0020_merge_public_sale_heads"
+
+
+def test_deployed_public_list_database_upgrades_to_current_head(tmp_path: Path) -> None:
+    database_path = tmp_path / "deployed-public-list.db"
+    config = _migration_config(database_path)
+    command.upgrade(config, "0018_add_public_list_links")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    assert "public_list_links" in inspect(engine).get_table_names()
+    assert "translations_text" not in {
+        column["name"] for column in inspect(engine).get_columns("categories")
+    }
+
+    command.upgrade(config, "head")
+
+    category_columns = {column["name"] for column in inspect(engine).get_columns("categories")}
+    item_columns = {column["name"] for column in inspect(engine).get_columns("grocery_items")}
+    with engine.connect() as connection:
+        current_revision = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    engine.dispose()
+
+    assert "translations_text" in category_columns
     assert {"sale_starts_at", "sale_ends_at"} <= item_columns
     assert current_revision == "0020_merge_public_sale_heads"
