@@ -53,6 +53,7 @@ import {
   undoItemEdit,
   redoItemEdit,
   moveEditingItemToList,
+  moveItemFromMenu,
   storeLanguagePreference,
   syncLanguageSettings,
   updateDemoItem,
@@ -983,6 +984,10 @@ test("renderItems hides active items until their hidden_until time", () => {
     assert.equal(formatHiddenUntilLabel(visibleItem, nowMs), "");
 
     const state = createState([visibleItem, hiddenItem, expiredHiddenItem, createCheckedItem(0)]);
+    state.lists = [
+      { id: "list-1", name: "Weekly" },
+      { id: "list-2", name: "Errands" },
+    ];
     state.openItemMenuId = "visible-item";
     renderItems(root, state);
   } finally {
@@ -1005,7 +1010,96 @@ test("renderItems hides active items until their hidden_until time", () => {
   assert.equal(visibleMenu.closest(".item-card").classList.contains("has-open-menu"), true);
   assert.equal(document.querySelector('[data-item-hide="visible-item"]').textContent, "Hide item for 4h");
   assert.equal(document.querySelector('[data-item-hide="visible-item"]').getAttribute("role"), "menuitem");
+  const moveButton = document.querySelector('[data-item-move="visible-item"]');
+  assert.equal(moveButton.textContent, "Move to Errands");
+  assert.equal(moveButton.dataset.targetListId, "list-2");
+  assert.equal(moveButton.getAttribute("role"), "menuitem");
   assert.equal(visibleMenu.hidden, false);
+});
+
+test("item context menu moves item directly and shows undo notice", async () => {
+  const { document, root, window } = createListRoot();
+  const originals = {
+    FormData: globalThis.FormData,
+    HTMLElement: globalThis.HTMLElement,
+    HTMLFormElement: globalThis.HTMLFormElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+    document: globalThis.document,
+    fetch: globalThis.fetch,
+    navigator: globalThis.navigator,
+    window: globalThis.window,
+  };
+  const originalItem = {
+    id: "item-1",
+    list_id: "list-1",
+    name: "Milk",
+    checked: false,
+    checked_at: null,
+    category_id: "category-1",
+    note: "organic",
+    quantity_text: "2",
+    sort_order: 0,
+  };
+  const state = createState([originalItem]);
+  state.lists = [
+    { id: "list-1", name: "Weekly" },
+    { id: "list-2", name: "Errands" },
+  ];
+  state.openItemMenuId = "item-1";
+  const calls = [];
+
+  setDomGlobals({ window });
+  setGlobalProperty("document", document);
+  setGlobalProperty("window", window);
+  setGlobalProperty("navigator", { onLine: true });
+  setGlobalProperty("fetch", async (url, options) => {
+    const payload = JSON.parse(options.body);
+    calls.push({ url, method: options.method, payload });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ ...originalItem, ...payload }),
+    };
+  });
+
+  try {
+    renderItems(root, state);
+    assert.equal(await moveItemFromMenu(root, state, "item-1", "list-2"), true);
+    assert.deepEqual(calls, [
+      {
+        url: "/api/v1/items/item-1",
+        method: "PATCH",
+        payload: {
+          name: "Milk",
+          quantity_text: "2",
+          note: "organic",
+          category_id: "category-1",
+          list_id: "list-2",
+        },
+      },
+    ]);
+    assert.equal(state.openItemMenuId, null);
+    assert.equal(state.items.has("item-1"), false);
+    assert.equal(
+      document.querySelector("[data-moved-item-notice='item-1']").textContent,
+      "Milk moved to Errands.UndoGo to list",
+    );
+    await assert.rejects(
+      () => moveItemFromMenu(root, state, "missing", "list-2"),
+      /Could not find that item\./,
+    );
+  } finally {
+    state.movedItemNotices.forEach((notice) => {
+      window.clearTimeout(notice.timerId);
+      window.clearTimeout(notice.removalTimerId);
+    });
+    restoreDomGlobals(originals);
+    setGlobalProperty("document", originals.document);
+    setGlobalProperty("fetch", originals.fetch);
+    setGlobalProperty("navigator", originals.navigator);
+    setGlobalProperty("window", originals.window);
+  }
 });
 
 test("category quick add buttons open the add form with the category selected", () => {

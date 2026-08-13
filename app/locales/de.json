@@ -352,6 +352,7 @@
     "edit_item": "Artikel bearbeiten",
     "close_item_editor": "Artikeleditor schließen",
     "move_to_list": "In Liste verschieben",
+    "move_to_list_named": "Nach {list} verschieben",
     "go_to_list": "Zur Liste",
     "edit_history_actions": "Bearbeitungsverlauf",
     "undo_item_edit": "Letzte Bearbeitung rückgängig machen",

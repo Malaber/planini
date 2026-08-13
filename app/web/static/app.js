@@ -2919,6 +2919,34 @@ async function moveEditingItemToList(root, state, targetListId) {
   }
 }
 
+async function moveItemFromMenu(root, state, itemId, targetListId) {
+  const existingItem = state.items.get(itemId);
+  const existingListId = existingItem?.list_id || root.dataset.listId || "";
+  if (!existingItem) {
+    throw new Error(translate("list_detail.item_not_found", {}, "Could not find that item."));
+  }
+  if (!targetListId || targetListId === existingListId) {
+    return false;
+  }
+
+  state.openItemMenuId = null;
+  renderItems(root, state);
+
+  const movedItem = await moveItemWithOfflineFallback(root, state, itemId, {
+    ...itemEditApiPayload(itemEditPayloadFromItem(existingItem), existingItem),
+    list_id: targetListId,
+  });
+  removeItem(state, movedItem.id);
+  persistOfflineListState(root, state);
+  showMovedItemNotice(
+    root,
+    state,
+    createMovedItemNotice(root, state, existingItem, movedItem, targetListId),
+  );
+  setListMessage(root, "", "");
+  return true;
+}
+
 function ensureCategoryDisableConfirm(root) {
   let overlay = root.querySelector("[data-category-disable-confirm-overlay]");
   if (overlay instanceof HTMLElement) {
@@ -3935,6 +3963,23 @@ function renderItems(root, state) {
       menu.setAttribute("role", "menu");
       menu.hidden = !menuIsOpen;
 
+      const currentListId = item.list_id || root.dataset.listId || "";
+      (state.lists || [])
+        .filter((list) => list.id !== currentListId)
+        .forEach((list) => {
+          const moveButton = document.createElement("button");
+          moveButton.type = "button";
+          moveButton.dataset.itemMove = item.id;
+          moveButton.dataset.targetListId = list.id;
+          moveButton.setAttribute("role", "menuitem");
+          moveButton.textContent = translate(
+            "list_detail.move_to_list_named",
+            { list: list.name },
+            "Move to {list}",
+          );
+          menu.appendChild(moveButton);
+        });
+
       const hideButton = document.createElement("button");
       hideButton.type = "button";
       hideButton.dataset.itemHide = item.id;
@@ -4897,13 +4942,15 @@ async function initListDetail() {
     }
 
     const actionTarget = eventTarget.closest(
-      "[data-item-toggle], [data-item-hide], [data-item-unhide], [data-item-menu-toggle], [data-item-reuse], [data-moved-item-undo], [data-settings-category-move], [data-settings-category-toggle]"
+      "[data-item-toggle], [data-item-hide], [data-item-unhide], [data-item-menu-toggle], [data-item-move], [data-item-reuse], [data-moved-item-undo], [data-settings-category-move], [data-settings-category-toggle]"
     );
     const target = actionTarget instanceof HTMLElement ? actionTarget : null;
     const toggleId = target?.dataset.itemToggle || "";
     const hideId = target?.dataset.itemHide || "";
     const unhideId = target?.dataset.itemUnhide || "";
     const menuToggleId = target?.dataset.itemMenuToggle || "";
+    const moveItemId = target?.dataset.itemMove || "";
+    const moveTargetListId = target?.dataset.targetListId || "";
     const reuseItemId = target?.dataset.itemReuse || "";
     const movedItemUndoId = target?.dataset.movedItemUndo || "";
     const categoryMove = target?.dataset.settingsCategoryMove || "";
@@ -4933,6 +4980,7 @@ async function initListDetail() {
       !hideId &&
       !unhideId &&
       !menuToggleId &&
+      !moveItemId &&
       !reuseItemId &&
       !movedItemUndoId &&
       !categoryMove &&
@@ -4986,6 +5034,11 @@ async function initListDetail() {
       if (hideId) {
         state.openItemMenuId = null;
         await hideItemForLater(root, state, hideId);
+        return;
+      }
+
+      if (moveItemId && moveTargetListId) {
+        await moveItemFromMenu(root, state, moveItemId, moveTargetListId);
         return;
       }
 
@@ -5509,6 +5562,7 @@ export {
   syncItemMoveSelect,
   showItemMovedMessage,
   moveEditingItemToList,
+  moveItemFromMenu,
   saveCategoryOrderInBackground,
   saveDisabledCategories,
   itemCountForCategory,

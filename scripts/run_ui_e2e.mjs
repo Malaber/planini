@@ -2140,12 +2140,14 @@ async function main() {
     await page.locator(".add-item-save-button").click();
     const moveThingCard = page.locator("[data-item-card]", { hasText: moveThingName }).first();
     await expectVisible(moveThingCard, "Expected move target item before moving");
-    await moveThingCard.click();
+    await moveThingCard.getByRole("button", { name: `More actions for ${moveThingName}` }).click();
     await expectVisible(
-      page.locator("[data-item-edit-panel]").getByRole("heading", { name: moveThingName }),
-      "Expected move target edit modal",
+      moveThingCard.getByRole("menu"),
+      "Expected move target context menu",
     );
-    await editForm.getByLabel("Move to list").selectOption({ label: scenario.moveTargetListName });
+    await moveThingCard
+      .getByRole("menuitem", { name: `Move to ${scenario.moveTargetListName}` })
+      .click();
     const movedNotice = page.locator("[data-moved-item-notice]", { hasText: moveThingName }).first();
     await expectVisible(
       movedNotice,
