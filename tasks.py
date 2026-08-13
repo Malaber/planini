@@ -1671,22 +1671,14 @@ def wait_for_app(c, url=DEFAULT_HEALTH_URL, attempts=30, sleep_seconds=1.0) -> N
     _wait_for_healthcheck(url=url, attempts=int(attempts), sleep_seconds=float(sleep_seconds))
 
 
-def _wait_for_container_health(
+def _wait_for_container_startup(
     c,
     container_name: str,
     attempts: int = 60,
     sleep_seconds: float = 2.0,
 ) -> None:
-    health_format = "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}"
-    command = " ".join(
-        [
-            "docker inspect --format",
-            shlex.quote(health_format),
-            shlex.quote(container_name),
-        ]
-    )
+    command = f"docker logs {shlex.quote(container_name)}"
     max_attempts = max(1, int(attempts))
-    last_status = "unknown"
     for attempt in range(max_attempts):
         result = c.run(
             command,
@@ -1697,19 +1689,19 @@ def _wait_for_container_health(
         )
         if result.exited != 0:
             _print_hidden_output(result)
-            raise Exit(f"Could not inspect container health: {command}")
+            raise Exit(f"Could not inspect container startup logs: {command}")
 
-        last_status = (result.stdout or "").strip()
-        if last_status == "healthy":
+        output = "\n".join(
+            stream for stream in (result.stdout or "", result.stderr or "") if stream
+        )
+        if "Application startup complete." in output:
             return
-        if last_status in {"unhealthy", "exited", "dead"}:
-            raise Exit(f"Container became {last_status}: {container_name}")
         if attempt < max_attempts - 1:
             time.sleep(float(sleep_seconds))
 
     raise Exit(
-        f"Container did not become healthy after {max_attempts} attempt(s); "
-        f"last status: {last_status}"
+        f"Container did not complete application startup after {max_attempts} attempt(s): "
+        f"{container_name}"
     )
 
 
@@ -1768,7 +1760,7 @@ def check_container_smoke(
     try:
         c.run(prepare_command, pty=False, shell="/bin/bash")
         c.run(start_command, pty=False, shell="/bin/bash")
-        _wait_for_container_health(
+        _wait_for_container_startup(
             c,
             container_name,
             attempts=60,

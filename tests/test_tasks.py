@@ -52,13 +52,13 @@ def test_wait_for_healthcheck_retries_connection_reset(monkeypatch) -> None:
     assert sleeps == [0.25]
 
 
-def test_wait_for_container_health_retries_until_healthy(monkeypatch) -> None:
+def test_wait_for_container_startup_retries_until_complete(monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
     sleeps: list[float] = []
     results = iter(
         [
-            RunResult(exited=0, stdout="starting\n"),
-            RunResult(exited=0, stdout="healthy\n"),
+            RunResult(exited=0, stderr="Waiting for application startup.\n"),
+            RunResult(exited=0, stderr="Application startup complete.\n"),
         ]
     )
 
@@ -69,7 +69,7 @@ def test_wait_for_container_health_retries_until_healthy(monkeypatch) -> None:
 
     monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
 
-    tasks._wait_for_container_health(
+    tasks._wait_for_container_startup(
         Context(),
         "planini-container-smoke",
         attempts=2,
@@ -77,10 +77,8 @@ def test_wait_for_container_health_retries_until_healthy(monkeypatch) -> None:
     )
 
     assert [command for command, _ in calls] == [
-        "docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}"
-        "{{else}}{{.State.Status}}{{end}}' planini-container-smoke",
-        "docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}"
-        "{{else}}{{.State.Status}}{{end}}' planini-container-smoke",
+        "docker logs planini-container-smoke",
+        "docker logs planini-container-smoke",
     ]
     assert all(
         kwargs == {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"}
@@ -89,46 +87,33 @@ def test_wait_for_container_health_retries_until_healthy(monkeypatch) -> None:
     assert sleeps == [0.25]
 
 
-def test_wait_for_container_health_reports_inspect_failure(capsys) -> None:
+def test_wait_for_container_startup_reports_log_failure(capsys) -> None:
     class Context:
         def run(self, command, **kwargs):
             return RunResult(exited=1, stderr="No such container\n")
 
     try:
-        tasks._wait_for_container_health(Context(), "planini-smoke")
+        tasks._wait_for_container_startup(Context(), "planini-smoke")
     except tasks.Exit as exc:
-        assert str(exc).startswith("Could not inspect container health: docker inspect")
+        assert str(exc) == "Could not inspect container startup logs: docker logs planini-smoke"
     else:
         raise AssertionError("expected container inspection to fail")
 
     assert capsys.readouterr().out == "No such container\n"
 
 
-def test_wait_for_container_health_reports_unhealthy_container() -> None:
+def test_wait_for_container_startup_reports_timeout(monkeypatch) -> None:
     class Context:
         def run(self, command, **kwargs):
-            return RunResult(exited=0, stdout="unhealthy\n")
-
-    try:
-        tasks._wait_for_container_health(Context(), "planini-smoke")
-    except tasks.Exit as exc:
-        assert str(exc) == "Container became unhealthy: planini-smoke"
-    else:
-        raise AssertionError("expected unhealthy container to fail")
-
-
-def test_wait_for_container_health_reports_timeout(monkeypatch) -> None:
-    class Context:
-        def run(self, command, **kwargs):
-            return RunResult(exited=0, stdout="starting\n")
+            return RunResult(exited=0, stderr="Waiting for application startup.\n")
 
     monkeypatch.setattr(tasks.time, "sleep", lambda seconds: None)
 
     try:
-        tasks._wait_for_container_health(Context(), "planini-smoke", attempts=0)
+        tasks._wait_for_container_startup(Context(), "planini-smoke", attempts=0)
     except tasks.Exit as exc:
         assert str(exc) == (
-            "Container did not become healthy after 1 attempt(s); last status: starting"
+            "Container did not complete application startup after 1 attempt(s): planini-smoke"
         )
     else:
         raise AssertionError("expected container health timeout")
@@ -1112,9 +1097,9 @@ def test_review_deploy_waits_for_preview_health() -> None:
         Path(__file__).resolve().parents[1] / ".github" / "workflows" / "pr-review.yml"
     ).read_text(encoding="utf-8")
 
-    assert "WEBHOOKER_REVIEW_WAKE_URL is required" in workflow
-    assert "WEBHOOKER_WEBHOOK_SECRET is required" in workflow
-    assert "Skipping review wake" not in workflow
+    assert "periodic reconciliation will deploy the preview" in workflow
+    assert "WEBHOOKER_REVIEW_WAKE_URL is required" not in workflow
+    assert "WEBHOOKER_WEBHOOK_SECRET is required" not in workflow
     assert "if: steps.wake.outputs.triggered == 'true'" not in workflow
     assert "checks: read" in workflow
     assert "Wait for container smoke test" in workflow
@@ -1150,7 +1135,7 @@ def test_ghcr_workflows_retry_registry_login() -> None:
 def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
     healthchecks: list[dict] = []
-    container_healthchecks: list[dict] = []
+    container_startup_checks: list[dict] = []
 
     class Context:
         def run(self, command, **kwargs):
@@ -1166,8 +1151,8 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
     )
     monkeypatch.setattr(
         tasks,
-        "_wait_for_container_health",
-        lambda c, container_name, **kwargs: container_healthchecks.append(
+        "_wait_for_container_startup",
+        lambda c, container_name, **kwargs: container_startup_checks.append(
             {"container_name": container_name, **kwargs}
         ),
     )
@@ -1194,7 +1179,7 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
             "sleep_seconds": 2.0,
         }
     ]
-    assert container_healthchecks == [
+    assert container_startup_checks == [
         {
             "container_name": "planini-container-smoke-4321",
             "attempts": 60,
@@ -1223,7 +1208,7 @@ def test_check_container_smoke_prints_logs_when_healthcheck_fails(
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(tasks.os, "getpid", lambda: 9876)
-    monkeypatch.setattr(tasks, "_wait_for_container_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr(tasks, "_wait_for_container_startup", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         tasks,
         "_wait_for_healthcheck",

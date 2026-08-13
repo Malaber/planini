@@ -121,10 +121,9 @@ jobs:
           import os
           import urllib.request
 
-          if not os.environ["WAKE_URL"]:
-              raise SystemExit("WEBHOOKER_REVIEW_WAKE_URL is required for review deployments.")
-          if not os.environ["WAKE_SECRET"]:
-              raise SystemExit("WEBHOOKER_WEBHOOK_SECRET is required for review deployments.")
+          if not os.environ["WAKE_URL"] or not os.environ["WAKE_SECRET"]:
+              print("Skipping review wake; periodic reconciliation will deploy the preview.")
+              raise SystemExit(0)
 
           owner, repo = os.environ["REPOSITORY"].split("/", 1)
           payload = {
