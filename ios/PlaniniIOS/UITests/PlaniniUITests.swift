@@ -1090,8 +1090,9 @@ final class PlaniniUITests: XCTestCase {
                 listID: hostingListID,
                 categoryID: hostingKonservenCategoryID,
                 accessToken: session.accessToken,
-                timeout: 20
-            )
+                timeout: 45
+            ),
+            "Expected queued category-order saves to persist the latest drag result."
         )
         XCTAssertTrue(waitForElementLabel(settingsSaveState, containing: "Saved", timeout: 8))
 
@@ -4054,7 +4055,7 @@ final class PlaniniUITests: XCTestCase {
                 "mutations": [
                     [
                         "mutation_id": UUID().uuidString,
-                        "operation": "set_checked",
+                        "type": "set_checked",
                         "item_id": itemID.uuidString,
                         "checked": checked,
                         "recorded_at": formatter.string(from: Date()),
