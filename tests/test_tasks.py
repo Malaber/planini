@@ -1037,6 +1037,27 @@ def test_review_deploy_waits_for_preview_health() -> None:
     assert '--url="$REVIEW_URL/health"' in workflow
 
 
+def test_ghcr_workflows_retry_registry_login() -> None:
+    root = Path(__file__).resolve().parents[1]
+    action = (root / ".github" / "actions" / "ghcr-login" / "action.yml").read_text(
+        encoding="utf-8"
+    )
+    ci_workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    review_workflow = (root / ".github" / "workflows" / "pr-review.yml").read_text(encoding="utf-8")
+    release_workflow = (root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+
+    assert "max_attempts=3" in action
+    assert "docker login ghcr.io" in action
+    assert 'sleep "$delay_seconds"' in action
+    assert ci_workflow.count("uses: ./.github/actions/ghcr-login") == 3
+    assert review_workflow.count("uses: ./.github/actions/ghcr-login") == 1
+    assert release_workflow.count("uses: ./.github/actions/ghcr-login") == 3
+    assert all(
+        "docker/login-action@" not in workflow
+        for workflow in (ci_workflow, review_workflow, release_workflow)
+    )
+
+
 def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
     healthchecks: list[dict] = []

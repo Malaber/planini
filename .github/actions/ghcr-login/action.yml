@@ -1,0 +1,36 @@
+name: Log in to GHCR with retry
+description: Authenticate Docker to GHCR and retry transient registry failures.
+
+inputs:
+  username:
+    description: GitHub user or actor used for GHCR authentication.
+    required: true
+  token:
+    description: GitHub token used for GHCR authentication.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GHCR_USERNAME: ${{ inputs.username }}
+        GHCR_TOKEN: ${{ inputs.token }}
+      run: |
+        set -uo pipefail
+
+        max_attempts=3
+        for attempt in $(seq 1 "$max_attempts"); do
+          if printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin; then
+            exit 0
+          fi
+
+          if [ "$attempt" -eq "$max_attempts" ]; then
+            echo "GHCR login failed after $max_attempts attempts." >&2
+            exit 1
+          fi
+
+          delay_seconds=$((attempt * 5))
+          echo "GHCR login failed (attempt $attempt/$max_attempts); retrying in $delay_seconds seconds."
+          sleep "$delay_seconds"
+        done
