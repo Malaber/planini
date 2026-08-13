@@ -238,6 +238,24 @@ private struct ListDisplaySection: Identifiable, Equatable {
 
 private typealias ListUndoAction = @MainActor () async -> Bool
 
+private enum CompactListLayout {
+    static let sectionSpacing: CGFloat = 0
+    static let headerHeight: CGFloat = 32
+    static let rowInsets = EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16)
+    static let summaryInsets = EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+}
+
+private extension View {
+    @ViewBuilder
+    func compactListSectionSpacing() -> some View {
+        if #available(iOS 17.0, *) {
+            listSectionSpacing(CompactListLayout.sectionSpacing)
+        } else {
+            self
+        }
+    }
+}
+
 private struct ListUndoToast: Identifiable {
     let id = UUID()
     let message: String
@@ -2072,26 +2090,30 @@ private struct ListDetailScreen: View {
         List {
             if let list = currentList {
                 Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(list.householdName)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Text(list.name)
-                            .font(.title2.weight(.semibold))
-                            .accessibilityIdentifier("list-detail-title")
-                        Text(
-                            l10n.t(
-                                "ios.list.item_summary",
-                                [
-                                    "items": viewModel.items.count,
-                                    "sections": currentSections.count,
-                                ]
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(list.name)
+                                .font(.headline)
+                                .accessibilityIdentifier("list-detail-title")
+                            Spacer(minLength: 8)
+                            Text(
+                                l10n.t(
+                                    "ios.list.item_summary",
+                                    [
+                                        "items": viewModel.items.count,
+                                        "sections": currentSections.count,
+                                    ]
+                                )
                             )
-                        )
-                            .font(.footnote)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Text(list.householdName)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    .padding(.vertical, 4)
+                    .listRowInsets(CompactListLayout.summaryInsets)
                 }
             }
 
@@ -2117,12 +2139,14 @@ private struct ListDetailScreen: View {
                                     showUndoToast(message: message, action: action)
                                 }
                                 .background(rowHighlight(for: item))
+                                .listRowInsets(CompactListLayout.rowInsets)
                             case let .moveNotice(notice):
                                 ItemMoveNoticeRow(notice: notice) {
                                     undoMove(notice)
                                 }
                                 .opacity(notice.isExpiring ? 0 : 1)
                                 .transition(.opacity.combined(with: .move(edge: .top)))
+                                .listRowInsets(CompactListLayout.rowInsets)
                             }
                         }
                     } header: {
@@ -2139,13 +2163,14 @@ private struct ListDetailScreen: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
+        .compactListSectionSpacing()
         .scrollContentBackground(.hidden)
         .background {
             listBackground.ignoresSafeArea()
         }
         .navigationTitle(currentList?.name ?? l10n.t("ios.list.fallback_title"))
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if viewModel.lists.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -3128,7 +3153,7 @@ private struct SectionHeader: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Circle()
                 .fill(Color(hex: section.colorHex) ?? Color.secondary.opacity(0.4))
                 .frame(width: 10, height: 10)
@@ -3154,8 +3179,11 @@ private struct SectionHeader: View {
                 )
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-        .padding(.horizontal, 4)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: CompactListLayout.headerHeight,
+            alignment: .leading
+        )
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(isDropTargeted ? Color.accentColor.opacity(0.14) : Color.clear)
