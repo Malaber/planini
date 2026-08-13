@@ -1677,8 +1677,14 @@ def _wait_for_container_migrations(
     attempts: int = 30,
     sleep_seconds: float = 1.0,
 ) -> None:
+    migration_check_code = (
+        "from alembic import command; "
+        "from app.core.database import _build_alembic_config; "
+        "command.current(_build_alembic_config(), check_heads=True)"
+    )
     command = (
-        f"docker exec {shlex.quote(container_name)} " "python -m alembic current --check-heads"
+        f"docker exec {shlex.quote(container_name)} "
+        f"python -c {shlex.quote(migration_check_code)}"
     )
     max_attempts = max(1, int(attempts))
     last_result = None

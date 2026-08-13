@@ -71,10 +71,13 @@ def test_wait_for_container_migrations_retries_until_current(monkeypatch) -> Non
         sleep_seconds=0.25,
     )
 
-    assert [command for command, _ in calls] == [
-        "docker exec planini-container-smoke python -m alembic current --check-heads",
-        "docker exec planini-container-smoke python -m alembic current --check-heads",
-    ]
+    expected_command = (
+        "docker exec planini-container-smoke python -c "
+        "'from alembic import command; "
+        "from app.core.database import _build_alembic_config; "
+        "command.current(_build_alembic_config(), check_heads=True)'"
+    )
+    assert [command for command, _ in calls] == [expected_command, expected_command]
     assert all(
         kwargs == {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"}
         for _, kwargs in calls
@@ -94,7 +97,9 @@ def test_wait_for_container_migrations_reports_final_failure(monkeypatch, capsys
     except tasks.Exit as exc:
         assert str(exc) == (
             "Container migrations did not reach all heads after 1 attempt(s): "
-            "docker exec planini-smoke python -m alembic current --check-heads"
+            "docker exec planini-smoke python -c 'from alembic import command; "
+            "from app.core.database import _build_alembic_config; "
+            "command.current(_build_alembic_config(), check_heads=True)'"
         )
     else:
         raise AssertionError("expected migration readiness check to fail")
