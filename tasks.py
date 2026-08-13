@@ -1671,34 +1671,45 @@ def wait_for_app(c, url=DEFAULT_HEALTH_URL, attempts=30, sleep_seconds=1.0) -> N
     _wait_for_healthcheck(url=url, attempts=int(attempts), sleep_seconds=float(sleep_seconds))
 
 
-def _wait_for_container_migrations(
+def _wait_for_container_health(
     c,
     container_name: str,
-    attempts: int = 30,
-    sleep_seconds: float = 1.0,
+    attempts: int = 60,
+    sleep_seconds: float = 2.0,
 ) -> None:
-    command = (
-        f"docker exec {shlex.quote(container_name)} " "python -m alembic current --check-heads"
+    health_format = "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}"
+    command = " ".join(
+        [
+            "docker inspect --format",
+            shlex.quote(health_format),
+            shlex.quote(container_name),
+        ]
     )
     max_attempts = max(1, int(attempts))
-    last_result = None
+    last_status = "unknown"
     for attempt in range(max_attempts):
-        last_result = c.run(
+        result = c.run(
             command,
             warn=True,
             hide=True,
             pty=False,
             shell="/bin/bash",
         )
-        if last_result.exited == 0:
+        if result.exited != 0:
+            _print_hidden_output(result)
+            raise Exit(f"Could not inspect container health: {command}")
+
+        last_status = (result.stdout or "").strip()
+        if last_status == "healthy":
             return
+        if last_status in {"unhealthy", "exited", "dead"}:
+            raise Exit(f"Container became {last_status}: {container_name}")
         if attempt < max_attempts - 1:
             time.sleep(float(sleep_seconds))
 
-    assert last_result is not None
-    _print_hidden_output(last_result)
     raise Exit(
-        f"Container migrations did not reach all heads after {max_attempts} attempt(s): {command}"
+        f"Container did not become healthy after {max_attempts} attempt(s); "
+        f"last status: {last_status}"
     )
 
 
@@ -1757,16 +1768,21 @@ def check_container_smoke(
     try:
         c.run(prepare_command, pty=False, shell="/bin/bash")
         c.run(start_command, pty=False, shell="/bin/bash")
+        _wait_for_container_health(
+            c,
+            container_name,
+            attempts=60,
+            sleep_seconds=2.0,
+        )
         _wait_for_healthcheck(
             url=f"http://127.0.0.1:{int(port)}/health",
             attempts=30,
             sleep_seconds=2.0,
         )
-        _wait_for_container_migrations(
-            c,
-            container_name,
-            attempts=30,
-            sleep_seconds=1.0,
+        c.run(
+            f"docker exec {shlex.quote(container_name)} " "python -m alembic current --check-heads",
+            pty=False,
+            shell="/bin/bash",
         )
     except Exception:
         c.run(

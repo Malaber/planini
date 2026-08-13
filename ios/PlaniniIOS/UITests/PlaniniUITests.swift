@@ -3200,10 +3200,17 @@ final class PlaniniUITests: XCTestCase {
             ids = []
         }
         var candidates = ids.flatMap { id in
-            [app.tabBars.buttons[id], app.buttons[id]]
+            [
+                app.tabBars.buttons.matching(identifier: id).firstMatch,
+                app.buttons.matching(identifier: id).firstMatch,
+            ]
         }
         candidates += labels.flatMap { tabLabel in
-            [app.tabBars.buttons[tabLabel], app.buttons[tabLabel]]
+            let predicate = NSPredicate(format: "label == %@", tabLabel)
+            return [
+                app.tabBars.buttons.matching(predicate).firstMatch,
+                app.buttons.matching(predicate).firstMatch,
+            ]
         }
         return candidates
     }

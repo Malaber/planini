@@ -8,6 +8,7 @@ on:
       - reopened
 
 permissions:
+  checks: read
   contents: write
   packages: write
   pull-requests: write
@@ -69,6 +70,34 @@ jobs:
 
           echo "Timed out waiting for push-built image $IMAGE:$IMAGE_TAG." >&2
           exit 1
+      - name: Wait for container smoke test
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          for attempt in $(seq 1 60); do
+            conclusion="$(
+              gh api "/repos/$REPOSITORY/commits/$PR_HEAD_SHA/check-runs" \
+                --jq '[.check_runs[] | select(.name == "docker_smoke")][-1].conclusion // ""'
+            )"
+            case "$conclusion" in
+              success)
+                exit 0
+                ;;
+              failure|cancelled|timed_out|action_required)
+                echo "Container smoke test concluded with: $conclusion" >&2
+                exit 1
+                ;;
+              *)
+                echo "Container smoke test is not complete yet (attempt $attempt/60)."
+                sleep 10
+                ;;
+            esac
+          done
+
+          echo "Timed out waiting for the container smoke test." >&2
+          exit 1
       - name: Recreate legacy PR image tag
         env:
           IMAGE: ${{ steps.image.outputs.image }}
@@ -76,7 +105,6 @@ jobs:
           LEGACY_PR_TAG: ${{ steps.tag.outputs.legacy_pr_tag }}
         run: docker buildx imagetools create --tag "$IMAGE:$LEGACY_PR_TAG" "$IMAGE:$SOURCE_TAG"
       - name: Wake webhooker review deployment
-        id: wake
         env:
           WAKE_URL: ${{ vars.WEBHOOKER_REVIEW_WAKE_URL }}
           WAKE_SECRET: ${{ secrets.WEBHOOKER_WEBHOOK_SECRET }}
@@ -93,11 +121,10 @@ jobs:
           import os
           import urllib.request
 
-          if not os.environ["WAKE_URL"] or not os.environ["WAKE_SECRET"]:
-              print("Skipping review wake: WEBHOOKER_REVIEW_WAKE_URL or WEBHOOKER_WEBHOOK_SECRET is not configured.")
-              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-                  output.write("triggered=false\n")
-              raise SystemExit(0)
+          if not os.environ["WAKE_URL"]:
+              raise SystemExit("WEBHOOKER_REVIEW_WAKE_URL is required for review deployments.")
+          if not os.environ["WAKE_SECRET"]:
+              raise SystemExit("WEBHOOKER_WEBHOOK_SECRET is required for review deployments.")
 
           owner, repo = os.environ["REPOSITORY"].split("/", 1)
           payload = {
@@ -132,11 +159,8 @@ jobs:
           )
           with urllib.request.urlopen(request) as response:
               print(f"review wake status={response.status}")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write("triggered=true\n")
           PY
       - name: Wait for review deployment health
-        if: steps.wake.outputs.triggered == 'true'
         env:
           REVIEW_URL: https://pr-${{ github.event.pull_request.number }}.pr.planini.malaber.de
         run: >-
