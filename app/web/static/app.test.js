@@ -53,6 +53,7 @@ import {
   undoItemEdit,
   redoItemEdit,
   moveEditingItemToList,
+  moveItemFromMenu,
   storeLanguagePreference,
   syncLanguageSettings,
   updateDemoItem,
@@ -84,7 +85,9 @@ import {
   updateItemWithOfflineFallback,
   moveItemWithOfflineFallback,
   setItemCheckedWithOfflineFallback,
-  syncItemMoveSelect,
+  syncItemMoveButton,
+  setItemMoveModalOpen,
+  setItemMoveStatus,
   applyOfflineSyncResult,
   flushOfflineMutations,
   createMovedItemNotice,
@@ -224,7 +227,7 @@ function createListRoot() {
       </div>
       <input data-item-category-search value="" />
       <input data-item-edit-category-search value="" />
-      <label data-item-edit-list-field hidden><select name="list_id" data-item-edit-list-select></select></label>
+      <button type="button" data-item-edit-move-open data-item-move-open data-item-move-from-editor hidden>Move to list</button>
       <div data-item-suggestions-slot><div data-item-suggestions></div></div>
       <div data-item-category-radios></div>
       <div data-item-edit-category-radios></div>
@@ -276,9 +279,7 @@ function createEditListRoot() {
               <input type="datetime-local" name="sale_starts_at" disabled />
               <input type="datetime-local" name="sale_ends_at" disabled />
             </div>
-            <label data-item-edit-list-field hidden>
-              <select name="list_id" data-item-edit-list-select></select>
-            </label>
+            <button type="button" data-item-edit-move-open data-item-move-open data-item-move-from-editor hidden>Move to list</button>
           </form>
         </section>
       </div>
@@ -392,9 +393,7 @@ function createEditRoot() {
           </div>
           <input data-item-edit-category-search value="" />
           <div data-item-edit-category-radios></div>
-          <label data-item-edit-list-field hidden>
-            <select name="list_id" data-item-edit-list-select></select>
-          </label>
+          <button type="button" data-item-edit-move-open data-item-move-open data-item-move-from-editor hidden>Move to list</button>
         </form>
       </section>
       <input data-item-category-search value="" />
@@ -471,7 +470,7 @@ function createDemoListRoot() {
           <input data-item-name-input value="" />
           <input data-item-category-search value="" />
           <input data-item-edit-category-search value="" />
-          <label data-item-edit-list-field hidden><select name="list_id" data-item-edit-list-select></select></label>
+          <button type="button" data-item-edit-move-open data-item-move-open data-item-move-from-editor hidden>Move to list</button>
           <div data-item-suggestions-slot><div data-item-suggestions></div></div>
           <div data-item-category-radios></div>
           <div data-item-edit-category-radios></div>
@@ -508,7 +507,10 @@ function createState(items) {
     items: new Map(items.map((item) => [item.id, item])),
     lists: [{ id: "list-1", name: "Weekly" }],
     movedItemNotices: new Map(),
+    movingItemId: null,
+    moveItemFromEditor: false,
     offlineSyncInFlight: null,
+    openItemMenuId: null,
     pendingMutations: [],
   };
 }
@@ -983,6 +985,10 @@ test("renderItems hides active items until their hidden_until time", () => {
     assert.equal(formatHiddenUntilLabel(visibleItem, nowMs), "");
 
     const state = createState([visibleItem, hiddenItem, expiredHiddenItem, createCheckedItem(0)]);
+    state.lists = [
+      { id: "list-1", name: "Weekly" },
+      { id: "list-2", name: "Errands" },
+    ];
     state.openItemMenuId = "visible-item";
     renderItems(root, state);
   } finally {
@@ -1005,7 +1011,95 @@ test("renderItems hides active items until their hidden_until time", () => {
   assert.equal(visibleMenu.closest(".item-card").classList.contains("has-open-menu"), true);
   assert.equal(document.querySelector('[data-item-hide="visible-item"]').textContent, "Hide item for 4h");
   assert.equal(document.querySelector('[data-item-hide="visible-item"]').getAttribute("role"), "menuitem");
-  assert.equal(visibleMenu.hidden, false);
+  const moveButton = document.querySelector('[data-item-move-open="visible-item"]');
+  assert.equal(moveButton.textContent, "Move to list");
+  assert.equal(moveButton.getAttribute("role"), "menuitem");
+  assert.equal(moveButton.closest(".item-more-menu").hidden, false);
+});
+
+test("item context menu moves item directly and shows undo notice", async () => {
+  const { document, root, window } = createListRoot();
+  const originals = {
+    FormData: globalThis.FormData,
+    HTMLElement: globalThis.HTMLElement,
+    HTMLFormElement: globalThis.HTMLFormElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+    document: globalThis.document,
+    fetch: globalThis.fetch,
+    navigator: globalThis.navigator,
+    window: globalThis.window,
+  };
+  const originalItem = {
+    id: "item-1",
+    list_id: "list-1",
+    name: "Milk",
+    checked: false,
+    checked_at: null,
+    category_id: "category-1",
+    note: "organic",
+    quantity_text: "2",
+    sort_order: 0,
+  };
+  const state = createState([originalItem]);
+  state.lists = [
+    { id: "list-1", name: "Weekly" },
+    { id: "list-2", name: "Errands" },
+  ];
+  state.openItemMenuId = "item-1";
+  const calls = [];
+
+  setDomGlobals({ window });
+  setGlobalProperty("document", document);
+  setGlobalProperty("window", window);
+  setGlobalProperty("navigator", { onLine: true });
+  setGlobalProperty("fetch", async (url, options) => {
+    const payload = JSON.parse(options.body);
+    calls.push({ url, method: options.method, payload });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ ...originalItem, ...payload }),
+    };
+  });
+
+  try {
+    renderItems(root, state);
+    assert.equal(await moveItemFromMenu(root, state, "item-1", "list-2"), true);
+    assert.deepEqual(calls, [
+      {
+        url: "/api/v1/items/item-1",
+        method: "PATCH",
+        payload: {
+          name: "Milk",
+          quantity_text: "2",
+          note: "organic",
+          category_id: "category-1",
+          list_id: "list-2",
+        },
+      },
+    ]);
+    assert.equal(state.openItemMenuId, null);
+    assert.equal(state.items.has("item-1"), false);
+    assert.equal(
+      document.querySelector("[data-moved-item-notice='item-1']").textContent,
+      "Milk moved to Errands.UndoGo to list",
+    );
+    await assert.rejects(
+      () => moveItemFromMenu(root, state, "missing", "list-2"),
+      /Could not find that item\./,
+    );
+  } finally {
+    state.movedItemNotices.forEach((notice) => {
+      window.clearTimeout(notice.timerId);
+      window.clearTimeout(notice.removalTimerId);
+    });
+    restoreDomGlobals(originals);
+    setGlobalProperty("document", originals.document);
+    setGlobalProperty("fetch", originals.fetch);
+    setGlobalProperty("navigator", originals.navigator);
+    setGlobalProperty("window", originals.window);
+  }
 });
 
 test("category quick add buttons open the add form with the category selected", () => {
@@ -1138,7 +1232,7 @@ test("loadMoreCheckedItems fetches one hundred older checked items per page", as
   assert.equal(document.querySelector(".checked-items-load-more .item-category-meta").textContent, "10 older items not loaded");
 });
 
-test("item editor renders move-to-list choices", () => {
+test("item editor and context actions share the move-to-list modal", () => {
   const { document, root, window } = createEditRoot();
   const originals = {
     HTMLElement: globalThis.HTMLElement,
@@ -1171,21 +1265,49 @@ test("item editor renders move-to-list choices", () => {
   setGlobalProperty("window", window);
 
   try {
-    syncItemMoveSelect(root, state, "list-2");
-    const field = root.querySelector("[data-item-edit-list-field]");
-    const select = root.querySelector("[data-item-edit-list-select]");
-    assert.equal(field.hidden, false);
-    assert.equal(field.previousElementSibling?.dataset.itemEditCategoryRadios, "");
-    assert.deepEqual([...select.options].map((option) => option.textContent), ["Weekly", "Errands"]);
-    assert.equal(select.value, "list-2");
+    syncItemMoveButton(root, state, "item-1", "list-1");
+    const editMoveButton = root.querySelector("[data-item-edit-move-open]");
+    assert.equal(editMoveButton.hidden, false);
+    assert.equal(editMoveButton.dataset.itemMoveOpen, "item-1");
 
     setItemEditPanelOpen(root, state, "item-1");
     assert.equal(root.querySelector("[data-item-edit-title]").textContent, "Milk");
-    assert.equal(select.value, "list-1");
+    assert.equal(editMoveButton.dataset.itemMoveOpen, "item-1");
+
+    setItemMoveModalOpen(root, state, "item-1", true);
+    const overlay = root.querySelector("[data-item-move-overlay]");
+    const panel = root.querySelector("[data-item-move-panel]");
+    const option = root.querySelector('[data-item-move-target="list-2"]');
+    assert.equal(overlay.hidden, false);
+    assert.equal(panel.hidden, false);
+    assert.equal(panel.getAttribute("role"), "dialog");
+    assert.equal(panel.getAttribute("aria-modal"), "true");
+    assert.equal(root.querySelector("[data-item-move-title]").textContent, "Move Milk");
+    assert.equal(option.textContent, "Errands");
+    assert.equal(root.querySelector('[data-item-move-target="list-1"]'), null);
+    assert.equal(state.movingItemId, "item-1");
+    assert.equal(state.moveItemFromEditor, true);
+
+    setItemMoveStatus(root, "saving", "Saving...");
+    assert.equal(option.disabled, true);
+    assert.equal(root.querySelector("[data-item-move-status]").textContent, "Saving...");
+    setItemMoveStatus(root, "error", "Could not move item.");
+    assert.equal(option.disabled, false);
+    assert.equal(root.querySelector("[data-item-move-status]").dataset.status, "error");
+
+    setItemMoveModalOpen(root, state, null);
+    assert.equal(overlay.hidden, true);
+    assert.equal(root.querySelector("[data-item-edit-overlay]").hidden, false);
+    assert.equal(state.movingItemId, null);
+
+    setItemMoveModalOpen(root, state, "item-1", false);
+    assert.equal(root.querySelector("[data-item-move-overlay]"), overlay);
+    assert.equal(state.moveItemFromEditor, false);
+    setItemMoveModalOpen(root, state, null);
 
     state.lists = [{ id: "list-1", name: "Weekly" }];
-    syncItemMoveSelect(root, state, "list-1");
-    assert.equal(field.hidden, true);
+    syncItemMoveButton(root, state, "item-1", "list-1");
+    assert.equal(editMoveButton.hidden, true);
   } finally {
     restoreDomGlobals(originals);
     setGlobalProperty("document", originals.document);

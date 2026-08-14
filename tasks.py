@@ -1714,6 +1714,38 @@ def _wait_for_container_health_endpoint(
     )
 
 
+def _wait_for_container_migrations(
+    c,
+    container_name: str,
+    attempts: int = 60,
+    sleep_seconds: float = 1.0,
+) -> None:
+    command = (
+        f"docker exec {shlex.quote(container_name)} " "python -m alembic current --check-heads"
+    )
+    max_attempts = max(1, int(attempts))
+    last_result = None
+    for attempt in range(max_attempts):
+        last_result = c.run(
+            command,
+            warn=True,
+            hide=True,
+            pty=False,
+            shell="/bin/bash",
+        )
+        if last_result.exited == 0:
+            return
+        if attempt < max_attempts - 1:
+            time.sleep(float(sleep_seconds))
+
+    assert last_result is not None
+    _print_hidden_output(last_result)
+    raise Exit(
+        f"Container migrations did not reach all heads after {max_attempts} attempt(s): "
+        f"{command}"
+    )
+
+
 @task(
     help={
         "image": "Published container image and tag to smoke test.",
@@ -1780,10 +1812,11 @@ def check_container_smoke(
             attempts=30,
             sleep_seconds=2.0,
         )
-        c.run(
-            f"docker exec {shlex.quote(container_name)} " "python -m alembic current --check-heads",
-            pty=False,
-            shell="/bin/bash",
+        _wait_for_container_migrations(
+            c,
+            container_name,
+            attempts=60,
+            sleep_seconds=1.0,
         )
     except Exception:
         c.run(

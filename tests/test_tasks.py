@@ -118,6 +118,61 @@ def test_wait_for_container_health_endpoint_reports_timeout(monkeypatch, capsys)
     assert sleeps == [0.25]
 
 
+def test_wait_for_container_migrations_retries_until_current(monkeypatch) -> None:
+    calls: list[tuple[str, dict]] = []
+    sleeps: list[float] = []
+    results = iter(
+        [
+            RunResult(exited=255, stderr="Database is not on all head revisions\n"),
+            RunResult(exited=0),
+        ]
+    )
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return next(results)
+
+    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    tasks._wait_for_container_migrations(
+        Context(),
+        "planini-container-smoke",
+        attempts=2,
+        sleep_seconds=0.25,
+    )
+
+    assert [command for command, _ in calls] == [
+        "docker exec planini-container-smoke python -m alembic current --check-heads",
+        "docker exec planini-container-smoke python -m alembic current --check-heads",
+    ]
+    assert all(
+        kwargs == {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"}
+        for _, kwargs in calls
+    )
+    assert sleeps == [0.25]
+
+
+def test_wait_for_container_migrations_reports_timeout(monkeypatch, capsys) -> None:
+    class Context:
+        def run(self, command, **kwargs):
+            return RunResult(exited=255, stderr="Database is not on all head revisions\n")
+
+    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: None)
+
+    try:
+        tasks._wait_for_container_migrations(Context(), "planini-smoke", attempts=0)
+    except tasks.Exit as exc:
+        assert str(exc) == (
+            "Container migrations did not reach all heads after 1 attempt(s): "
+            "docker exec planini-smoke python -m alembic current --check-heads"
+        )
+    else:
+        raise AssertionError("expected container migration timeout")
+
+    assert capsys.readouterr().out == "Database is not on all head revisions\n"
+
+
 def test_database_url_for_device_uses_distinct_sqlite_file() -> None:
     database_url = "sqlite+aiosqlite:///./tmp-ci-ui-e2e.db"
 
@@ -1135,6 +1190,7 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
     calls: list[tuple[str, dict]] = []
     healthchecks: list[dict] = []
     container_healthchecks: list[dict] = []
+    container_migration_checks: list[dict] = []
 
     class Context:
         def run(self, command, **kwargs):
@@ -1152,6 +1208,13 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
         tasks,
         "_wait_for_container_health_endpoint",
         lambda c, container_name, **kwargs: container_healthchecks.append(
+            {"container_name": container_name, **kwargs}
+        ),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_wait_for_container_migrations",
+        lambda c, container_name, **kwargs: container_migration_checks.append(
             {"container_name": container_name, **kwargs}
         ),
     )
@@ -1185,11 +1248,14 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
             "sleep_seconds": 2.0,
         }
     ]
+    assert container_migration_checks == [
+        {
+            "container_name": "planini-container-smoke-4321",
+            "attempts": 60,
+            "sleep_seconds": 1.0,
+        }
+    ]
     assert calls[2] == (
-        "docker exec planini-container-smoke-4321 " "python -m alembic current --check-heads",
-        {"pty": False, "shell": "/bin/bash"},
-    )
-    assert calls[3] == (
         "docker rm --force planini-container-smoke-4321",
         {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"},
     )

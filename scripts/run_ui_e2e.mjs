@@ -2213,12 +2213,40 @@ async function main() {
     await page.locator(".add-item-save-button").click();
     const moveThingCard = page.locator("[data-item-card]", { hasText: moveThingName }).first();
     await expectVisible(moveThingCard, "Expected move target item before moving");
-    await moveThingCard.click();
+
+    await moveThingCard.locator(".item-main").click();
+    await expectVisible(page.locator("[data-item-edit-panel]"), "Expected item editor before moving");
+    await page.locator("[data-item-edit-panel]").getByRole("button", { name: "Move to list" }).click();
+    const moveDialog = page.locator("[data-item-move-panel]");
+    await expectVisible(moveDialog, "Expected shared move modal above item editor");
     await expectVisible(
-      page.locator("[data-item-edit-panel]").getByRole("heading", { name: moveThingName }),
-      "Expected move target edit modal",
+      moveDialog.getByRole("button", { name: scenario.moveTargetListName, exact: true }),
+      "Expected target list in shared move modal from item editor",
     );
-    await editForm.getByLabel("Move to list").selectOption({ label: scenario.moveTargetListName });
+    await moveDialog.locator("[data-item-move-close].add-item-close").click();
+    await expectHidden(moveDialog, "Expected closing move modal to return to item editor");
+    await expectVisible(page.locator("[data-item-edit-panel]"), "Expected item editor to remain open");
+    await page.locator("[data-item-edit-panel] [data-item-edit-close].add-item-close").click();
+    await expectHidden(page.locator("[data-item-edit-overlay]"), "Expected item editor to close");
+
+    await moveThingCard.getByRole("button", { name: `More actions for ${moveThingName}` }).click();
+    await expectVisible(
+      moveThingCard.getByRole("menu"),
+      "Expected move target context menu",
+    );
+    assert.equal(
+      await moveThingCard.evaluate((node) =>
+        getComputedStyle(node.closest(".list-focus-card")).overflow
+      ),
+      "visible",
+      "Open item menu should not be clipped by the list card",
+    );
+    await moveThingCard.getByRole("menuitem", { name: "Move to list" }).click();
+    await expectVisible(
+      moveDialog,
+      "Expected same shared move modal from item context menu",
+    );
+    await moveDialog.getByRole("button", { name: scenario.moveTargetListName, exact: true }).click();
     const movedNotice = page.locator("[data-moved-item-notice]", { hasText: moveThingName }).first();
     await expectVisible(
       movedNotice,
@@ -2280,6 +2308,11 @@ async function main() {
       await backwarenSettingsRow.getByRole("button", { name: /Move Bakery up/i }).click();
       await page.waitForTimeout(150);
     }
+    await page.waitForFunction(
+      () => !document.querySelector("[data-category-order-status]:not([hidden])"),
+      null,
+      { timeout: 5000 },
+    );
     await page.locator("[data-list-settings-panel] .add-item-close").click();
 
     await page.waitForFunction(
@@ -2289,6 +2322,7 @@ async function main() {
         );
         return headers.indexOf("Bakery") > -1 && headers.indexOf("Bakery") < headers.indexOf("Pasta");
       },
+      null,
       { timeout: 5000 },
     );
     await pageTwo.waitForFunction(
@@ -2298,6 +2332,7 @@ async function main() {
         );
         return headers.indexOf("Bakery") > -1 && headers.indexOf("Bakery") < headers.indexOf("Pasta");
       },
+      null,
       { timeout: 5000 },
     );
 
