@@ -2230,11 +2230,13 @@ function itemSuggestionMatch(itemName, query) {
 function syncModalState(root) {
   const addOverlay = root.querySelector("[data-item-panel-overlay]");
   const editOverlay = root.querySelector("[data-item-edit-overlay]");
+  const moveOverlay = root.querySelector("[data-item-move-overlay]");
   const settingsOverlay = root.querySelector("[data-list-settings-overlay]");
   const categoryConfirmOverlay = root.querySelector("[data-category-disable-confirm-overlay]");
   const hasModalOpen =
     (addOverlay instanceof HTMLElement && !addOverlay.hidden) ||
     (editOverlay instanceof HTMLElement && !editOverlay.hidden) ||
+    (moveOverlay instanceof HTMLElement && !moveOverlay.hidden) ||
     (settingsOverlay instanceof HTMLElement && !settingsOverlay.hidden) ||
     (categoryConfirmOverlay instanceof HTMLElement && !categoryConfirmOverlay.hidden);
 
@@ -2819,23 +2821,16 @@ async function saveCategoryOrder(root, state) {
   state.categoryOrder = new Map(response.map((entry) => [entry.category_id, entry.sort_order]));
 }
 
-function syncItemMoveSelect(root, state, currentListId) {
-  const field = root.querySelector("[data-item-edit-list-field]");
-  const select = root.querySelector("[data-item-edit-list-select]");
+function syncItemMoveButton(root, state, itemId, currentListId) {
+  const button = root.querySelector("[data-item-edit-move-open]");
   const lists = state.lists || [];
-  if (!(field instanceof HTMLElement) || !(select instanceof HTMLSelectElement)) {
+  if (!(button instanceof HTMLButtonElement)) {
     return;
   }
 
-  field.hidden = lists.length <= 1;
-  select.innerHTML = "";
-  lists.forEach((list) => {
-    const option = document.createElement("option");
-    option.value = list.id;
-    option.textContent = list.name;
-    select.appendChild(option);
-  });
-  select.value = currentListId || root.dataset.listId || "";
+  const activeListId = currentListId || root.dataset.listId || "";
+  button.hidden = !lists.some((list) => list.id !== activeListId);
+  button.dataset.itemMoveOpen = itemId || "";
 }
 
 function showItemMovedMessage(root, targetListId) {
@@ -3031,13 +3026,16 @@ async function moveEditingItemToList(root, state, targetListId) {
 
   const payload = readItemEditFormPayload(root);
   if (!payload?.name) {
-    setItemEditStatus(root, "error", translate("list_detail.item_name_required", {}, "Please enter an item name."));
-    setListMessage(root, "error", translate("list_detail.item_name_required", {}, "Please enter an item name."));
+    const message = translate("list_detail.item_name_required", {}, "Please enter an item name.");
+    setItemEditStatus(root, "error", message);
+    setItemMoveStatus(root, "error", message);
+    setListMessage(root, "error", message);
     return false;
   }
   if (!isValidSaleWindowPayload(payload)) {
     const message = translate("list_detail.sale_window_invalid", {}, "Sale end must be after its start.");
     setItemEditStatus(root, "error", message);
+    setItemMoveStatus(root, "error", message);
     setListMessage(root, "error", message);
     return false;
   }
@@ -3059,13 +3057,193 @@ async function moveEditingItemToList(root, state, targetListId) {
     setListMessage(root, "", "");
     return true;
   } catch (error) {
-    syncItemMoveSelect(root, state, existingListId);
     const message = error instanceof Error ? error.message : translate("list_detail.item_update_failed", {}, "Could not save item.");
     setItemEditStatus(root, "error", message);
+    setItemMoveStatus(root, "error", message);
     setListMessage(root, "error", message);
     updateItemEditUndoButton(root, state);
     return false;
   }
+}
+
+async function moveItemFromMenu(root, state, itemId, targetListId) {
+  const existingItem = state.items.get(itemId);
+  const existingListId = existingItem?.list_id || root.dataset.listId || "";
+  if (!existingItem) {
+    throw new Error(translate("list_detail.item_not_found", {}, "Could not find that item."));
+  }
+  if (!targetListId || targetListId === existingListId) {
+    return false;
+  }
+
+  state.openItemMenuId = null;
+  renderItems(root, state);
+
+  const movedItem = await moveItemWithOfflineFallback(root, state, itemId, {
+    ...itemEditApiPayload(itemEditPayloadFromItem(existingItem), existingItem),
+    list_id: targetListId,
+  });
+  removeItem(state, movedItem.id);
+  persistOfflineListState(root, state);
+  showMovedItemNotice(
+    root,
+    state,
+    createMovedItemNotice(root, state, existingItem, movedItem, targetListId),
+  );
+  setListMessage(root, "", "");
+  return true;
+}
+
+function ensureItemMoveModal(root) {
+  let overlay = root.querySelector("[data-item-move-overlay]");
+  if (overlay instanceof HTMLElement) {
+    return {
+      overlay,
+      panel: root.querySelector("[data-item-move-panel]"),
+      title: root.querySelector("[data-item-move-title]"),
+      options: root.querySelector("[data-item-move-options]"),
+      status: root.querySelector("[data-item-move-status]"),
+    };
+  }
+
+  overlay = document.createElement("div");
+  overlay.className = "item-modal item-move-modal";
+  overlay.dataset.itemMoveOverlay = "";
+  overlay.hidden = true;
+
+  const closeLabel = translate("list_detail.close_move_item", {}, "Close move item dialog");
+  const backdrop = document.createElement("button");
+  backdrop.className = "item-modal-backdrop";
+  backdrop.type = "button";
+  backdrop.dataset.itemMoveClose = "";
+  backdrop.setAttribute("aria-label", closeLabel);
+  overlay.appendChild(backdrop);
+
+  const panel = document.createElement("section");
+  panel.className = "dashboard-card item-move-panel";
+  panel.dataset.itemMovePanel = "";
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+  panel.setAttribute("aria-labelledby", "item-move-title");
+  panel.hidden = true;
+
+  const header = document.createElement("div");
+  header.className = "add-item-panel-header";
+  const heading = document.createElement("div");
+  const label = document.createElement("p");
+  label.className = "dashboard-label";
+  label.textContent = translate("list_detail.move_to_list", {}, "Move to list");
+  heading.appendChild(label);
+  const title = document.createElement("h2");
+  title.id = "item-move-title";
+  title.dataset.itemMoveTitle = "";
+  heading.appendChild(title);
+  header.appendChild(heading);
+
+  const closeButton = document.createElement("button");
+  closeButton.className = "add-item-close";
+  closeButton.type = "button";
+  closeButton.dataset.itemMoveClose = "";
+  closeButton.setAttribute("aria-label", closeLabel);
+  closeButton.textContent = "×";
+  header.appendChild(closeButton);
+  panel.appendChild(header);
+
+  const helper = document.createElement("p");
+  helper.className = "dashboard-helper";
+  helper.textContent = translate(
+    "list_detail.choose_destination_list",
+    {},
+    "Choose the destination list.",
+  );
+  panel.appendChild(helper);
+
+  const options = document.createElement("div");
+  options.className = "item-move-options";
+  options.dataset.itemMoveOptions = "";
+  panel.appendChild(options);
+
+  const status = document.createElement("p");
+  status.className = "item-move-status";
+  status.dataset.itemMoveStatus = "";
+  status.setAttribute("role", "status");
+  status.hidden = true;
+  panel.appendChild(status);
+
+  overlay.appendChild(panel);
+  root.appendChild(overlay);
+  return { overlay, panel, title, options, status };
+}
+
+function setItemMoveStatus(root, statusName, message) {
+  const status = root.querySelector("[data-item-move-status]");
+  if (!(status instanceof HTMLElement)) {
+    return;
+  }
+  status.hidden = !message;
+  status.dataset.status = statusName || "";
+  status.textContent = message || "";
+  root.querySelectorAll("[data-item-move-target]").forEach((button) => {
+    button.disabled = statusName === "saving";
+  });
+}
+
+function setItemMoveModalOpen(root, state, itemId, fromEditor = false) {
+  const { overlay, panel, title, options } = ensureItemMoveModal(root);
+  if (
+    !(overlay instanceof HTMLElement) ||
+    !(panel instanceof HTMLElement) ||
+    !(title instanceof HTMLElement) ||
+    !(options instanceof HTMLElement)
+  ) {
+    return;
+  }
+
+  if (!itemId) {
+    state.movingItemId = null;
+    state.moveItemFromEditor = false;
+    overlay.hidden = true;
+    panel.hidden = true;
+    setItemMoveStatus(root, "", "");
+    syncModalState(root);
+    return;
+  }
+
+  const item = state.items.get(itemId);
+  if (!item) {
+    return;
+  }
+
+  const currentListId = item.list_id || root.dataset.listId || "";
+  state.movingItemId = itemId;
+  state.moveItemFromEditor = fromEditor;
+  state.openItemMenuId = null;
+  renderItems(root, state);
+
+  title.textContent = translate(
+    "list_detail.move_item_named",
+    { name: item.name },
+    "Move {name}",
+  );
+  options.innerHTML = "";
+  (state.lists || [])
+    .filter((list) => list.id !== currentListId)
+    .forEach((list) => {
+      const button = document.createElement("button");
+      button.className = "item-move-option";
+      button.type = "button";
+      button.dataset.itemMoveTarget = list.id;
+      button.textContent = list.name;
+      options.appendChild(button);
+    });
+
+  setItemMoveStatus(root, "", "");
+  overlay.hidden = false;
+  panel.hidden = false;
+  syncModalState(root);
+  window.setTimeout(() => {
+    options.querySelector("[data-item-move-target]")?.focus();
+  }, 0);
 }
 
 function ensureCategoryDisableConfirm(root) {
@@ -3438,7 +3616,7 @@ function setItemEditPanelOpen(root, state, itemId) {
   syncModalState(root);
   title.textContent = item.name;
 
-  syncItemMoveSelect(root, state, item.list_id || root.dataset.listId);
+  syncItemMoveButton(root, state, item.id, item.list_id || root.dataset.listId);
   const editSearch = root.querySelector("[data-item-edit-category-search]");
   if (editSearch instanceof HTMLInputElement) {
     editSearch.value = "";
@@ -4083,6 +4261,21 @@ function renderItems(root, state) {
       menu.id = `item-more-menu-${item.id}`;
       menu.setAttribute("role", "menu");
       menu.hidden = !menuIsOpen;
+
+      const currentListId = item.list_id || root.dataset.listId || "";
+      const moveTargetLists = (state.lists || []).filter((list) => list.id !== currentListId);
+      if (moveTargetLists.length > 0) {
+        const moveButton = document.createElement("button");
+        moveButton.type = "button";
+        moveButton.dataset.itemMoveOpen = item.id;
+        moveButton.setAttribute("role", "menuitem");
+        moveButton.textContent = translate(
+          "list_detail.move_to_list",
+          {},
+          "Move to list",
+        );
+        menu.appendChild(moveButton);
+      }
 
       const hideButton = document.createElement("button");
       hideButton.type = "button";
@@ -4736,6 +4929,8 @@ async function initListDetail() {
     lists: [],
     listName: "",
     movedItemNotices: new Map(),
+    movingItemId: null,
+    moveItemFromEditor: false,
     nextDemoId: 1,
     offlineSyncInFlight: null,
     openItemMenuId: null,
@@ -4850,6 +5045,12 @@ async function initListDetail() {
       return;
     }
 
+    const movePanel = root.querySelector("[data-item-move-panel]");
+    if (movePanel instanceof HTMLElement && !movePanel.hidden) {
+      setItemMoveModalOpen(root, state, null);
+      return;
+    }
+
     const settingsPanel = root.querySelector("[data-list-settings-panel]");
     if (settingsPanel instanceof HTMLElement && !settingsPanel.hidden) {
       setListSettingsOpen(root, state, false);
@@ -4875,6 +5076,7 @@ async function initListDetail() {
     const activeElement = document.activeElement;
     const panel = root.querySelector("[data-item-panel]");
     const editOverlay = root.querySelector("[data-item-edit-overlay]");
+    const moveOverlay = root.querySelector("[data-item-move-overlay]");
     const isTypingContext =
       activeElement instanceof HTMLInputElement ||
       activeElement instanceof HTMLTextAreaElement ||
@@ -4884,7 +5086,8 @@ async function initListDetail() {
     if (
       isTypingContext ||
       !panel?.hidden ||
-      (editOverlay instanceof HTMLElement && !editOverlay.hidden)
+      (editOverlay instanceof HTMLElement && !editOverlay.hidden) ||
+      (moveOverlay instanceof HTMLElement && !moveOverlay.hidden)
     ) {
       return;
     }
@@ -4941,10 +5144,6 @@ async function initListDetail() {
     }
     if (target instanceof HTMLInputElement && target.name === "edit_category_id") {
       void flushItemEditSave(root, state);
-      return;
-    }
-    if (target instanceof HTMLSelectElement && target.name === "list_id") {
-      void moveEditingItemToList(root, state, target.value);
     }
   });
 
@@ -5141,13 +5340,16 @@ async function initListDetail() {
     }
 
     const actionTarget = eventTarget.closest(
-      "[data-item-toggle], [data-item-hide], [data-item-unhide], [data-item-menu-toggle], [data-item-reuse], [data-moved-item-undo], [data-settings-category-move], [data-settings-category-toggle]"
+      "[data-item-toggle], [data-item-hide], [data-item-unhide], [data-item-menu-toggle], [data-item-move-open], [data-item-move-target], [data-item-move-close], [data-item-reuse], [data-moved-item-undo], [data-settings-category-move], [data-settings-category-toggle]"
     );
     const target = actionTarget instanceof HTMLElement ? actionTarget : null;
     const toggleId = target?.dataset.itemToggle || "";
     const hideId = target?.dataset.itemHide || "";
     const unhideId = target?.dataset.itemUnhide || "";
     const menuToggleId = target?.dataset.itemMenuToggle || "";
+    const moveOpenItemId = target?.dataset.itemMoveOpen || "";
+    const moveTargetListId = target?.dataset.itemMoveTarget || "";
+    const closeMoveModal = target?.hasAttribute("data-item-move-close") || false;
     const reuseItemId = target?.dataset.itemReuse || "";
     const movedItemUndoId = target?.dataset.movedItemUndo || "";
     const categoryMove = target?.dataset.settingsCategoryMove || "";
@@ -5177,6 +5379,9 @@ async function initListDetail() {
       !hideId &&
       !unhideId &&
       !menuToggleId &&
+      !moveOpenItemId &&
+      !moveTargetListId &&
+      !closeMoveModal &&
       !reuseItemId &&
       !movedItemUndoId &&
       !categoryMove &&
@@ -5227,9 +5432,47 @@ async function initListDetail() {
         return;
       }
 
+      if (closeMoveModal) {
+        setItemMoveModalOpen(root, state, null);
+        return;
+      }
+
+      if (moveOpenItemId) {
+        setItemMoveModalOpen(
+          root,
+          state,
+          moveOpenItemId,
+          target?.hasAttribute("data-item-move-from-editor") || false,
+        );
+        return;
+      }
+
       if (hideId) {
         state.openItemMenuId = null;
         await hideItemForLater(root, state, hideId);
+        return;
+      }
+
+      if (moveTargetListId && state.movingItemId) {
+        setItemMoveStatus(
+          root,
+          "saving",
+          translate("list_detail.item_saving", {}, "Saving..."),
+        );
+        try {
+          const didMove = state.moveItemFromEditor
+            ? await moveEditingItemToList(root, state, moveTargetListId)
+            : await moveItemFromMenu(root, state, state.movingItemId, moveTargetListId);
+          if (didMove) {
+            setItemMoveModalOpen(root, state, null);
+          }
+        } catch (error) {
+          const message = error instanceof Error
+            ? error.message
+            : translate("list_detail.item_update_failed", {}, "Could not save item.");
+          setItemMoveStatus(root, "error", message);
+          setListMessage(root, "error", message);
+        }
         return;
       }
 
@@ -5762,9 +6005,12 @@ export {
   moveItemWithOfflineFallback,
   setItemCheckedWithOfflineFallback,
   saveCategoryOrder,
-  syncItemMoveSelect,
+  syncItemMoveButton,
   showItemMovedMessage,
   moveEditingItemToList,
+  moveItemFromMenu,
+  setItemMoveStatus,
+  setItemMoveModalOpen,
   saveCategoryOrderInBackground,
   saveDisabledCategories,
   itemCountForCategory,
