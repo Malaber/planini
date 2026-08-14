@@ -18,6 +18,7 @@ from fastpasskey import install_fastpasskey_templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_list_for_user
+from app.api.v1.routes.public_list_links import get_valid_public_list_link
 from app.core.config import settings
 from app.core.database import get_db
 from app.i18n import encode_catalog, translator_for
@@ -520,6 +521,33 @@ async def list_detail(
             request,
             user,
             list_id=list_id,
+        ),
+    )
+
+
+@router.get("/public/lists/{token}", response_class=HTMLResponse, response_model=None)
+async def public_list_detail(
+    request: Request, token: str, db: AsyncSession = Depends(get_db)
+) -> Response:
+    await get_valid_public_list_link(db, token)
+    return templates.TemplateResponse(
+        request,
+        "list_detail.html",
+        _template_context(
+            request,
+            None,
+            list_id=token,
+            public_list_token=token,
+            list_kicker=translator_for(getattr(request.state, "locale", "en"))(
+                "list_detail.public_kicker"
+            ),
+            list_back_href="/login",
+            list_back_label=translator_for(getattr(request.state, "locale", "en"))(
+                "list_detail.sign_in"
+            ),
+            list_page_note=translator_for(getattr(request.state, "locale", "en"))(
+                "list_detail.public_note"
+            ),
         ),
     )
 

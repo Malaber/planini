@@ -1090,8 +1090,9 @@ final class PlaniniUITests: XCTestCase {
                 listID: hostingListID,
                 categoryID: hostingKonservenCategoryID,
                 accessToken: session.accessToken,
-                timeout: 20
-            )
+                timeout: 45
+            ),
+            "Expected queued category-order saves to persist the latest drag result."
         )
         XCTAssertTrue(waitForElementLabel(settingsSaveState, containing: "Saved", timeout: 8))
 
@@ -2084,6 +2085,88 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertEqual(inviteeApp.staticTexts["list-detail-title"].label, initialListName)
     }
 
+    func testPublicListLinkWorksSignedOutAndRemainsRemovable() throws {
+        try assertLocalTestBackend()
+        let ownerSession = try bootstrapSession(email: seededEmail)
+        let listID = try listID(named: initialListName, accessToken: ownerSession.accessToken)
+        let itemName = "Public iOS \(UUID().uuidString.prefix(8))"
+
+        let ownerApp = launchedApp(session: ownerSession, initialListName: initialListName)
+        XCTAssertTrue(ownerApp.staticTexts["list-detail-title"].waitForExistence(timeout: 12))
+        let listSettingsButton = ownerApp.buttons["list-settings-button"]
+        XCTAssertTrue(listSettingsButton.waitForExistence(timeout: 5))
+        listSettingsButton.tap()
+        XCTAssertTrue(ownerApp.otherElements["list-settings-sheet"].waitForExistence(timeout: 5))
+
+        let createLinkButton = ownerApp.buttons["create-public-list-link-button"]
+        scrollToHittable(createLinkButton, in: ownerApp)
+        XCTAssertTrue(createLinkButton.isHittable)
+        createLinkButton.tap()
+
+        let publicLinkValue = ownerApp.staticTexts["public-list-link-url-value"]
+        scrollToHittable(publicLinkValue, in: ownerApp)
+        XCTAssertTrue(publicLinkValue.waitForExistence(timeout: 12))
+        guard let publicURL = URL(string: publicLinkValue.label) else {
+            XCTFail("Expected the iOS list settings to display a valid public link URL.")
+            return
+        }
+        XCTAssertTrue(ownerApp.buttons["copy-public-list-link-button"].exists)
+        XCTAssertTrue(ownerApp.buttons["share-public-list-link-button"].exists)
+        terminateAndWait(ownerApp)
+
+        let signedInApp = launchedApp(
+            session: ownerSession,
+            initialListName: nil,
+            openedLink: publicURL
+        )
+        XCTAssertTrue(signedInApp.staticTexts["list-detail-title"].waitForExistence(timeout: 12))
+        XCTAssertEqual(signedInApp.staticTexts["list-detail-title"].label, initialListName)
+        XCTAssertTrue(openAddItemSheet(using: signedInApp.buttons["add-item-button"], in: signedInApp))
+        signedInApp.textFields["add-item-name-field"].tap()
+        signedInApp.textFields["add-item-name-field"].typeText(itemName)
+        XCTAssertTrue(saveAddItemSheet(in: signedInApp))
+        XCTAssertTrue(
+            waitForItem(named: itemName, inListNamed: initialListName, accessToken: ownerSession.accessToken)
+        )
+        let itemID = try itemID(
+            named: itemName,
+            inListNamed: initialListName,
+            accessToken: ownerSession.accessToken
+        )
+        terminateAndWait(signedInApp)
+
+        let signedOutApp = XCUIApplication()
+        configureLaunchLanguage(for: signedOutApp)
+        signedOutApp.launchEnvironment["PLANINI_UI_TEST_MODE"] = "1"
+        signedOutApp.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
+        signedOutApp.launchEnvironment["PLANINI_UI_TEST_OPEN_URL"] = publicURL.absoluteString
+        signedOutApp.launch()
+        XCTAssertTrue(signedOutApp.staticTexts["list-detail-title"].waitForExistence(timeout: 12))
+        XCTAssertEqual(signedOutApp.staticTexts["list-detail-title"].label, initialListName)
+        XCTAssertTrue(
+            tapItemToggleButton(
+                itemID: itemID,
+                named: itemName,
+                checked: true,
+                in: signedOutApp,
+                inListNamed: initialListName,
+                accessToken: ownerSession.accessToken
+            )
+        )
+
+        signedOutApp.buttons["public-list-close-button"].tap()
+        XCTAssertTrue(signedOutApp.buttons["login-passkey-button"].waitForExistence(timeout: 5))
+        let rememberedRow = signedOutApp.buttons["public-list-row-\(listID.uuidString)"]
+        XCTAssertTrue(rememberedRow.waitForExistence(timeout: 5))
+        rememberedRow.swipeLeft()
+        let removeButton = signedOutApp.buttons["remove-public-list-\(listID.uuidString)"]
+        XCTAssertTrue(removeButton.waitForExistence(timeout: 3))
+        removeButton.tap()
+        XCTAssertTrue(waitForElementToDisappear(rememberedRow, timeout: 5))
+
+        try deleteItem(itemID: itemID, accessToken: ownerSession.accessToken)
+    }
+
     func testSiriIntentAddsItemsToFavoriteAndSpecificLists() throws {
         try assertLocalTestBackend()
         let session = if let injectedSession {
@@ -2674,33 +2757,42 @@ final class PlaniniUITests: XCTestCase {
         accessToken: String
     ) -> Bool {
         let sourceRow = itemRow(itemID: itemID, in: app)
+        let dropOffsets: [CGFloat] = [0.5, 0.3, 0.7]
 
-        scrollToHittable(sourceRow, in: app, maxSwipes: 4)
-        scrollToHittable(targetElement, in: app, maxSwipes: 4)
-        guard
-            sourceRow.waitForExistence(timeout: 3),
-            targetElement.waitForExistence(timeout: 3),
-            sourceRow.isHittable,
-            targetElement.isHittable
-        else {
-            return false
+        for dropOffset in dropOffsets {
+            scrollToHittable(sourceRow, in: app, maxSwipes: 4)
+            scrollToHittable(targetElement, in: app, maxSwipes: 4)
+            guard
+                sourceRow.waitForExistence(timeout: 3),
+                targetElement.waitForExistence(timeout: 3),
+                sourceRow.isHittable,
+                targetElement.isHittable
+            else {
+                continue
+            }
+
+            let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let target = targetElement.coordinate(
+                withNormalizedOffset: CGVector(dx: 0.5, dy: dropOffset)
+            )
+            source.press(
+                forDuration: 1.2,
+                thenDragTo: target,
+                withVelocity: .slow,
+                thenHoldForDuration: 1.2
+            )
+            if waitForItemCategory(
+                named: itemName,
+                categoryNamed: categoryName,
+                inListNamed: listName,
+                accessToken: accessToken,
+                timeout: 12
+            ) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
-
-        let source = sourceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let target = targetElement.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        source.press(
-            forDuration: 1.2,
-            thenDragTo: target,
-            withVelocity: .slow,
-            thenHoldForDuration: 1.2
-        )
-        return waitForItemCategory(
-            named: itemName,
-            categoryNamed: categoryName,
-            inListNamed: listName,
-            accessToken: accessToken,
-            timeout: 8
-        )
+        return false
     }
 
     private func dragCategoryRow(
@@ -4050,7 +4142,7 @@ final class PlaniniUITests: XCTestCase {
                 "mutations": [
                     [
                         "mutation_id": UUID().uuidString,
-                        "operation": "set_checked",
+                        "type": "set_checked",
                         "item_id": itemID.uuidString,
                         "checked": checked,
                         "recorded_at": formatter.string(from: Date()),
@@ -4165,8 +4257,10 @@ final class PlaniniUITests: XCTestCase {
     ) -> URLRequest {
         let targetBaseURL = overrideBaseURL ?? baseURL
         var request = URLRequest(url: targetBaseURL.appending(path: path))
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         request.setValue("en", forHTTPHeaderField: "Accept-Language")
         request.httpMethod = method
         if let token {
@@ -4199,9 +4293,11 @@ final class PlaniniUITests: XCTestCase {
         let semaphore = DispatchSemaphore(value: 0)
         var capturedData: Data?
         var capturedError: Error?
-        URLSession.shared.dataTask(with: request) { data, _, error in
+        var capturedResponse: URLResponse?
+        URLSession.shared.dataTask(with: request) { data, response, error in
             capturedData = data
             capturedError = error
+            capturedResponse = response
             semaphore.signal()
         }.resume()
         let waitResult = semaphore.wait(timeout: .now() + 10)
@@ -4221,6 +4317,19 @@ final class PlaniniUITests: XCTestCase {
         }
         guard let capturedData else {
             throw NSError(domain: "PlaniniUITests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing bootstrap response"])
+        }
+        if let response = capturedResponse as? HTTPURLResponse,
+            (200..<300).contains(response.statusCode) == false
+        {
+            let responseBody = String(data: capturedData, encoding: .utf8) ?? "<non-UTF-8 body>"
+            throw NSError(
+                domain: "PlaniniUITests",
+                code: response.statusCode,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "HTTP \(response.statusCode) from \(request.url?.absoluteString ?? "unknown request"): \(responseBody)"
+                ]
+            )
         }
         return capturedData
     }

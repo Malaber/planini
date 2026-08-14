@@ -1895,17 +1895,26 @@ def test_check_ios_ui_e2e_stops_backend_after_final_failure(monkeypatch) -> None
 def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
     monkeypatch,
     tmp_path: Path,
+    capsys,
 ) -> None:
     calls: list[tuple[str, dict]] = []
     simulator_lifecycle: list[tuple[str, str | None]] = []
     summaries: list[str] = []
     validations: list[tuple[str, tuple[int, int]]] = []
     env_calls: list[dict] = []
+    results = iter(
+        [
+            RunResult(exited=0),
+            RunResult(exited=65),
+            RunResult(exited=0),
+            RunResult(exited=0),
+        ]
+    )
 
     class Context:
         def run(self, command, **kwargs):
             calls.append((command, kwargs))
-            return RunResult(exited=0)
+            return next(results)
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(
@@ -2007,6 +2016,19 @@ def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
             "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
             "-scheme Planini "
             f"-derivedDataPath {derived_data} "
+            "-destination 'platform=iOS Simulator,name=iPhone 14 Plus,OS=latest,arch=arm64' "
+            "-destination-timeout 120 "
+            f"-resultBundlePath {result_bundle_path} -quiet "
+            "-parallel-testing-enabled NO "
+            "-maximum-parallel-testing-workers 1 "
+            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots "
+            "test-without-building",
+            expected_kwargs,
+        ),
+        (
+            "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
+            "-scheme Planini "
+            f"-derivedDataPath {derived_data} "
             "-destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=latest,arch=arm64' "
             "-destination-timeout 120 "
             f"-resultBundlePath {result_bundle_path} -quiet "
@@ -2033,10 +2055,17 @@ def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
         ("ensure", "iPhone 14 Plus"),
         ("reset", "iPhone 14 Plus"),
         ("shutdown", None),
+        ("ensure", "iPhone 14 Plus"),
+        ("reset", "iPhone 14 Plus"),
+        ("shutdown", None),
         ("ensure", "iPad Pro 13-inch (M5)"),
         ("reset", "iPad Pro 13-inch (M5)"),
     ]
     assert summaries == []
+    assert (
+        "Retrying iOS marketing screenshots on iPhone 14 Plus (attempt 1/2)..."
+        in capsys.readouterr().out
+    )
     assert validations == [
         ("e2e-artifacts/ios-marketing-screenshots/iphone/en-US", (1284, 2778)),
         ("e2e-artifacts/ios-marketing-screenshots/iphone/de-DE", (1284, 2778)),
@@ -2119,6 +2148,7 @@ def test_run_ios_marketing_ui_test_reports_xcode_failure(
             english_session={"access_token": "english-token", "display_name": "Alex"},
             german_session={"access_token": "german-token", "display_name": "Alex"},
             derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
+            attempts=1,
         )
     except tasks.Exit as exc:
         assert "exit code 65" in str(exc)

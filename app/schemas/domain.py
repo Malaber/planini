@@ -93,6 +93,10 @@ class GroceryListOut(ORMModel):
     open_item_count: int = 0
 
 
+class PublicGroceryListOut(GroceryListOut):
+    expires_at: datetime
+
+
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     color: str | None = None
@@ -193,3 +197,12 @@ class GroceryItemOfflineSyncOut(BaseModel):
     deleted_item_ids: list[str] = Field(default_factory=list)
     client_item_ids: dict[str, UUID] = Field(default_factory=dict)
     applied_mutation_ids: list[str] = Field(default_factory=list)
+
+
+class PublicListLinkCreate(BaseModel):
+    expires_in_days: int = Field(ge=1, le=30)
+
+
+class PublicListLinkOut(BaseModel):
+    public_url: str
+    expires_at: datetime
