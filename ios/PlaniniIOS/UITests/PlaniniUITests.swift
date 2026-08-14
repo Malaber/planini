@@ -1201,6 +1201,85 @@ final class PlaniniUITests: XCTestCase {
         assertLanguageSettings(in: app)
     }
 
+    func testListLayoutMatchesCompactWebDensity() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let cannedItemID = try itemID(
+            named: "Tomaten",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        let cannedGoodsID = try categoryID(
+            named: "Canned Goods",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        let dairyAndEggsID = try categoryID(
+            named: "Dairy & Eggs",
+            inListNamed: initialListName,
+            accessToken: session.accessToken
+        )
+        let app = launchedApp(session: session, initialListName: initialListName)
+        defer { terminateAndWait(app) }
+
+        let listTitle = app.staticTexts["list-detail-title"]
+        XCTAssertTrue(
+            openInitialListDetail(in: app, listTitle: listTitle),
+            "Expected bootstrapped initial list before checking compact layout."
+        )
+        scrollToListTop(in: app)
+
+        let cannedGoodsHeader = app.descendants(matching: .any)[
+            "category-drop-target-category-\(cannedGoodsID.uuidString)"
+        ]
+        let cannedItemRow = itemRow(itemID: cannedItemID, in: app)
+        let dairyAndEggsHeader = app.descendants(matching: .any)[
+            "category-drop-target-category-\(dairyAndEggsID.uuidString)"
+        ]
+
+        XCTAssertTrue(cannedGoodsHeader.waitForExistence(timeout: 5))
+        XCTAssertTrue(cannedItemRow.waitForExistence(timeout: 5))
+        scrollToHittable(dairyAndEggsHeader, in: app, maxSwipes: 2)
+        XCTAssertTrue(dairyAndEggsHeader.waitForExistence(timeout: 5))
+
+        let headerToItemGap = cannedItemRow.frame.minY - cannedGoodsHeader.frame.maxY
+        let itemToNextHeaderGap = dairyAndEggsHeader.frame.minY - cannedItemRow.frame.maxY
+        let sectionStride = dairyAndEggsHeader.frame.minY - cannedGoodsHeader.frame.minY
+        captureScreenshot(named: "ios-ui-compact-list-layout")
+
+        XCTAssertLessThanOrEqual(
+            sectionStride,
+            120,
+            "A single-item category should fit within 120 points vertically."
+        )
+        XCTAssertLessThanOrEqual(
+            cannedGoodsHeader.frame.height,
+            36,
+            "Category headers should stay compact."
+        )
+        XCTAssertLessThanOrEqual(
+            cannedItemRow.frame.height,
+            60,
+            "Single-line item rows should stay compact."
+        )
+        XCTAssertGreaterThanOrEqual(headerToItemGap, 0)
+        XCTAssertLessThanOrEqual(
+            headerToItemGap,
+            16,
+            "Category header and first item should form one compact group."
+        )
+        XCTAssertGreaterThanOrEqual(itemToNextHeaderGap, 0)
+        XCTAssertLessThanOrEqual(
+            itemToNextHeaderGap,
+            16,
+            "Adjacent categories should use web-sized vertical separation."
+        )
+    }
+
     func testLocalDemoPersistsAndSyncsIntoAccount() throws {
         try assertLocalTestBackend()
         let session = if let injectedSession {
@@ -1605,20 +1684,30 @@ final class PlaniniUITests: XCTestCase {
         )
 
         let normalToggle = app.buttons["toggle-item-\(itemID.uuidString)"]
-        scrollToElement(normalToggle, in: app, maxSwipes: 16)
+        scrollToHittable(normalToggle, in: app, maxSwipes: 20)
+        XCTAssertTrue(
+            normalToggle.waitForExistence(timeout: 10),
+            "Expected normal toggle in the checked-items area after the promoted row update."
+        )
         XCTAssertTrue(
             waitForElementLabel(normalToggle, containing: "Uncheck \(itemName)"),
             "Expected normal toggle to mirror promoted checked state."
         )
-
-        tapElement(normalToggle)
         XCTAssertTrue(
-            waitForItemCheckedState(
+            normalToggle.isHittable,
+            "Expected normal toggle to be on-screen before tapping it."
+        )
+
+        XCTAssertTrue(
+            tapItemToggleButton(
+                itemID: itemID,
                 named: itemName,
                 checked: false,
+                in: app,
                 inListNamed: initialListName,
                 accessToken: session.accessToken
-            )
+            ),
+            "Expected tapping the on-screen normal toggle to uncheck the item."
         )
         scrollToListTop(in: app, maxSwipes: 16)
         XCTAssertTrue(
@@ -3208,10 +3297,17 @@ final class PlaniniUITests: XCTestCase {
             ids = []
         }
         var candidates = ids.flatMap { id in
-            [app.tabBars.buttons[id], app.buttons[id]]
+            [
+                app.tabBars.buttons.matching(identifier: id).firstMatch,
+                app.buttons.matching(identifier: id).firstMatch,
+            ]
         }
         candidates += labels.flatMap { tabLabel in
-            [app.tabBars.buttons[tabLabel], app.buttons[tabLabel]]
+            let predicate = NSPredicate(format: "label == %@", tabLabel)
+            return [
+                app.tabBars.buttons.matching(predicate).firstMatch,
+                app.buttons.matching(predicate).firstMatch,
+            ]
         }
         return candidates
     }

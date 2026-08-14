@@ -311,11 +311,15 @@
             </label>
           </div>
         </fieldset>
-        <label class="dashboard-field" data-item-edit-list-field hidden>
-          <span>{{ t("list_detail.move_to_list") }}</span>
-          <select name="list_id" data-item-edit-list-select></select>
-        </label>
         <div class="item-edit-actions">
+          <button
+            type="button"
+            class="secondary-button"
+            data-item-edit-move-open
+            data-item-move-open
+            data-item-move-from-editor
+            hidden
+          >{{ t("list_detail.move_to_list") }}</button>
           <button type="button" class="danger-button" data-item-edit-delete>{{ t("common.delete") }}</button>
         </div>
       </form>
