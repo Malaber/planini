@@ -549,7 +549,13 @@
       "accent_purple": "Lila",
       "accent_pink": "Pink",
       "accent_selected": "Akzent {color} ausgewählt",
-      "accent_selection_selected": "Ausgewählt"
+      "accent_selection_selected": "Ausgewählt",
+      "public_link_title": "Öffentlicher Bearbeitungslink",
+      "public_link_hint": "Jede Person mit diesem Link kann diese Liste ohne Anmeldung bearbeiten.",
+      "public_link_days": "Gültig für {count} Tage",
+      "public_link_create": "Bearbeitungslink erstellen",
+      "public_link_creating": "Link wird erstellt...",
+      "public_link_expires": "Läuft ab {date}"
     },
     "settings": {
       "account": "Konto",

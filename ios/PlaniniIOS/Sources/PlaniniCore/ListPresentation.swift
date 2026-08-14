@@ -56,6 +56,41 @@ public struct HouseholdInviteLink: Equatable, Sendable {
     }
 }
 
+public struct PublicListEditLink: Equatable, Sendable {
+    public let publicURL: URL
+    public let expiresAt: Date
+
+    public init(publicURL: URL, expiresAt: Date) {
+        self.publicURL = publicURL
+        self.expiresAt = expiresAt
+    }
+
+    public init?(json: [String: Any]) {
+        guard
+            let publicURLText = json["public_url"] as? String,
+            let publicURL = URL(string: publicURLText),
+            let expiresAtText = json["expires_at"] as? String,
+            let expiresAt = Self.parseDate(expiresAtText)
+        else {
+            return nil
+        }
+
+        self.init(publicURL: publicURL, expiresAt: expiresAt)
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let formatterWithFractions = ISO8601DateFormatter()
+        formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatterWithFractions.date(from: value) {
+            return parsed
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
+}
+
 public struct GroceryListSummary: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
     public let householdID: UUID

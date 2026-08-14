@@ -55,6 +55,38 @@ struct ListPresentationTests {
         #expect(HouseholdInviteLink(json: [:]) == nil)
     }
 
+    @Test func publicListEditLinkParsesJSON() {
+        let link = PublicListEditLink(
+            json: [
+                "public_url": "https://planini.top/public/lists/token",
+                "expires_at": "2026-05-18T12:00:00.123Z",
+            ]
+        )
+
+        #expect(link?.publicURL.absoluteString == "https://planini.top/public/lists/token")
+        #expect(link?.expiresAt != nil)
+
+        let noFractions = PublicListEditLink(
+            json: [
+                "public_url": "https://planini.top/public/lists/token",
+                "expires_at": "2026-05-18T12:00:00Z",
+            ]
+        )
+        #expect(noFractions != nil)
+    }
+
+    @Test func publicListEditLinkRejectsInvalidJSON() {
+        #expect(PublicListEditLink(json: [:]) == nil)
+        #expect(
+            PublicListEditLink(
+                json: [
+                    "public_url": "https://planini.top/public/lists/token",
+                    "expires_at": "not-a-date",
+                ]
+            ) == nil
+        )
+    }
+
     @Test func groceryListSummaryStoresInitializerArguments() {
         let listID = UUID()
         let householdID = UUID()

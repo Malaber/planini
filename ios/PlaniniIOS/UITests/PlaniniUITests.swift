@@ -2089,8 +2089,30 @@ final class PlaniniUITests: XCTestCase {
         try assertLocalTestBackend()
         let ownerSession = try bootstrapSession(email: seededEmail)
         let listID = try listID(named: initialListName, accessToken: ownerSession.accessToken)
-        let publicURL = try createPublicListLink(listID: listID, accessToken: ownerSession.accessToken)
         let itemName = "Public iOS \(UUID().uuidString.prefix(8))"
+
+        let ownerApp = launchedApp(session: ownerSession, initialListName: initialListName)
+        XCTAssertTrue(ownerApp.staticTexts["list-detail-title"].waitForExistence(timeout: 12))
+        let listSettingsButton = ownerApp.buttons["list-settings-button"]
+        XCTAssertTrue(listSettingsButton.waitForExistence(timeout: 5))
+        listSettingsButton.tap()
+        XCTAssertTrue(ownerApp.otherElements["list-settings-sheet"].waitForExistence(timeout: 5))
+
+        let createLinkButton = ownerApp.buttons["create-public-list-link-button"]
+        scrollToHittable(createLinkButton, in: ownerApp)
+        XCTAssertTrue(createLinkButton.isHittable)
+        createLinkButton.tap()
+
+        let publicLinkValue = ownerApp.staticTexts["public-list-link-url-value"]
+        scrollToHittable(publicLinkValue, in: ownerApp)
+        XCTAssertTrue(publicLinkValue.waitForExistence(timeout: 12))
+        guard let publicURL = URL(string: publicLinkValue.label) else {
+            XCTFail("Expected the iOS list settings to display a valid public link URL.")
+            return
+        }
+        XCTAssertTrue(ownerApp.buttons["copy-public-list-link-button"].exists)
+        XCTAssertTrue(ownerApp.buttons["share-public-list-link-button"].exists)
+        terminateAndWait(ownerApp)
 
         let signedInApp = launchedApp(
             session: ownerSession,
@@ -3963,27 +3985,6 @@ final class PlaniniUITests: XCTestCase {
         return try JSONDecoder().decode(UITestList.self, from: data)
     }
 
-    private func createPublicListLink(listID: UUID, accessToken: String) throws -> URL {
-        let request = jsonRequest(
-            path: "/api/v1/lists/\(listID.uuidString)/public-links",
-            method: "POST",
-            token: accessToken,
-            body: ["expires_in_days": 1]
-        )
-        let payload = try JSONDecoder().decode(
-            UITestPublicListLink.self,
-            from: performRequest(request)
-        )
-        guard let url = URL(string: payload.publicURL) else {
-            throw NSError(
-                domain: "PlaniniUITests",
-                code: 7,
-                userInfo: [NSLocalizedDescriptionKey: "Could not parse public list URL."]
-            )
-        }
-        return url
-    }
-
     private func fetchCategories(listID: UUID, accessToken: String) throws -> [UITestCategory] {
         let request = jsonRequest(
             path: "/api/v1/lists/\(listID.uuidString)/categories",
@@ -4507,14 +4508,6 @@ private struct UITestInvitePreview: Decodable {
         case alreadyMember = "already_member"
         case maxUses = "max_uses"
         case remainingUses = "remaining_uses"
-    }
-}
-
-private struct UITestPublicListLink: Decodable {
-    let publicURL: String
-
-    private enum CodingKeys: String, CodingKey {
-        case publicURL = "public_url"
     }
 }
 

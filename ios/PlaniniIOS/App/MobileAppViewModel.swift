@@ -1208,6 +1208,36 @@ final class MobileAppViewModel: ObservableObject {
         }
     }
 
+    func createPublicListLink(listID: UUID, expiresInDays: Int) async -> PublicListEditLink? {
+        guard (1 ... 30).contains(expiresInDays) else {
+            errorMessage = "Public links must be valid for between 1 and 30 days."
+            return nil
+        }
+        if isLocalMode {
+            requestLocalModeAccountCreation()
+            return nil
+        }
+        guard let backendURL, let authToken else { return nil }
+
+        do {
+            let payload = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/lists/\(listID.uuidString)/public-links",
+                method: "POST",
+                body: ["expires_in_days": expiresInDays],
+                token: authToken
+            )
+            guard let link = PublicListEditLink(json: payload) else {
+                throw AppError.invalidResponse
+            }
+            errorMessage = nil
+            return link
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func selectList(id: UUID) async {
         selectedPublicList = nil
         if isLocalMode {

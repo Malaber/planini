@@ -549,7 +549,13 @@
       "accent_purple": "Purple",
       "accent_pink": "Pink",
       "accent_selected": "{color} accent selected",
-      "accent_selection_selected": "Selected"
+      "accent_selection_selected": "Selected",
+      "public_link_title": "Public edit link",
+      "public_link_hint": "Anyone with this link can edit this list without signing in.",
+      "public_link_days": "Valid for {count} days",
+      "public_link_create": "Create edit link",
+      "public_link_creating": "Creating link...",
+      "public_link_expires": "Expires {date}"
     },
     "settings": {
       "account": "Account",

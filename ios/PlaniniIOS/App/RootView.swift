@@ -2696,6 +2696,9 @@ private struct ListSettingsSheet: View {
     @State private var categoryDragLastTargetID: UUID?
     @State private var orderedCategories: [GroceryCategorySummary] = []
     @State private var pendingDisable: CategoryDisableConfirmation?
+    @State private var publicLinkValidityDays = 7
+    @State private var publicListEditLink: PublicListEditLink?
+    @State private var isCreatingPublicLink = false
     @FocusState private var focusedField: ListSettingsFocusedField?
 
     private var currentList: GroceryListSummary? {
@@ -2780,6 +2783,9 @@ private struct ListSettingsSheet: View {
             LazyVStack(alignment: .leading, spacing: 24) {
                 listNameSection
                 listAccentColorSection
+                if viewModel.isLocalMode == false && viewModel.authToken != nil {
+                    publicLinkSection
+                }
                 categoriesSection
             }
             .padding(.horizontal, 20)
@@ -2904,6 +2910,112 @@ private struct ListSettingsSheet: View {
                 saveState = .failed
             }
         }
+    }
+
+    private var publicLinkSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(l10n.t("ios.list_settings.public_link_title"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 16) {
+                Text(l10n.t("ios.list_settings.public_link_hint"))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Stepper(
+                    l10n.t(
+                        "ios.list_settings.public_link_days",
+                        ["count": "\(publicLinkValidityDays)"]
+                    ),
+                    value: $publicLinkValidityDays,
+                    in: 1...30
+                )
+                .accessibilityIdentifier("public-list-link-days-stepper")
+
+                Button {
+                    Task { await createPublicListLink() }
+                } label: {
+                    if isCreatingPublicLink {
+                        HStack {
+                            ProgressView()
+                            Text(l10n.t("ios.list_settings.public_link_creating"))
+                        }
+                    } else {
+                        Label(
+                            l10n.t("ios.list_settings.public_link_create"),
+                            systemImage: "link.badge.plus"
+                        )
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isCreatingPublicLink)
+                .accessibilityIdentifier("create-public-list-link-button")
+
+                if let publicListEditLink {
+                    Divider()
+
+                    Text(publicListEditLink.publicURL.absoluteString)
+                        .font(.footnote.monospaced())
+                        .textSelection(.enabled)
+                        .accessibilityIdentifier("public-list-link-url-value")
+
+                    Text(
+                        l10n.t(
+                            "ios.list_settings.public_link_expires",
+                            [
+                                "date": inviteExpirationFormatter.string(
+                                    from: publicListEditLink.expiresAt
+                                ),
+                            ]
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("public-list-link-expiration")
+
+                    HStack {
+                        Button {
+                            copyPublicListLink(publicListEditLink.publicURL)
+                        } label: {
+                            Label(l10n.t("common.copy"), systemImage: "doc.on.doc")
+                        }
+                        .accessibilityIdentifier("copy-public-list-link-button")
+
+                        ShareLink(item: publicListEditLink.publicURL) {
+                            Label(l10n.t("common.share"), systemImage: "square.and.arrow.up")
+                        }
+                        .accessibilityIdentifier("share-public-list-link-button")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(16)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
+
+    @MainActor
+    private func createPublicListLink() async {
+        guard isCreatingPublicLink == false else { return }
+        isCreatingPublicLink = true
+        defer { isCreatingPublicLink = false }
+
+        if let link = await viewModel.createPublicListLink(
+            listID: listID,
+            expiresInDays: publicLinkValidityDays
+        ) {
+            publicListEditLink = link
+            AppHaptics.confirmation()
+        }
+    }
+
+    private func copyPublicListLink(_ url: URL) {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = url.absoluteString
+        AppHaptics.confirmation()
+        #endif
     }
 
     private var categoriesSection: some View {
