@@ -4564,3 +4564,231 @@ def test_absolute_browser_session_redirects_to_login(client, monkeypatch) -> Non
 
 def test_preview_route_is_removed(client) -> None:
     assert client.get("/preview").status_code == 404
+
+
+def test_public_list_link_allows_anonymous_editing_without_household_membership(client) -> None:
+    owner_headers = _auth_headers(client, f"owner-{uuid4()}@example.com")
+    outsider_headers = _auth_headers(client, f"outsider-{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households", json={"name": "Home"}, headers=owner_headers
+    ).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=owner_headers,
+    ).json()
+    list_id = grocery_list["id"]
+
+    assert (
+        client.post(
+            f"/api/v1/lists/{list_id}/public-links",
+            json={"expires_in_days": 3},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            f"/api/v1/lists/{list_id}/public-links",
+            json={"expires_in_days": 3},
+            headers=outsider_headers,
+        ).status_code
+        == 403
+    )
+    for invalid_days in (0, 31):
+        assert (
+            client.post(
+                f"/api/v1/lists/{list_id}/public-links",
+                json={"expires_in_days": invalid_days},
+                headers=owner_headers,
+            ).status_code
+            == 422
+        )
+
+    link_response = client.post(
+        f"/api/v1/lists/{list_id}/public-links",
+        json={"expires_in_days": 3},
+        headers={**owner_headers, "host": "example.com"},
+    )
+    assert link_response.status_code == 200
+    public_url = link_response.json()["public_url"]
+    assert public_url.startswith("http://example.com/public/lists/")
+    token = public_url.rstrip("/").rsplit("/", 1)[-1]
+
+    async def assert_token_is_hashed() -> None:
+        from app.api.v1.routes.public_list_links import hash_public_list_token
+        from app.models import PublicListLink
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(PublicListLink).where(
+                    PublicListLink.token_hash == hash_public_list_token(token)
+                )
+            )
+            public_link = result.scalar_one()
+            assert public_link.token_hash != token
+            assert public_link.expires_at > datetime.now()
+
+    asyncio.run(assert_token_is_hashed())
+
+    assert client.get(f"/api/v1/lists/{list_id}", headers=outsider_headers).status_code == 403
+    public_page = client.get(
+        f"/public/lists/{token}",
+        headers={"accept-language": "de"},
+    )
+    assert public_page.status_code == 200
+    assert "Geteilte Liste" in public_page.text
+    assert "data-public-list-token" in public_page.text
+    assert "data-list-settings-toggle" not in public_page.text
+    public_list_payload = client.get(f"/api/v1/public/lists/{token}").json()
+    assert public_list_payload["name"] == "Weekly"
+    assert public_list_payload["access_role"] == "editor"
+    assert datetime.fromisoformat(public_list_payload["expires_at"]) > datetime.now(UTC)
+
+    admin_headers = _auth_headers(client, f"admin-{uuid4()}@example.com", is_admin=True)
+    category = client.post(
+        "/api/v1/categories",
+        json={"name": "Produce"},
+        headers=admin_headers,
+    ).json()
+    categories = client.get(f"/api/v1/public/lists/{token}/categories")
+    assert categories.status_code == 200
+    assert category["id"] in {entry["id"] for entry in categories.json()}
+    assert client.get(f"/api/v1/public/lists/{token}/category-order").json() == []
+    assert client.get(f"/api/v1/public/lists/{token}/disabled-categories").json() == {
+        "category_ids": []
+    }
+
+    item = client.post(
+        f"/api/v1/public/lists/{token}/items",
+        json={"name": "Anonymous apples", "category_id": category["id"]},
+    )
+    assert item.status_code == 200
+    item_id = item.json()["id"]
+    assert item.json()["category_id"] == category["id"]
+
+    patched = client.patch(
+        f"/api/v1/public/lists/{token}/items/{item_id}",
+        json={"quantity_text": "2 kg"},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["quantity_text"] == "2 kg"
+
+    target_list_id = str(uuid4())
+    move_rejected = client.patch(
+        f"/api/v1/public/lists/{token}/items/{item_id}",
+        json={"list_id": target_list_id},
+    )
+    assert target_list_id
+    assert move_rejected.status_code == 400
+
+    other_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Other"},
+        headers=owner_headers,
+    ).json()
+    other_item = client.post(
+        f"/api/v1/lists/{other_list['id']}/items",
+        json={"name": "Private item"},
+        headers=owner_headers,
+    ).json()
+    assert (
+        client.patch(
+            f"/api/v1/public/lists/{token}/items/{other_item['id']}",
+            json={"name": "Unauthorized edit"},
+        ).status_code
+        == 404
+    )
+
+    checked = client.post(f"/api/v1/public/lists/{token}/items/{item_id}/check")
+    assert checked.status_code == 200
+    assert checked.json()["checked"] is True
+    assert client.get(f"/api/v1/public/lists/{token}/items/window").status_code == 200
+    assert client.get(f"/api/v1/public/lists/{token}/items/checked").status_code == 200
+
+    unchecked = client.post(f"/api/v1/public/lists/{token}/items/{item_id}/uncheck")
+    assert unchecked.status_code == 200
+    assert unchecked.json()["checked"] is False
+    assert (
+        client.patch(
+            f"/api/v1/public/lists/{token}/items/{uuid4()}", json={"name": "Missing"}
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/api/v1/public/lists/{token}/items/{item_id}").status_code == 200
+
+
+def test_public_list_link_rejects_expired_tokens(client) -> None:
+    owner_headers = _auth_headers(client, f"owner-{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households", json={"name": "Home"}, headers=owner_headers
+    ).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=owner_headers,
+    ).json()
+    link_response = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/public-links",
+        json={"expires_in_days": 1},
+        headers={**owner_headers, "host": "example.com"},
+    )
+    token = link_response.json()["public_url"].rstrip("/").rsplit("/", 1)[-1]
+    revoked_link_response = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/public-links",
+        json={"expires_in_days": 1},
+        headers={**owner_headers, "host": "example.com"},
+    )
+    revoked_token = revoked_link_response.json()["public_url"].rstrip("/").rsplit("/", 1)[-1]
+
+    from app.api.v1.routes.public_list_links import _as_utc
+
+    assert _as_utc(datetime.now(timezone.utc)).tzinfo is timezone.utc
+
+    deleted_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Temporary"},
+        headers=owner_headers,
+    ).json()
+    deleted_link_response = client.post(
+        f"/api/v1/lists/{deleted_list['id']}/public-links",
+        json={"expires_in_days": 1},
+        headers={**owner_headers, "host": "example.com"},
+    )
+    deleted_token = deleted_link_response.json()["public_url"].rstrip("/").rsplit("/", 1)[-1]
+    assert (
+        client.delete(f"/api/v1/lists/{deleted_list['id']}", headers=owner_headers).status_code
+        == 200
+    )
+    assert client.get(f"/api/v1/public/lists/{deleted_token}").status_code == 404
+
+    async def expire_link() -> None:
+        from app.api.v1.routes.public_list_links import hash_public_list_token
+        from app.models import PublicListLink
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(PublicListLink).where(
+                    PublicListLink.token_hash == hash_public_list_token(token)
+                )
+            )
+            public_link = result.scalar_one()
+            public_link.expires_at = datetime.now(UTC) - timedelta(days=1)
+            revoked_result = await session.execute(
+                select(PublicListLink).where(
+                    PublicListLink.token_hash == hash_public_list_token(revoked_token)
+                )
+            )
+            revoked_result.scalar_one().revoked_at = datetime.now(UTC)
+            await session.commit()
+
+    asyncio.run(expire_link())
+
+    assert client.get(f"/api/v1/public/lists/{token}").status_code == 404
+    assert client.get(f"/public/lists/{token}").status_code == 404
+    assert client.get(f"/api/v1/public/lists/{revoked_token}").status_code == 404
+    assert client.get(f"/public/lists/{revoked_token}").status_code == 404
+    assert client.get("/api/v1/public/lists/not-a-valid-token").status_code == 404
+    assert client.get("/public/lists/not-a-valid-token").status_code == 404
+    assert (
+        client.post(f"/api/v1/public/lists/{token}/items", json={"name": "Nope"}).status_code == 404
+    )

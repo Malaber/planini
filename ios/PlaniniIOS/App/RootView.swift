@@ -328,6 +328,7 @@ struct RootView: View {
     @State private var showingAccountRegistration = false
     @State private var passkeyAddLinkInput = ""
     @State private var listNavigationPath: [UUID] = []
+    @State private var presentedPublicList: PublicListReference?
 
     var body: some View {
         Group {
@@ -370,6 +371,25 @@ struct RootView: View {
                 showsPasskeyAddSection: false
             )
         }
+        .fullScreenCover(item: $presentedPublicList, onDismiss: {
+            Task { await viewModel.closePublicList() }
+        }) { reference in
+            NavigationStack {
+                ListDetailScreen(
+                    listID: reference.id,
+                    showsFavoriteButton: false,
+                    publicList: reference
+                )
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(l10n.t("common.done")) {
+                            presentedPublicList = nil
+                        }
+                        .accessibilityIdentifier("public-list-close-button")
+                    }
+                }
+            }
+        }
         .onOpenURL { url in
             handleIncomingURL(url)
         }
@@ -381,6 +401,10 @@ struct RootView: View {
             guard let request else { return }
             selectedTab = .lists
             listNavigationPath = [request.listID]
+        }
+        .onChange(of: viewModel.publicListNavigationRequest) { request in
+            guard let request else { return }
+            presentedPublicList = request.reference
         }
         .onChange(of: viewModel.localModeUpgradeRequestID) { requestID in
             guard requestID != nil else { return }
@@ -448,6 +472,16 @@ struct RootView: View {
                 .accessibilityIdentifier("login-create-account-button")
             }
 
+            if viewModel.publicLists.isEmpty == false {
+                Section(l10n.t("ios.public_lists.title")) {
+                    RememberedPublicListRows(
+                        references: viewModel.publicLists,
+                        onOpen: openPublicList,
+                        onRemove: viewModel.removePublicList
+                    )
+                }
+            }
+
             Section {
                 NavigationLink {
                     PlaniniPromotionScreen(allowsLocalDemo: true)
@@ -477,7 +511,7 @@ struct RootView: View {
             .accessibilityIdentifier("tab-favorite")
 
             NavigationStack(path: $listNavigationPath) {
-                ListsTab(selectedTab: $selectedTab)
+                ListsTab(selectedTab: $selectedTab, onOpenPublicList: openPublicList)
                     .navigationDestination(for: UUID.self) { listID in
                         ListDetailScreen(listID: listID, showsFavoriteButton: true)
                     }
@@ -536,6 +570,10 @@ struct RootView: View {
     private func openListInListsTab(_ listID: UUID) {
         selectedTab = .lists
         listNavigationPath = [listID]
+    }
+
+    private func openPublicList(_ reference: PublicListReference) {
+        Task { await viewModel.openRememberedPublicList(reference) }
     }
 }
 
@@ -949,6 +987,7 @@ private struct ListsTab: View {
     @EnvironmentObject private var viewModel: MobileAppViewModel
     @EnvironmentObject private var l10n: AppLocalization
     @Binding var selectedTab: AppTab
+    let onOpenPublicList: (PublicListReference) -> Void
 
     private var householdSections: [(name: String, lists: [GroceryListSummary])] {
         Dictionary(grouping: viewModel.lists, by: \.householdName)
@@ -960,7 +999,7 @@ private struct ListsTab: View {
 
     var body: some View {
         List {
-            if householdSections.isEmpty {
+            if householdSections.isEmpty && viewModel.publicLists.isEmpty {
                 VStack(spacing: 0) {
                     EmptyStateView(
                         title: l10n.t("ios.lists.empty_title"),
@@ -1012,6 +1051,17 @@ private struct ListsTab: View {
                         }
                     }
                 }
+
+
+                if viewModel.publicLists.isEmpty == false {
+                    Section(l10n.t("ios.public_lists.title")) {
+                        RememberedPublicListRows(
+                            references: viewModel.publicLists,
+                            onOpen: onOpenPublicList,
+                            onRemove: viewModel.removePublicList
+                        )
+                    }
+                }
             }
         }
         .navigationTitle(l10n.t("ios.tabs.lists"))
@@ -1022,6 +1072,59 @@ private struct ListsTab: View {
             return Color(uiColor: .secondarySystemGroupedBackground)
         }
         return accentColor.opacity(0.10)
+    }
+}
+
+private struct RememberedPublicListRows: View {
+    @EnvironmentObject private var l10n: AppLocalization
+    let references: [PublicListReference]
+    let onOpen: (PublicListReference) -> Void
+    let onRemove: (PublicListReference) -> Void
+
+    var body: some View {
+        ForEach(references) { reference in
+            Button {
+                onOpen(reference)
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(reference.name)
+                            .foregroundStyle(.primary)
+                        Text(status(for: reference))
+                            .font(.caption)
+                            .foregroundStyle(reference.isExpired() ? .red : .secondary)
+                    }
+                    Spacer()
+                    if reference.isExpired() == false {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(reference.isExpired())
+            .accessibilityIdentifier("public-list-row-\(reference.id.uuidString)")
+            .swipeActions {
+                Button(role: .destructive) {
+                    onRemove(reference)
+                } label: {
+                    Label(l10n.t("common.remove"), systemImage: "trash")
+                }
+                .accessibilityIdentifier("remove-public-list-\(reference.id.uuidString)")
+            }
+        }
+    }
+
+    private func status(for reference: PublicListReference) -> String {
+        if reference.isExpired() {
+            return l10n.t("ios.public_lists.expired")
+        }
+        return l10n.t(
+            "ios.public_lists.expires",
+            ["date": reference.expiresAt.formatted(date: .abbreviated, time: .shortened)]
+        )
     }
 }
 
@@ -2082,6 +2185,7 @@ private struct ListDetailScreen: View {
     let listID: UUID
     let showsFavoriteButton: Bool
     let onListSwitch: ((UUID) -> Void)?
+    let publicList: PublicListReference?
 
     @State private var displayedListID: UUID
     @State private var editingItem: GroceryItemRecord?
@@ -2096,15 +2200,31 @@ private struct ListDetailScreen: View {
     @State private var targetedDropSectionID: String?
     @State private var saleClock = Date()
 
-    init(listID: UUID, showsFavoriteButton: Bool, onListSwitch: ((UUID) -> Void)? = nil) {
+    init(
+        listID: UUID,
+        showsFavoriteButton: Bool,
+        onListSwitch: ((UUID) -> Void)? = nil,
+        publicList: PublicListReference? = nil
+    ) {
         self.listID = listID
         self.showsFavoriteButton = showsFavoriteButton
         self.onListSwitch = onListSwitch
+        self.publicList = publicList
         _displayedListID = State(initialValue: listID)
     }
 
     private var currentList: GroceryListSummary? {
-        viewModel.lists.first { $0.id == displayedListID }
+        if let publicList {
+            return GroceryListSummary(
+                id: publicList.id,
+                householdID: publicList.householdID,
+                householdName: l10n.t("ios.public_lists.shared_list"),
+                name: publicList.name,
+                archived: false,
+                accentColorHex: publicList.accentColorHex
+            )
+        }
+        return viewModel.lists.first { $0.id == displayedListID }
     }
 
     private var canEdit: Bool {
@@ -2284,7 +2404,7 @@ private struct ListDetailScreen: View {
         .navigationTitle(currentList?.name ?? l10n.t("ios.list.fallback_title"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if viewModel.lists.count > 1 {
+            if publicList == nil && viewModel.lists.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         ForEach(listSwitchSections, id: \.name) { section in
@@ -2323,7 +2443,7 @@ private struct ListDetailScreen: View {
                 }
             }
 
-            if canManage {
+            if canManage, publicList == nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingListSettings = true
@@ -2351,7 +2471,9 @@ private struct ListDetailScreen: View {
             }
         }
         .task(id: displayedListID) {
-            await viewModel.selectList(id: displayedListID)
+            if publicList == nil {
+                await viewModel.selectList(id: displayedListID)
+            }
         }
         .task(id: nextSaleBoundary) {
             guard let nextSaleBoundary else { return }
@@ -2688,6 +2810,9 @@ private struct ListSettingsSheet: View {
     @State private var categoryDragLastTargetID: UUID?
     @State private var orderedCategories: [GroceryCategorySummary] = []
     @State private var pendingDisable: CategoryDisableConfirmation?
+    @State private var publicLinkValidityDays = 7
+    @State private var publicListEditLink: PublicListEditLink?
+    @State private var isCreatingPublicLink = false
     @FocusState private var focusedField: ListSettingsFocusedField?
 
     private var currentList: GroceryListSummary? {
@@ -2772,6 +2897,9 @@ private struct ListSettingsSheet: View {
             LazyVStack(alignment: .leading, spacing: 24) {
                 listNameSection
                 listAccentColorSection
+                if viewModel.isLocalMode == false && viewModel.authToken != nil {
+                    publicLinkSection
+                }
                 categoriesSection
             }
             .padding(.horizontal, 20)
@@ -2896,6 +3024,112 @@ private struct ListSettingsSheet: View {
                 saveState = .failed
             }
         }
+    }
+
+    private var publicLinkSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(l10n.t("ios.list_settings.public_link_title"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 16) {
+                Text(l10n.t("ios.list_settings.public_link_hint"))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Stepper(
+                    l10n.t(
+                        "ios.list_settings.public_link_days",
+                        ["count": "\(publicLinkValidityDays)"]
+                    ),
+                    value: $publicLinkValidityDays,
+                    in: 1...30
+                )
+                .accessibilityIdentifier("public-list-link-days-stepper")
+
+                Button {
+                    Task { await createPublicListLink() }
+                } label: {
+                    if isCreatingPublicLink {
+                        HStack {
+                            ProgressView()
+                            Text(l10n.t("ios.list_settings.public_link_creating"))
+                        }
+                    } else {
+                        Label(
+                            l10n.t("ios.list_settings.public_link_create"),
+                            systemImage: "link.badge.plus"
+                        )
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isCreatingPublicLink)
+                .accessibilityIdentifier("create-public-list-link-button")
+
+                if let publicListEditLink {
+                    Divider()
+
+                    Text(publicListEditLink.publicURL.absoluteString)
+                        .font(.footnote.monospaced())
+                        .textSelection(.enabled)
+                        .accessibilityIdentifier("public-list-link-url-value")
+
+                    Text(
+                        l10n.t(
+                            "ios.list_settings.public_link_expires",
+                            [
+                                "date": inviteExpirationFormatter.string(
+                                    from: publicListEditLink.expiresAt
+                                ),
+                            ]
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("public-list-link-expiration")
+
+                    HStack {
+                        Button {
+                            copyPublicListLink(publicListEditLink.publicURL)
+                        } label: {
+                            Label(l10n.t("common.copy"), systemImage: "doc.on.doc")
+                        }
+                        .accessibilityIdentifier("copy-public-list-link-button")
+
+                        ShareLink(item: publicListEditLink.publicURL) {
+                            Label(l10n.t("common.share"), systemImage: "square.and.arrow.up")
+                        }
+                        .accessibilityIdentifier("share-public-list-link-button")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(16)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
+
+    @MainActor
+    private func createPublicListLink() async {
+        guard isCreatingPublicLink == false else { return }
+        isCreatingPublicLink = true
+        defer { isCreatingPublicLink = false }
+
+        if let link = await viewModel.createPublicListLink(
+            listID: listID,
+            expiresInDays: publicLinkValidityDays
+        ) {
+            publicListEditLink = link
+            AppHaptics.confirmation()
+        }
+    }
+
+    private func copyPublicListLink(_ url: URL) {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = url.absoluteString
+        AppHaptics.confirmation()
+        #endif
     }
 
     private var categoriesSection: some View {

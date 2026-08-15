@@ -118,13 +118,14 @@ def test_wait_for_container_health_endpoint_reports_timeout(monkeypatch, capsys)
     assert sleeps == [0.25]
 
 
-def test_wait_for_container_migrations_retries_until_current(monkeypatch) -> None:
+def test_wait_for_container_startup_retries_until_complete(monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
     sleeps: list[float] = []
     results = iter(
         [
-            RunResult(exited=255, stderr="Database is not on all head revisions\n"),
-            RunResult(exited=0),
+            RunResult(exited=0, stderr="Waiting for application startup.\n"),
+            RunResult(exited=0, stdout="running\n"),
+            RunResult(exited=0, stderr="Application startup complete.\n"),
         ]
     )
 
@@ -135,7 +136,7 @@ def test_wait_for_container_migrations_retries_until_current(monkeypatch) -> Non
 
     monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
 
-    tasks._wait_for_container_migrations(
+    tasks._wait_for_container_startup(
         Context(),
         "planini-container-smoke",
         attempts=2,
@@ -143,8 +144,9 @@ def test_wait_for_container_migrations_retries_until_current(monkeypatch) -> Non
     )
 
     assert [command for command, _ in calls] == [
-        "docker exec planini-container-smoke python -m alembic current --check-heads",
-        "docker exec planini-container-smoke python -m alembic current --check-heads",
+        "docker logs planini-container-smoke",
+        "docker inspect --format '{{.State.Status}}' planini-container-smoke",
+        "docker logs planini-container-smoke",
     ]
     assert all(
         kwargs == {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"}
@@ -153,22 +155,85 @@ def test_wait_for_container_migrations_retries_until_current(monkeypatch) -> Non
     assert sleeps == [0.25]
 
 
-def test_wait_for_container_migrations_reports_timeout(monkeypatch, capsys) -> None:
+def test_wait_for_container_startup_reports_early_exit(capsys) -> None:
+    results = iter(
+        [
+            RunResult(exited=0, stderr="Application startup failed\n"),
+            RunResult(exited=0, stdout="exited\n"),
+        ]
+    )
+
+    class Context:
+        def run(self, command, **kwargs):
+            return next(results)
+
+    try:
+        tasks._wait_for_container_startup(Context(), "planini-smoke")
+    except tasks.Exit as exc:
+        assert str(exc) == ("Container exited before application startup completed: planini-smoke")
+    else:
+        raise AssertionError("expected container startup failure")
+
+    assert capsys.readouterr().out == "Application startup failed\n"
+
+
+def test_wait_for_container_startup_reports_timeout(monkeypatch, capsys) -> None:
+    results = iter(
+        [
+            RunResult(exited=0, stderr="Waiting for application startup.\n"),
+            RunResult(exited=0, stdout="running\n"),
+        ]
+    )
+
+    class Context:
+        def run(self, command, **kwargs):
+            return next(results)
+
+    try:
+        tasks._wait_for_container_startup(Context(), "planini-smoke", attempts=0)
+    except tasks.Exit as exc:
+        assert str(exc) == (
+            "Container application startup did not complete after 1 attempt(s): "
+            "docker logs planini-smoke"
+        )
+    else:
+        raise AssertionError("expected container startup timeout")
+
+    assert capsys.readouterr().out == "Waiting for application startup.\n"
+
+
+def test_check_container_migrations_accepts_current_head() -> None:
+    calls: list[tuple[str, dict]] = []
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return RunResult(exited=0)
+
+    tasks._check_container_migrations(Context(), "planini-container-smoke")
+
+    assert calls == [
+        (
+            "docker exec planini-container-smoke python -m alembic current --check-heads",
+            {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"},
+        )
+    ]
+
+
+def test_check_container_migrations_reports_failure(capsys) -> None:
     class Context:
         def run(self, command, **kwargs):
             return RunResult(exited=255, stderr="Database is not on all head revisions\n")
 
-    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: None)
-
     try:
-        tasks._wait_for_container_migrations(Context(), "planini-smoke", attempts=0)
+        tasks._check_container_migrations(Context(), "planini-smoke")
     except tasks.Exit as exc:
         assert str(exc) == (
-            "Container migrations did not reach all heads after 1 attempt(s): "
+            "Container migrations did not reach all heads: "
             "docker exec planini-smoke python -m alembic current --check-heads"
         )
     else:
-        raise AssertionError("expected container migration timeout")
+        raise AssertionError("expected container migration failure")
 
     assert capsys.readouterr().out == "Database is not on all head revisions\n"
 
@@ -1189,8 +1254,9 @@ def test_ghcr_workflows_retry_registry_login() -> None:
 def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
     healthchecks: list[dict] = []
+    container_startup_checks: list[dict] = []
     container_healthchecks: list[dict] = []
-    container_migration_checks: list[dict] = []
+    container_migration_checks: list[str] = []
 
     class Context:
         def run(self, command, **kwargs):
@@ -1206,6 +1272,13 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
     )
     monkeypatch.setattr(
         tasks,
+        "_wait_for_container_startup",
+        lambda c, container_name, **kwargs: container_startup_checks.append(
+            {"container_name": container_name, **kwargs}
+        ),
+    )
+    monkeypatch.setattr(
+        tasks,
         "_wait_for_container_health_endpoint",
         lambda c, container_name, **kwargs: container_healthchecks.append(
             {"container_name": container_name, **kwargs}
@@ -1213,10 +1286,8 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
     )
     monkeypatch.setattr(
         tasks,
-        "_wait_for_container_migrations",
-        lambda c, container_name, **kwargs: container_migration_checks.append(
-            {"container_name": container_name, **kwargs}
-        ),
+        "_check_container_migrations",
+        lambda c, container_name: container_migration_checks.append(container_name),
     )
 
     tasks.check_container_smoke.body(
@@ -1232,12 +1303,20 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
     assert prepare_args[-2] == "-c"
     start_args = shlex.split(calls[1][0])
     assert start_args[:3] == ["docker", "run", "--detach"]
+    assert "--rm" not in start_args
     assert "127.0.0.1:8123:8000" in start_args
     assert "ghcr.io/malaber/planini:sha-test" == start_args[-1]
     assert healthchecks == [
         {
             "url": "http://127.0.0.1:8123/health",
             "attempts": 30,
+            "sleep_seconds": 2.0,
+        }
+    ]
+    assert container_startup_checks == [
+        {
+            "container_name": "planini-container-smoke-4321",
+            "attempts": 150,
             "sleep_seconds": 2.0,
         }
     ]
@@ -1248,13 +1327,7 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
             "sleep_seconds": 2.0,
         }
     ]
-    assert container_migration_checks == [
-        {
-            "container_name": "planini-container-smoke-4321",
-            "attempts": 60,
-            "sleep_seconds": 1.0,
-        }
-    ]
+    assert container_migration_checks == ["planini-container-smoke-4321"]
     assert calls[2] == (
         "docker rm --force planini-container-smoke-4321",
         {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"},
@@ -1273,6 +1346,7 @@ def test_check_container_smoke_prints_logs_when_healthcheck_fails(
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(tasks.os, "getpid", lambda: 9876)
+    monkeypatch.setattr(tasks, "_wait_for_container_startup", lambda *args, **kwargs: None)
     monkeypatch.setattr(tasks, "_wait_for_container_health_endpoint", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         tasks,
@@ -2203,17 +2277,26 @@ def test_check_ios_ui_e2e_stops_backend_after_final_failure(monkeypatch) -> None
 def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
     monkeypatch,
     tmp_path: Path,
+    capsys,
 ) -> None:
     calls: list[tuple[str, dict]] = []
     simulator_lifecycle: list[tuple[str, str | None]] = []
     summaries: list[str] = []
     validations: list[tuple[str, tuple[int, int]]] = []
     env_calls: list[dict] = []
+    results = iter(
+        [
+            RunResult(exited=0),
+            RunResult(exited=65),
+            RunResult(exited=0),
+            RunResult(exited=0),
+        ]
+    )
 
     class Context:
         def run(self, command, **kwargs):
             calls.append((command, kwargs))
-            return RunResult(exited=0)
+            return next(results)
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(
@@ -2315,6 +2398,19 @@ def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
             "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
             "-scheme Planini "
             f"-derivedDataPath {derived_data} "
+            "-destination 'platform=iOS Simulator,name=iPhone 14 Plus,OS=latest,arch=arm64' "
+            "-destination-timeout 120 "
+            f"-resultBundlePath {result_bundle_path} -quiet "
+            "-parallel-testing-enabled NO "
+            "-maximum-parallel-testing-workers 1 "
+            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots "
+            "test-without-building",
+            expected_kwargs,
+        ),
+        (
+            "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
+            "-scheme Planini "
+            f"-derivedDataPath {derived_data} "
             "-destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=latest,arch=arm64' "
             "-destination-timeout 120 "
             f"-resultBundlePath {result_bundle_path} -quiet "
@@ -2341,10 +2437,17 @@ def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
         ("ensure", "iPhone 14 Plus"),
         ("reset", "iPhone 14 Plus"),
         ("shutdown", None),
+        ("ensure", "iPhone 14 Plus"),
+        ("reset", "iPhone 14 Plus"),
+        ("shutdown", None),
         ("ensure", "iPad Pro 13-inch (M5)"),
         ("reset", "iPad Pro 13-inch (M5)"),
     ]
     assert summaries == []
+    assert (
+        "Retrying iOS marketing screenshots on iPhone 14 Plus (attempt 1/2)..."
+        in capsys.readouterr().out
+    )
     assert validations == [
         ("e2e-artifacts/ios-marketing-screenshots/iphone/en-US", (1284, 2778)),
         ("e2e-artifacts/ios-marketing-screenshots/iphone/de-DE", (1284, 2778)),
@@ -2427,6 +2530,7 @@ def test_run_ios_marketing_ui_test_reports_xcode_failure(
             english_session={"access_token": "english-token", "display_name": "Alex"},
             german_session={"access_token": "german-token", "display_name": "Alex"},
             derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
+            attempts=1,
         )
     except tasks.Exit as exc:
         assert "exit code 65" in str(exc)

@@ -104,6 +104,11 @@ struct LinkedListNavigationRequest: Equatable {
     let listID: UUID
 }
 
+struct PublicListNavigationRequest: Equatable {
+    let id = UUID()
+    let reference: PublicListReference
+}
+
 @MainActor
 final class MobileAppViewModel: ObservableObject {
     private static let itemHideDuration: TimeInterval = 4 * 60 * 60
@@ -116,6 +121,7 @@ final class MobileAppViewModel: ObservableObject {
     private static let pendingItemTogglesKey = "planini.pendingItemToggles"
     private static let cachedListsKey = "planini.cachedLists"
     private static let cachedListDataPrefix = "planini.cachedListData."
+    private static let publicListsKey = "planini.publicLists"
     private static let localModeEnabledKey = "planini.localModeEnabled"
     private static let passkeyTokenAllowedCharacters = CharacterSet.alphanumerics
         .union(CharacterSet(charactersIn: "-._~"))
@@ -149,6 +155,9 @@ final class MobileAppViewModel: ObservableObject {
     @Published var reviewerOnboardingMessage: String?
     @Published private(set) var localModeUpgradeRequestID: UUID?
     @Published private(set) var linkedListNavigationRequest: LinkedListNavigationRequest?
+    @Published private(set) var publicLists: [PublicListReference] = []
+    @Published private(set) var selectedPublicList: PublicListReference?
+    @Published private(set) var publicListNavigationRequest: PublicListNavigationRequest?
 
     private let passkeyClient: ApplePasskeyClient
     private let userDefaults: UserDefaults
@@ -240,6 +249,7 @@ final class MobileAppViewModel: ObservableObject {
         pendingItemCreates = Self.loadPendingItemCreates(from: userDefaults)
         pendingItemEdits = Self.loadPendingItemEdits(from: userDefaults)
         pendingItemToggles = Self.loadPendingItemToggles(from: userDefaults)
+        publicLists = Self.loadPublicLists(from: userDefaults)
         watchSyncCoordinator.setStateProvider { [weak self] in
             let state = self?.makeSharedAppState() ?? SharedAppState()
             self?.sharedStateStore.save(state)
@@ -255,7 +265,7 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     var backendDisplayName: String {
-        if isLocalMode {
+        if selectedPublicList == nil, isLocalMode {
             return "On this iPhone"
         }
         return backendURL?.host ?? backendURL?.absoluteString ?? "Not configured"
@@ -406,6 +416,8 @@ final class MobileAppViewModel: ObservableObject {
             case .invite, .list:
                 requestLocalModeAccountCreation()
                 return
+            case .publicList:
+                break
             }
         }
 
@@ -416,6 +428,8 @@ final class MobileAppViewModel: ObservableObject {
             await acceptInviteFromLink(token: token)
         case let .list(id):
             await openListFromLink(id: id)
+        case let .publicList(token):
+            await openPublicListFromLink(token: token)
         }
     }
 
@@ -761,7 +775,10 @@ final class MobileAppViewModel: ObservableObject {
                 )
                 await handleUITestOpenURLIfNeeded()
                 await runUITestSiriAddItemIfNeeded()
+                return
             }
+
+            await handleUITestOpenURLIfNeeded()
         } catch {
             if handleSessionExpired(error) == false {
                 authToken = nil
@@ -967,6 +984,7 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     func moveTargetLists(for item: GroceryItemRecord) -> [GroceryListSummary] {
+        guard selectedPublicList == nil else { return [] }
         guard let sourceList = lists.first(where: { $0.id == item.listID }) else {
             return lists.filter { $0.archived == false }
         }
@@ -1276,7 +1294,38 @@ final class MobileAppViewModel: ObservableObject {
         }
     }
 
+    func createPublicListLink(listID: UUID, expiresInDays: Int) async -> PublicListEditLink? {
+        guard (1 ... 30).contains(expiresInDays) else {
+            errorMessage = "Public links must be valid for between 1 and 30 days."
+            return nil
+        }
+        if isLocalMode {
+            requestLocalModeAccountCreation()
+            return nil
+        }
+        guard let backendURL, let authToken else { return nil }
+
+        do {
+            let payload = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/lists/\(listID.uuidString)/public-links",
+                method: "POST",
+                body: ["expires_in_days": expiresInDays],
+                token: authToken
+            )
+            guard let link = PublicListEditLink(json: payload) else {
+                throw AppError.invalidResponse
+            }
+            errorMessage = nil
+            return link
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func selectList(id: UUID) async {
+        selectedPublicList = nil
         if isLocalMode {
             guard lists.contains(where: { $0.id == id }) else { return }
             persistLocalDemoState()
@@ -1305,6 +1354,14 @@ final class MobileAppViewModel: ObservableObject {
         return hosts
     }
 
+    private var selectedPublicAPIPathPrefix: String? {
+        guard let token = selectedPublicList?.token else { return nil }
+        let encodedToken = token.addingPercentEncoding(
+            withAllowedCharacters: Self.passkeyTokenAllowedCharacters
+        ) ?? token
+        return "/api/v1/public/lists/\(encodedToken)"
+    }
+
     private func processPendingPlaniniLinkIfPossible() async {
         guard let pendingPlaniniLink, authToken != nil else { return }
         self.pendingPlaniniLink = nil
@@ -1315,6 +1372,57 @@ final class MobileAppViewModel: ObservableObject {
             await acceptInviteFromLink(token: token)
         case let .list(id):
             await openListFromLink(id: id)
+        case let .publicList(token):
+            await openPublicListFromLink(token: token)
+        }
+    }
+
+    func openRememberedPublicList(_ reference: PublicListReference) async {
+        guard reference.isExpired() == false else { return }
+        await openPublicListFromLink(token: reference.token)
+    }
+
+    func removePublicList(_ reference: PublicListReference) {
+        publicLists.removeAll { $0.token == reference.token }
+        savePublicLists()
+        if selectedPublicList?.token == reference.token {
+            selectedPublicList = nil
+        }
+    }
+
+    func closePublicList() async {
+        selectedPublicList = nil
+        selectedListID = favoriteListID ?? lists.first?.id
+        try? await reloadItems()
+    }
+
+    private func openPublicListFromLink(token: String) async {
+        guard let backendURL else {
+            errorMessage = "This build is missing a backend URL configuration."
+            return
+        }
+        let encodedToken = token.addingPercentEncoding(
+            withAllowedCharacters: Self.passkeyTokenAllowedCharacters
+        ) ?? token
+        do {
+            let payload = try await requestJSON(
+                backendURL: backendURL,
+                path: "/api/v1/public/lists/\(encodedToken)",
+                method: "GET",
+                body: nil,
+                token: nil
+            )
+            guard let reference = PublicListReference(json: payload, token: token) else {
+                throw AppError.invalidResponse
+            }
+            rememberPublicList(reference)
+            selectedPublicList = reference
+            selectedListID = reference.id
+            try await reloadItems()
+            publicListNavigationRequest = PublicListNavigationRequest(reference: reference)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -1381,6 +1489,38 @@ final class MobileAppViewModel: ObservableObject {
     }
 
     func reloadItems() async throws {
+        if let selectedPublicList {
+            guard let backendURL, let selectedListID else {
+                itemReloadGeneration += 1
+                items = []
+                categories = []
+                categoryOrder = []
+                disabledCategoryIDs = []
+                updateLiveUpdatesConnection()
+                watchSyncCoordinator.publishCurrentState()
+                return
+            }
+            itemReloadGeneration += 1
+            let generation = itemReloadGeneration
+            let listData = try await loadPublicListData(
+                backendURL: backendURL,
+                token: selectedPublicList.token
+            )
+            guard
+                generation == itemReloadGeneration,
+                self.selectedPublicList?.token == selectedPublicList.token,
+                self.selectedListID == selectedListID
+            else {
+                return
+            }
+            items = listData.items
+            categories = listData.categories
+            categoryOrder = listData.categoryOrder
+            disabledCategoryIDs = Set(listData.disabledCategoryIDs)
+            updateLiveUpdatesConnection()
+            return
+        }
+
         if isLocalMode {
             guard
                 let selectedListID,
@@ -1461,7 +1601,7 @@ final class MobileAppViewModel: ObservableObject {
         let quantityText = quantity.isEmpty ? nil : quantity
         let noteText = note.isEmpty ? nil : note
 
-        if isLocalMode {
+        if selectedPublicList == nil, isLocalMode {
             let item = GroceryItemRecord(
                 id: UUID(),
                 listID: selectedListID,
@@ -1490,7 +1630,24 @@ final class MobileAppViewModel: ObservableObject {
             showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
         }
 
-        guard let backendURL, let authToken else {
+        guard let backendURL else {
+            if selectedPublicList != nil {
+                errorMessage = "This build is missing a backend URL configuration."
+                return false
+            }
+            queueOfflineCreate()
+            return true
+        }
+
+        let requestPath: String
+        let requestToken: String?
+        if let publicPrefix = selectedPublicAPIPathPrefix {
+            requestPath = "\(publicPrefix)/items"
+            requestToken = nil
+        } else if let authToken {
+            requestPath = "/api/v1/lists/\(selectedListID.uuidString)/items"
+            requestToken = authToken
+        } else {
             queueOfflineCreate()
             return true
         }
@@ -1504,12 +1661,16 @@ final class MobileAppViewModel: ObservableObject {
         do {
             createdPayload = try await requestJSON(
                 backendURL: backendURL,
-                path: "/api/v1/lists/\(selectedListID.uuidString)/items",
+                path: requestPath,
                 method: "POST",
                 body: body,
-                token: authToken
+                token: requestToken
             )
         } catch {
+            if selectedPublicList != nil {
+                errorMessage = error.localizedDescription
+                return false
+            }
             if handleSessionExpired(error) {
                 return false
             }
@@ -1533,7 +1694,9 @@ final class MobileAppViewModel: ObservableObject {
 
         if let createdItem = GroceryItemRecord(json: createdPayload) {
             upsertLocalItem(createdItem)
-            cacheCurrentListData()
+            if selectedPublicList == nil {
+                cacheCurrentListData()
+            }
         }
         do {
             try await reloadItems()
@@ -1557,7 +1720,7 @@ final class MobileAppViewModel: ObservableObject {
         guard let item = items.first(where: { $0.id == itemID }) else { return false }
         let recordedAt = Date()
 
-        if isLocalMode {
+        if selectedPublicList == nil, isLocalMode {
             applyLocalToggle(itemID: itemID, checked: checked, recordedAt: recordedAt)
             persistLocalDemoState()
             watchSyncCoordinator.publishCurrentState()
@@ -1569,18 +1732,34 @@ final class MobileAppViewModel: ObservableObject {
             showOfflineStatus("Changes saved offline. They will sync when the backend is reachable.")
         }
 
-        guard let backendURL, let authToken else {
+        guard let backendURL else {
+            if selectedPublicList != nil {
+                errorMessage = "This build is missing a backend URL configuration."
+                return false
+            }
             queueOfflineToggle()
             return true
         }
         let suffix = checked ? "check" : "uncheck"
+        let requestPath: String
+        let requestToken: String?
+        if let publicPrefix = selectedPublicAPIPathPrefix {
+            requestPath = "\(publicPrefix)/items/\(itemID.uuidString)/\(suffix)"
+            requestToken = nil
+        } else if let authToken {
+            requestPath = "/api/v1/items/\(itemID.uuidString)/\(suffix)"
+            requestToken = authToken
+        } else {
+            queueOfflineToggle()
+            return true
+        }
         do {
             let saved = try await requestJSON(
                 backendURL: backendURL,
-                path: "/api/v1/items/\(itemID.uuidString)/\(suffix)",
+                path: requestPath,
                 method: "POST",
                 body: [:],
-                token: authToken
+                token: requestToken
             )
             if let savedItem = GroceryItemRecord(json: saved) {
                 upsertLocalItem(savedItem)
@@ -1588,11 +1767,17 @@ final class MobileAppViewModel: ObservableObject {
                 applyLocalToggle(itemID: itemID, checked: checked, recordedAt: recordedAt)
             }
             removePendingItemToggles(itemID: itemID)
-            cacheCurrentListData()
+            if selectedPublicList == nil {
+                cacheCurrentListData()
+            }
             clearOfflineStatus()
             watchSyncCoordinator.publishCurrentState()
             return true
         } catch {
+            if selectedPublicList != nil {
+                errorMessage = error.localizedDescription
+                return false
+            }
             if handleSessionExpired(error) {
                 return false
             }
@@ -1630,7 +1815,7 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func setHiddenUntil(itemID: UUID, hiddenUntil: Date?) async -> Bool {
-        if isLocalMode {
+        if selectedPublicList == nil, isLocalMode {
             guard
                 let index = items.firstIndex(where: { $0.id == itemID })
             else {
@@ -1653,7 +1838,18 @@ final class MobileAppViewModel: ObservableObject {
             watchSyncCoordinator.publishCurrentState()
             return true
         }
-        guard let backendURL, let authToken else { return false }
+        guard let backendURL else { return false }
+        let requestPath: String
+        let requestToken: String?
+        if let publicPrefix = selectedPublicAPIPathPrefix {
+            requestPath = "\(publicPrefix)/items/\(itemID.uuidString)"
+            requestToken = nil
+        } else if let authToken {
+            requestPath = "/api/v1/items/\(itemID.uuidString)"
+            requestToken = authToken
+        } else {
+            return false
+        }
         let hiddenUntilBodyValue: Any
         if let hiddenUntil {
             hiddenUntilBodyValue = apiTimestamp(from: hiddenUntil)
@@ -1664,10 +1860,10 @@ final class MobileAppViewModel: ObservableObject {
         do {
             let saved = try await requestJSON(
                 backendURL: backendURL,
-                path: "/api/v1/items/\(itemID.uuidString)",
+                path: requestPath,
                 method: "PATCH",
                 body: ["hidden_until": hiddenUntilBodyValue],
-                token: authToken
+                token: requestToken
             )
             if let savedItem = GroceryItemRecord(json: saved) {
                 upsertLocalItem(savedItem)
@@ -1708,13 +1904,29 @@ final class MobileAppViewModel: ObservableObject {
         itemEditSaveRevisions[item.id] = revision
         applyLocalEdit(itemID: item.id, payload: payload)
 
-        if isLocalMode {
+        if selectedPublicList == nil, isLocalMode {
             persistLocalDemoState()
             watchSyncCoordinator.publishCurrentState()
             return true
         }
 
-        guard let backendURL, let authToken else {
+        guard let backendURL else {
+            if selectedPublicList != nil {
+                return false
+            }
+            queuePendingItemEdit(listID: item.listID, itemID: item.id, payload: payload)
+            return true
+        }
+
+        let requestPath: String
+        let requestToken: String?
+        if let publicPrefix = selectedPublicAPIPathPrefix {
+            requestPath = "\(publicPrefix)/items/\(item.id.uuidString)"
+            requestToken = nil
+        } else if let authToken {
+            requestPath = "/api/v1/items/\(item.id.uuidString)"
+            requestToken = authToken
+        } else {
             queuePendingItemEdit(listID: item.listID, itemID: item.id, payload: payload)
             return true
         }
@@ -1722,12 +1934,14 @@ final class MobileAppViewModel: ObservableObject {
         do {
             let saved = try await requestJSON(
                 backendURL: backendURL,
-                path: "/api/v1/items/\(item.id.uuidString)",
+                path: requestPath,
                 method: "PATCH",
                 body: payload.jsonBody,
-                token: authToken
+                token: requestToken
             )
-            removePendingItemEdit(itemID: item.id)
+            if selectedPublicList == nil {
+                removePendingItemEdit(itemID: item.id)
+            }
             if itemEditSaveRevisions[item.id] == revision, let savedItem = GroceryItemRecord(json: saved) {
                 upsertLocalItem(savedItem)
             }
@@ -1735,6 +1949,11 @@ final class MobileAppViewModel: ObservableObject {
             watchSyncCoordinator.publishCurrentState()
             return true
         } catch {
+            if selectedPublicList != nil {
+                errorMessage = error.localizedDescription
+                try? await reloadItems()
+                return false
+            }
             if let appError = error as? AppError, case .sessionExpired = appError {
                 queuePendingItemEdit(listID: item.listID, itemID: item.id, payload: payload)
                 _ = handleSessionExpired(appError)
@@ -1760,6 +1979,7 @@ final class MobileAppViewModel: ObservableObject {
         to targetListID: UUID,
         payload: GroceryItemEditPayload
     ) async -> GroceryItemRecord? {
+        guard selectedPublicList == nil else { return nil }
         guard payload.isValid else { return nil }
         guard targetListID != item.listID else { return item }
         if isLocalMode {
@@ -1825,28 +2045,39 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func delete(item: GroceryItemRecord) async -> Bool {
-        if isLocalMode {
+        if selectedPublicList == nil, isLocalMode {
             items.removeAll { $0.id == item.id }
             persistLocalDemoState()
             watchSyncCoordinator.publishCurrentState()
             return true
         }
-        guard let backendURL, let authToken else { return false }
+        guard let backendURL else { return false }
+        let requestPath: String
+        let requestToken: String?
+        if let publicPrefix = selectedPublicAPIPathPrefix {
+            requestPath = "\(publicPrefix)/items/\(item.id.uuidString)"
+            requestToken = nil
+        } else if let authToken {
+            requestPath = "/api/v1/items/\(item.id.uuidString)"
+            requestToken = authToken
+        } else {
+            return false
+        }
 
         do {
             _ = try await requestData(
                 backendURL: backendURL,
-                path: "/api/v1/items/\(item.id.uuidString)",
+                path: requestPath,
                 method: "DELETE",
                 body: nil,
-                token: authToken
+                token: requestToken
             )
             items.removeAll { $0.id == item.id }
             clearOfflineStatus()
             watchSyncCoordinator.publishCurrentState()
             return true
         } catch {
-            if handleSessionExpired(error) == false {
+            if selectedPublicList != nil || handleSessionExpired(error) == false {
                 errorMessage = error.localizedDescription
             }
             return false
@@ -1855,13 +2086,24 @@ final class MobileAppViewModel: ObservableObject {
 
     @discardableResult
     func restoreDeleted(item: GroceryItemRecord) async -> Bool {
-        if isLocalMode {
+        if selectedPublicList == nil, isLocalMode {
             upsertLocalItem(item)
             persistLocalDemoState()
             watchSyncCoordinator.publishCurrentState()
             return true
         }
-        guard let backendURL, let authToken else { return false }
+        guard let backendURL else { return false }
+        let createPath: String
+        let requestToken: String?
+        if let publicPrefix = selectedPublicAPIPathPrefix {
+            createPath = "\(publicPrefix)/items"
+            requestToken = nil
+        } else if let authToken {
+            createPath = "/api/v1/lists/\(item.listID.uuidString)/items"
+            requestToken = authToken
+        } else {
+            return false
+        }
 
         var body: [String: Any] = [
             "name": item.name,
@@ -1874,10 +2116,10 @@ final class MobileAppViewModel: ObservableObject {
         do {
             let createdJSON = try await requestJSON(
                 backendURL: backendURL,
-                path: "/api/v1/lists/\(item.listID.uuidString)/items",
+                path: createPath,
                 method: "POST",
                 body: body,
-                token: authToken
+                token: requestToken
             )
 
             if
@@ -1886,10 +2128,12 @@ final class MobileAppViewModel: ObservableObject {
             {
                 _ = try await requestJSON(
                     backendURL: backendURL,
-                    path: "/api/v1/items/\(createdItem.id.uuidString)/check",
+                    path: selectedPublicAPIPathPrefix.map {
+                        "\($0)/items/\(createdItem.id.uuidString)/check"
+                    } ?? "/api/v1/items/\(createdItem.id.uuidString)/check",
                     method: "POST",
                     body: [:],
-                    token: authToken
+                    token: requestToken
                 )
             }
 
@@ -2369,6 +2613,7 @@ final class MobileAppViewModel: ObservableObject {
             return
         }
         guard
+            selectedPublicList == nil,
             let backendURL,
             let authToken,
             authToken.isEmpty == false,
@@ -2532,6 +2777,57 @@ final class MobileAppViewModel: ObservableObject {
         )
         let disabledCategories = try await disabledCategoriesPayload
         let loadedDisabledCategoryIDs = parseDisabledCategoryIDs(from: disabledCategories)
+        return MobileListData(
+            items: loadedItems,
+            categories: loadedCategories,
+            categoryOrder: loadedCategoryOrder,
+            disabledCategoryIDs: loadedDisabledCategoryIDs
+        )
+    }
+
+    private func loadPublicListData(
+        backendURL: URL,
+        token: String
+    ) async throws -> MobileListData {
+        let encodedToken = token.addingPercentEncoding(
+            withAllowedCharacters: Self.passkeyTokenAllowedCharacters
+        ) ?? token
+        let prefix = "/api/v1/public/lists/\(encodedToken)"
+        async let itemWindowPayload = requestJSON(
+            backendURL: backendURL,
+            path: "\(prefix)/items/window",
+            method: "GET",
+            body: nil,
+            token: nil
+        )
+        async let categoryPayload = requestArray(
+            backendURL: backendURL,
+            path: "\(prefix)/categories",
+            token: nil
+        )
+        async let categoryOrderPayload = requestArray(
+            backendURL: backendURL,
+            path: "\(prefix)/category-order",
+            token: nil
+        )
+        async let disabledCategoriesPayload = requestJSON(
+            backendURL: backendURL,
+            path: "\(prefix)/disabled-categories",
+            method: "GET",
+            body: nil,
+            token: nil
+        )
+
+        let window = try await itemWindowPayload
+        let itemPayload = window["items"] as? [[String: Any]] ?? []
+        let loadedItems = itemPayload.compactMap(GroceryItemRecord.init)
+        let loadedCategories = try await categoryPayload.compactMap(GroceryCategorySummary.init)
+        let loadedCategoryOrder = try await categoryOrderPayload.compactMap(
+            ListCategoryOrderEntry.init
+        )
+        let loadedDisabledCategoryIDs = parseDisabledCategoryIDs(
+            from: try await disabledCategoriesPayload
+        )
         return MobileListData(
             items: loadedItems,
             categories: loadedCategories,
@@ -2767,6 +3063,22 @@ final class MobileAppViewModel: ObservableObject {
     private static func loadPendingItemCreates(from userDefaults: UserDefaults) -> [PendingItemCreate] {
         guard let data = userDefaults.data(forKey: pendingItemCreatesKey) else { return [] }
         return (try? JSONDecoder().decode([PendingItemCreate].self, from: data)) ?? []
+    }
+
+    private static func loadPublicLists(from userDefaults: UserDefaults) -> [PublicListReference] {
+        guard let data = userDefaults.data(forKey: Self.publicListsKey) else { return [] }
+        return (try? JSONDecoder().decode([PublicListReference].self, from: data)) ?? []
+    }
+
+    private func savePublicLists() {
+        guard let data = try? JSONEncoder().encode(publicLists) else { return }
+        userDefaults.set(data, forKey: Self.publicListsKey)
+    }
+
+    private func rememberPublicList(_ reference: PublicListReference) {
+        publicLists.removeAll { $0.token == reference.token }
+        publicLists.insert(reference, at: 0)
+        savePublicLists()
     }
 
     private static func loadPendingItemEdits(from userDefaults: UserDefaults) -> [PendingItemEdit] {
@@ -3221,7 +3533,7 @@ final class MobileAppViewModel: ObservableObject {
         path: String,
         method: String = "GET",
         body: [String: Any]? = nil,
-        token: String
+        token: String?
     ) async throws -> [[String: Any]] {
         let data = try await requestData(
             backendURL: backendURL,
