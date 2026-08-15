@@ -50,7 +50,7 @@ DEFAULT_SUPPORT_EMAIL = "support@example.com"
 DEFAULT_APP_LOG_PATH = "ui-e2e-server.log"
 DEFAULT_APP_PID_PATH = "ui-e2e-server.pid"
 DEFAULT_CONTAINER_SMOKE_ARTIFACT_DIR = "e2e-artifacts/container-smoke"
-DEFAULT_CONTAINER_SMOKE_LEGACY_REVISION = "0019_add_household_member_roles"
+DEFAULT_CONTAINER_SMOKE_LEGACY_REVISION = "0018_add_household_member_roles"
 DEFAULT_CONTAINER_SMOKE_PORT = 8020
 DEFAULT_IOS_E2E_PORT = 8017
 DEFAULT_IOS_E2E_BASE_URL = f"http://localhost:{DEFAULT_IOS_E2E_PORT}"
@@ -2679,6 +2679,7 @@ def check_ios_ui_e2e(
             if attempt == 0:
                 generate_ios_app_icons.body(c)
                 generate_ios_project.body(c)
+            _reset_ios_ui_test_app(device_name)
             run_ios_ui_e2e(
                 c,
                 base_url=f"http://localhost:{port}",

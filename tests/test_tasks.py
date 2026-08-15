@@ -1184,7 +1184,7 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
     assert (tmp_path / "e2e-artifacts" / "container-smoke").exists()
     prepare_args = shlex.split(calls[0][0])
     assert prepare_args[:3] == ["docker", "run", "--rm"]
-    assert "0019_add_household_member_roles" in prepare_args[-1]
+    assert "0018_add_household_member_roles" in prepare_args[-1]
     assert prepare_args[-2] == "-c"
     start_args = shlex.split(calls[1][0])
     assert start_args[:3] == ["docker", "run", "--detach"]
@@ -2009,6 +2009,11 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         tasks,
+        "_reset_ios_ui_test_app",
+        lambda device_name: calls.append(("reset-app", {"device_name": device_name})),
+    )
+    monkeypatch.setattr(
+        tasks,
         "run_ios_ui_e2e",
         lambda c, **kwargs: calls.append(("run", kwargs)),
     )
@@ -2056,6 +2061,7 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
         ),
         ("icons", {}),
         ("generate", {}),
+        ("reset-app", {"device_name": "iPhone 17"}),
         (
             "run",
             {
@@ -2099,6 +2105,11 @@ def test_check_ios_ui_e2e_restarts_backend_before_retry(monkeypatch, capsys) -> 
     monkeypatch.setattr(
         tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
     )
+    monkeypatch.setattr(
+        tasks,
+        "_reset_ios_ui_test_app",
+        lambda device_name: calls.append(("reset-app", {"device_name": device_name})),
+    )
 
     def run_ios_ui_e2e(c, **kwargs):
         calls.append(("run", kwargs))
@@ -2114,6 +2125,7 @@ def test_check_ios_ui_e2e_restarts_backend_before_retry(monkeypatch, capsys) -> 
     assert [name for name, _ in calls].count("reset") == 2
     assert [name for name, _ in calls].count("start") == 2
     assert [name for name, _ in calls].count("stop") == 2
+    assert [name for name, _ in calls].count("reset-app") == 2
     assert [name for name, _ in calls].count("icons") == 1
     assert [name for name, _ in calls].count("generate") == 1
     run_calls = [kwargs for name, kwargs in calls if name == "run"]
@@ -2135,6 +2147,7 @@ def test_check_ios_ui_e2e_stops_backend_after_final_failure(monkeypatch) -> None
     )
     monkeypatch.setattr(tasks.generate_ios_app_icons, "body", lambda c: None)
     monkeypatch.setattr(tasks.generate_ios_project, "body", lambda c: None)
+    monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda device_name: None)
     monkeypatch.setattr(
         tasks,
         "run_ios_ui_e2e",
