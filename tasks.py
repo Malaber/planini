@@ -2323,6 +2323,7 @@ def _run_ios_marketing_ui_test(
     german_session: dict[str, str],
     derived_data_path: str,
     clean_derived_data: bool = True,
+    attempts: int = 2,
 ) -> None:
     artifact_path = ROOT / artifact_dir
     artifact_path.mkdir(parents=True, exist_ok=True)
@@ -2375,11 +2376,8 @@ def _run_ios_marketing_ui_test(
             f"{build_result.exited}: xcodebuild iOS marketing screenshot build"
         )
 
+    max_attempts = max(1, int(attempts))
     for simulator_name in (device_name, ipad_device_name):
-        _shutdown_ios_simulators()
-        _ensure_ios_simulator_device(simulator_name)
-        _reset_ios_ui_test_app(simulator_name)
-        shutil.rmtree(result_bundle_path, ignore_errors=True)
         test_command = " ".join(
             [
                 "cd ios/PlaniniIOS &&",
@@ -2397,13 +2395,28 @@ def _run_ios_marketing_ui_test(
                 "test-without-building",
             ]
         )
-        result = c.run(
-            test_command,
-            env=env,
-            pty=False,
-            shell="/bin/bash",
-            warn=True,
-        )
+        result = None
+        for attempt in range(max_attempts):
+            _shutdown_ios_simulators()
+            _ensure_ios_simulator_device(simulator_name)
+            _reset_ios_ui_test_app(simulator_name)
+            shutil.rmtree(result_bundle_path, ignore_errors=True)
+            result = c.run(
+                test_command,
+                env=env,
+                pty=False,
+                shell="/bin/bash",
+                warn=True,
+            )
+            if result.exited == 0:
+                break
+            if attempt < max_attempts - 1:
+                print(
+                    "Retrying iOS marketing screenshots on "
+                    f"{simulator_name} (attempt {attempt + 1}/{max_attempts})..."
+                )
+
+        assert result is not None
         if result.exited != 0:
             _write_ios_ui_e2e_summary(artifact_dir)
             failure_summaries = _ios_ui_e2e_failure_summaries(result_bundle_path)

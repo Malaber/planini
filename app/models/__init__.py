@@ -8,6 +8,7 @@ from app.models.list_disabled_category import ListDisabledCategory
 from app.models.list_history import ListHistoryEntry
 from app.models.passkey import Passkey
 from app.models.passkey_add_link import PasskeyAddLink
+from app.models.public_list_link import PublicListLink
 from app.models.user import User
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "AuthSession",
     "Passkey",
     "PasskeyAddLink",
+    "PublicListLink",
     "Household",
     "HouseholdMember",
     "HouseholdInvite",

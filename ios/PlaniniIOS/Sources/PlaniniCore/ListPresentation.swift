@@ -275,6 +275,41 @@ public enum ListHistoryPresentation {
     }
 }
 
+public struct PublicListEditLink: Equatable, Sendable {
+    public let publicURL: URL
+    public let expiresAt: Date
+
+    public init(publicURL: URL, expiresAt: Date) {
+        self.publicURL = publicURL
+        self.expiresAt = expiresAt
+    }
+
+    public init?(json: [String: Any]) {
+        guard
+            let publicURLText = json["public_url"] as? String,
+            let publicURL = URL(string: publicURLText),
+            let expiresAtText = json["expires_at"] as? String,
+            let expiresAt = Self.parseDate(expiresAtText)
+        else {
+            return nil
+        }
+
+        self.init(publicURL: publicURL, expiresAt: expiresAt)
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let formatterWithFractions = ISO8601DateFormatter()
+        formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatterWithFractions.date(from: value) {
+            return parsed
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
+}
+
 public struct GroceryListSummary: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
     public let householdID: UUID
@@ -321,6 +356,70 @@ public struct GroceryListSummary: Identifiable, Equatable, Codable, Sendable {
         archived = try container.decode(Bool.self, forKey: .archived)
         accentColorHex = try container.decodeIfPresent(String.self, forKey: .accentColorHex)
         accessRole = try container.decodeIfPresent(HouseholdRole.self, forKey: .accessRole) ?? .editor
+    }
+}
+
+public struct PublicListReference: Identifiable, Equatable, Hashable, Codable, Sendable {
+    public let token: String
+    public let id: UUID
+    public let householdID: UUID
+    public let name: String
+    public let expiresAt: Date
+    public let accentColorHex: String?
+
+    public init(
+        token: String,
+        id: UUID,
+        householdID: UUID,
+        name: String,
+        expiresAt: Date,
+        accentColorHex: String? = nil
+    ) {
+        self.token = token
+        self.id = id
+        self.householdID = householdID
+        self.name = name
+        self.expiresAt = expiresAt
+        self.accentColorHex = accentColorHex
+    }
+
+    public init?(json: [String: Any], token: String) {
+        guard
+            token.isEmpty == false,
+            let idText = json["id"] as? String,
+            let id = UUID(uuidString: idText),
+            let householdIDText = json["household_id"] as? String,
+            let householdID = UUID(uuidString: householdIDText),
+            let name = json["name"] as? String,
+            name.isEmpty == false,
+            let expiresAtText = json["expires_at"] as? String,
+            let expiresAt = Self.parseDate(expiresAtText)
+        else {
+            return nil
+        }
+        self.init(
+            token: token,
+            id: id,
+            householdID: householdID,
+            name: name,
+            expiresAt: expiresAt,
+            accentColorHex: json["accent_color"] as? String
+        )
+    }
+
+    public func isExpired(at date: Date = Date()) -> Bool {
+        expiresAt <= date
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let formatterWithFractions = ISO8601DateFormatter()
+        formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatterWithFractions.date(from: value) {
+            return parsed
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
     }
 }
 

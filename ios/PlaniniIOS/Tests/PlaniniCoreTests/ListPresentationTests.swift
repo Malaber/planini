@@ -155,6 +155,38 @@ struct ListPresentationTests {
         )
     }
 
+    @Test func publicListEditLinkParsesJSON() {
+        let link = PublicListEditLink(
+            json: [
+                "public_url": "https://planini.top/public/lists/token",
+                "expires_at": "2026-05-18T12:00:00.123Z",
+            ]
+        )
+
+        #expect(link?.publicURL.absoluteString == "https://planini.top/public/lists/token")
+        #expect(link?.expiresAt != nil)
+
+        let noFractions = PublicListEditLink(
+            json: [
+                "public_url": "https://planini.top/public/lists/token",
+                "expires_at": "2026-05-18T12:00:00Z",
+            ]
+        )
+        #expect(noFractions != nil)
+    }
+
+    @Test func publicListEditLinkRejectsInvalidJSON() {
+        #expect(PublicListEditLink(json: [:]) == nil)
+        #expect(
+            PublicListEditLink(
+                json: [
+                    "public_url": "https://planini.top/public/lists/token",
+                    "expires_at": "not-a-date",
+                ]
+            ) == nil
+        )
+    }
+
     @Test func listHistoryPresentationDescribesEveryEvent() {
         let actorID = UUID()
         func entry(
@@ -1251,6 +1283,52 @@ struct ListPresentationTests {
         let checkedSection = try! #require(sections.first)
         #expect(checkedSection.title == "Checked off")
         #expect(checkedSection.items.map(\.name) == ["Newer", "Older", "Alphabetical", "Zulu"])
+    }
+
+    @Test func publicListReferenceParsesAndReportsExpiry() throws {
+        let listID = UUID()
+        let householdID = UUID()
+        let reference = try #require(
+            PublicListReference(
+                json: [
+                    "id": listID.uuidString,
+                    "household_id": householdID.uuidString,
+                    "name": "Shared weekly",
+                    "expires_at": "2026-08-09T12:00:00.123Z",
+                    "accent_color": "#112233",
+                ],
+                token: "public-token"
+            )
+        )
+
+        #expect(reference.id == listID)
+        #expect(reference.householdID == householdID)
+        #expect(reference.token == "public-token")
+        #expect(reference.name == "Shared weekly")
+        #expect(reference.accentColorHex == "#112233")
+        #expect(reference.isExpired(at: Date(timeIntervalSince1970: 0)) == false)
+        #expect(reference.isExpired(at: Date.distantFuture))
+
+        let noFractions = PublicListReference(
+            json: [
+                "id": listID.uuidString,
+                "household_id": householdID.uuidString,
+                "name": "Shared weekly",
+                "expires_at": "2026-08-09T12:00:00Z",
+            ],
+            token: "public-token"
+        )
+        #expect(noFractions != nil)
+    }
+
+    @Test func publicListReferenceRejectsIncompleteJSON() {
+        #expect(PublicListReference(json: [:], token: "public-token") == nil)
+        #expect(
+            PublicListReference(
+                json: ["id": UUID().uuidString, "name": "Shared", "expires_at": "invalid"],
+                token: ""
+            ) == nil
+        )
     }
 
     private func makeItem(

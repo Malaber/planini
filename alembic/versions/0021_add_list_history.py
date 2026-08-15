@@ -1,7 +1,7 @@
 """add per-list history
 
 Revision ID: 0021_add_list_history
-Revises: 0020_add_household_member_roles
+Revises: 0020_add_household_member_roles, 0020_merge_public_sale_heads
 Create Date: 2026-08-13
 """
 
@@ -9,7 +9,10 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0021_add_list_history"
-down_revision = "0020_add_household_member_roles"
+down_revision = (
+    "0020_add_household_member_roles",
+    "0020_merge_public_sale_heads",
+)
 branch_labels = None
 depends_on = None
 
