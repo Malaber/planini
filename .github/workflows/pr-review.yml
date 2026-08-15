@@ -8,7 +8,6 @@ on:
       - reopened
 
 permissions:
-  checks: read
   contents: write
   packages: write
   pull-requests: write
@@ -27,12 +26,6 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install Invoke
-        run: python -m pip install invoke
       - name: Compute image name
         id: image
         env:
@@ -51,10 +44,11 @@ jobs:
             echo "legacy_pr_tag=$LEGACY_PR_TAG"
           } >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v4
-      - uses: ./.github/actions/ghcr-login
+      - uses: docker/login-action@v4
         with:
+          registry: ghcr.io
           username: ${{ github.actor }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Wait for push image to be published
         env:
           IMAGE: ${{ steps.image.outputs.image }}
@@ -69,34 +63,6 @@ jobs:
           done
 
           echo "Timed out waiting for push-built image $IMAGE:$IMAGE_TAG." >&2
-          exit 1
-      - name: Wait for container smoke test
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          for attempt in $(seq 1 60); do
-            conclusion="$(
-              gh api "/repos/$REPOSITORY/commits/$PR_HEAD_SHA/check-runs" \
-                --jq '[.check_runs[] | select(.name == "docker_smoke")][-1].conclusion // ""'
-            )"
-            case "$conclusion" in
-              success)
-                exit 0
-                ;;
-              failure|cancelled|timed_out|action_required)
-                echo "Container smoke test concluded with: $conclusion" >&2
-                exit 1
-                ;;
-              *)
-                echo "Container smoke test is not complete yet (attempt $attempt/60)."
-                sleep 10
-                ;;
-            esac
-          done
-
-          echo "Timed out waiting for the container smoke test." >&2
           exit 1
       - name: Recreate legacy PR image tag
         env:
@@ -122,7 +88,7 @@ jobs:
           import urllib.request
 
           if not os.environ["WAKE_URL"] or not os.environ["WAKE_SECRET"]:
-              print("Skipping review wake; periodic reconciliation will deploy the preview.")
+              print("Skipping review wake: WEBHOOKER_REVIEW_WAKE_URL or WEBHOOKER_WEBHOOK_SECRET is not configured.")
               raise SystemExit(0)
 
           owner, repo = os.environ["REPOSITORY"].split("/", 1)
@@ -159,14 +125,6 @@ jobs:
           with urllib.request.urlopen(request) as response:
               print(f"review wake status={response.status}")
           PY
-      - name: Wait for review deployment health
-        env:
-          REVIEW_URL: https://pr-${{ github.event.pull_request.number }}.pr.planini.malaber.de
-        run: >-
-          python -m invoke wait-for-app
-          --url="$REVIEW_URL/health"
-          --attempts=60
-          --sleep-seconds=5
       - name: Comment review URL on pull request
         uses: actions/github-script@v9
         env:

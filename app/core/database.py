@@ -31,9 +31,9 @@ def _build_alembic_config() -> Config:
     return config
 
 
-def run_migrations_sync() -> None:
+def _run_migrations_sync() -> None:
     command.upgrade(_build_alembic_config(), "head")
 
 
 async def run_migrations() -> None:
-    await asyncio.to_thread(run_migrations_sync)
+    await asyncio.to_thread(_run_migrations_sync)

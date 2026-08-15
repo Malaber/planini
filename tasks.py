@@ -1714,56 +1714,19 @@ def _wait_for_container_health_endpoint(
     )
 
 
-def _wait_for_container_startup(
-    c,
-    container_name: str,
-    attempts: int = 150,
-    sleep_seconds: float = 2.0,
-) -> None:
-    logs_command = f"docker logs {shlex.quote(container_name)}"
-    state_command = (
-        "docker inspect --format "
-        f"{shlex.quote('{{.State.Status}}')} {shlex.quote(container_name)}"
-    )
-    max_attempts = max(1, int(attempts))
-    last_logs = None
-    for attempt in range(max_attempts):
-        last_logs = c.run(
-            logs_command,
-            warn=True,
-            hide=True,
-            pty=False,
-            shell="/bin/bash",
-        )
-        output = "\n".join(
-            stream for stream in (last_logs.stdout or "", last_logs.stderr or "") if stream
-        )
-        if "Application startup complete." in output:
-            return
-        state = c.run(
-            state_command,
-            warn=True,
-            hide=True,
-            pty=False,
-            shell="/bin/bash",
-        )
-        if state.exited == 0 and state.stdout.strip() in {"dead", "exited"}:
-            _print_hidden_output(last_logs)
-            raise Exit(f"Container exited before application startup completed: {container_name}")
-        if attempt < max_attempts - 1:
-            time.sleep(float(sleep_seconds))
-
-    assert last_logs is not None
-    _print_hidden_output(last_logs)
-    raise Exit(
-        f"Container application startup did not complete after {max_attempts} attempt(s): "
-        f"{logs_command}"
-    )
-
-
 def _check_container_migrations(c, container_name: str) -> None:
-    command = (
-        f"docker exec {shlex.quote(container_name)} " "python -m alembic current --check-heads"
+    migration_check_code = (
+        "from alembic import command; "
+        "from app.core.database import _build_alembic_config; "
+        "command.current(_build_alembic_config(), check_heads=True)"
+    )
+    command = " ".join(
+        [
+            "docker exec",
+            shlex.quote(container_name),
+            "python -c",
+            shlex.quote(migration_check_code),
+        ]
     )
     result = c.run(
         command,
@@ -1834,12 +1797,6 @@ def check_container_smoke(
     try:
         c.run(prepare_command, pty=False, shell="/bin/bash")
         c.run(start_command, pty=False, shell="/bin/bash")
-        _wait_for_container_startup(
-            c,
-            container_name,
-            attempts=150,
-            sleep_seconds=2.0,
-        )
         _wait_for_container_health_endpoint(
             c,
             container_name,

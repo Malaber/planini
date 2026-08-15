@@ -26,7 +26,7 @@ def test_sync_migration_runner_uses_configured_database_url(tmp_path: Path, monk
         f"sqlite+aiosqlite:///{database_path}",
     )
 
-    database.run_migrations_sync()
+    database._run_migrations_sync()
 
     engine = create_engine(f"sqlite:///{database_path}")
     with engine.connect() as connection:
