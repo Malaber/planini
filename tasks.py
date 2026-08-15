@@ -1671,20 +1671,25 @@ def wait_for_app(c, url=DEFAULT_HEALTH_URL, attempts=30, sleep_seconds=1.0) -> N
     _wait_for_healthcheck(url=url, attempts=int(attempts), sleep_seconds=float(sleep_seconds))
 
 
-def _wait_for_container_migrations(
+def _wait_for_container_health_endpoint(
     c,
     container_name: str,
-    attempts: int = 30,
-    sleep_seconds: float = 1.0,
+    attempts: int = 150,
+    sleep_seconds: float = 2.0,
 ) -> None:
-    migration_check_code = (
-        "from alembic import command; "
-        "from app.core.database import _build_alembic_config; "
-        "command.current(_build_alembic_config(), check_heads=True)"
+    healthcheck_code = (
+        "import json; from urllib.request import urlopen; "
+        "response = urlopen('http://127.0.0.1:8000/health', timeout=2); "
+        "assert response.status == 200; "
+        "assert json.load(response) == {'status': 'ok'}"
     )
-    command = (
-        f"docker exec {shlex.quote(container_name)} "
-        f"python -c {shlex.quote(migration_check_code)}"
+    command = " ".join(
+        [
+            "docker exec",
+            shlex.quote(container_name),
+            "python -c",
+            shlex.quote(healthcheck_code),
+        ]
     )
     max_attempts = max(1, int(attempts))
     last_result = None
@@ -1704,8 +1709,37 @@ def _wait_for_container_migrations(
     assert last_result is not None
     _print_hidden_output(last_result)
     raise Exit(
-        f"Container migrations did not reach all heads after {max_attempts} attempt(s): {command}"
+        f"Container health endpoint did not become ready after {max_attempts} attempt(s): "
+        f"{command}"
     )
+
+
+def _check_container_migrations(c, container_name: str) -> None:
+    migration_check_code = (
+        "from alembic import command; "
+        "from app.core.database import _build_alembic_config; "
+        "command.current(_build_alembic_config(), check_heads=True)"
+    )
+    command = " ".join(
+        [
+            "docker exec",
+            shlex.quote(container_name),
+            "python -c",
+            shlex.quote(migration_check_code),
+        ]
+    )
+    result = c.run(
+        command,
+        warn=True,
+        hide=True,
+        pty=False,
+        shell="/bin/bash",
+    )
+    if result.exited == 0:
+        return
+
+    _print_hidden_output(result)
+    raise Exit(f"Container migrations did not reach all heads: {command}")
 
 
 @task(
@@ -1749,7 +1783,7 @@ def check_container_smoke(
     )
     start_command = " ".join(
         [
-            "docker run --detach --rm",
+            "docker run --detach",
             f"--name {shlex.quote(container_name)}",
             f"--publish 127.0.0.1:{int(port)}:8000",
             f"--volume {shlex.quote(mount)}",
@@ -1763,17 +1797,18 @@ def check_container_smoke(
     try:
         c.run(prepare_command, pty=False, shell="/bin/bash")
         c.run(start_command, pty=False, shell="/bin/bash")
+        _wait_for_container_health_endpoint(
+            c,
+            container_name,
+            attempts=150,
+            sleep_seconds=2.0,
+        )
         _wait_for_healthcheck(
             url=f"http://127.0.0.1:{int(port)}/health",
             attempts=30,
             sleep_seconds=2.0,
         )
-        _wait_for_container_migrations(
-            c,
-            container_name,
-            attempts=30,
-            sleep_seconds=1.0,
-        )
+        _check_container_migrations(c, container_name)
     except Exception:
         c.run(
             f"docker logs {shlex.quote(container_name)}",

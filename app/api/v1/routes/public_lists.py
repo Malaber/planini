@@ -69,7 +69,11 @@ async def _public_item(
 @router.get("/{token}", response_model=PublicGroceryListOut)
 async def get_public_list(token: str, db: AsyncSession = Depends(get_db)) -> PublicGroceryListOut:
     grocery_list, link = await _public_list_with_link(db, token)
-    serialized = _serialize_list(grocery_list, await _open_item_count(db, grocery_list.id))
+    serialized = _serialize_list(
+        grocery_list,
+        await _open_item_count(db, grocery_list.id),
+        "editor",
+    )
     return PublicGroceryListOut(**serialized.model_dump(), expires_at=_as_utc(link.expires_at))
 
 

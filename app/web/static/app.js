@@ -801,6 +801,13 @@ async function initDashboard() {
   };
 
   root.addEventListener("click", async (event) => {
+    const removePublicListButton = event.target.closest("[data-remove-public-list]");
+    if (removePublicListButton) {
+      removeRememberedPublicList(removePublicListButton.dataset.removePublicList || "");
+      renderRememberedPublicLists(root);
+      return;
+    }
+
     const openMembersButton = event.target.closest("[data-open-members]");
     if (openMembersButton) {
       const householdId = openMembersButton.getAttribute("data-open-members");
@@ -857,13 +864,6 @@ async function initDashboard() {
       } finally {
         toggleDashboardForms(root, false);
       }
-      return;
-    }
-
-    const removePublicListButton = event.target.closest("[data-remove-public-list]");
-    if (removePublicListButton) {
-      removeRememberedPublicList(removePublicListButton.dataset.removePublicList || "");
-      renderRememberedPublicLists(root);
       return;
     }
 
@@ -4642,7 +4642,11 @@ function renderItems(root, state) {
         hideButton.type = "button";
         hideButton.dataset.itemHide = item.id;
         hideButton.setAttribute("role", "menuitem");
-        hideButton.textContent = translate("list_detail.hide_item_for_later_menu", {}, "Hide item for 4h");
+        hideButton.textContent = translate(
+          "list_detail.hide_item_for_later_menu",
+          {},
+          "Hide item for 4h",
+        );
         menu.appendChild(hideButton);
         article.appendChild(menu);
       }

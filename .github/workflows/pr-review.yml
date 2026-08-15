@@ -26,12 +26,6 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install Invoke
-        run: python -m pip install invoke
       - name: Compute image name
         id: image
         env:
@@ -50,10 +44,11 @@ jobs:
             echo "legacy_pr_tag=$LEGACY_PR_TAG"
           } >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v4
-      - uses: ./.github/actions/ghcr-login
+      - uses: docker/login-action@v4
         with:
+          registry: ghcr.io
           username: ${{ github.actor }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Wait for push image to be published
         env:
           IMAGE: ${{ steps.image.outputs.image }}
@@ -76,7 +71,6 @@ jobs:
           LEGACY_PR_TAG: ${{ steps.tag.outputs.legacy_pr_tag }}
         run: docker buildx imagetools create --tag "$IMAGE:$LEGACY_PR_TAG" "$IMAGE:$SOURCE_TAG"
       - name: Wake webhooker review deployment
-        id: wake
         env:
           WAKE_URL: ${{ vars.WEBHOOKER_REVIEW_WAKE_URL }}
           WAKE_SECRET: ${{ secrets.WEBHOOKER_WEBHOOK_SECRET }}
@@ -95,8 +89,6 @@ jobs:
 
           if not os.environ["WAKE_URL"] or not os.environ["WAKE_SECRET"]:
               print("Skipping review wake: WEBHOOKER_REVIEW_WAKE_URL or WEBHOOKER_WEBHOOK_SECRET is not configured.")
-              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-                  output.write("triggered=false\n")
               raise SystemExit(0)
 
           owner, repo = os.environ["REPOSITORY"].split("/", 1)
@@ -132,18 +124,7 @@ jobs:
           )
           with urllib.request.urlopen(request) as response:
               print(f"review wake status={response.status}")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write("triggered=true\n")
           PY
-      - name: Wait for review deployment health
-        if: steps.wake.outputs.triggered == 'true'
-        env:
-          REVIEW_URL: https://pr-${{ github.event.pull_request.number }}.pr.planini.malaber.de
-        run: >-
-          python -m invoke wait-for-app
-          --url="$REVIEW_URL/health"
-          --attempts=60
-          --sleep-seconds=5
       - name: Comment review URL on pull request
         uses: actions/github-script@v9
         env:

@@ -2455,6 +2455,11 @@ async function main() {
       await backwarenSettingsRow.getByRole("button", { name: /Move Bakery up/i }).click();
       await page.waitForTimeout(150);
     }
+    await page.waitForFunction(
+      () => !document.querySelector("[data-category-order-status]:not([hidden])"),
+      null,
+      { timeout: 5000 },
+    );
     await page.locator("[data-list-settings-panel] .add-item-close").click();
 
     await page.waitForFunction(
@@ -2464,6 +2469,7 @@ async function main() {
         );
         return headers.indexOf("Bakery") > -1 && headers.indexOf("Bakery") < headers.indexOf("Pasta");
       },
+      null,
       { timeout: 5000 },
     );
     await pageTwo.waitForFunction(
@@ -2473,6 +2479,7 @@ async function main() {
         );
         return headers.indexOf("Bakery") > -1 && headers.indexOf("Bakery") < headers.indexOf("Pasta");
       },
+      null,
       { timeout: 5000 },
     );
 

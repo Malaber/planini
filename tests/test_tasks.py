@@ -52,10 +52,15 @@ def test_wait_for_healthcheck_retries_connection_reset(monkeypatch) -> None:
     assert sleeps == [0.25]
 
 
-def test_wait_for_container_migrations_retries_until_current(monkeypatch) -> None:
+def test_wait_for_container_health_endpoint_retries_until_ready(monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
     sleeps: list[float] = []
-    results = iter([RunResult(exited=255), RunResult(exited=0)])
+    results = iter(
+        [
+            RunResult(exited=1, stderr="Connection refused\n"),
+            RunResult(exited=0),
+        ]
+    )
 
     class Context:
         def run(self, command, **kwargs):
@@ -64,20 +69,24 @@ def test_wait_for_container_migrations_retries_until_current(monkeypatch) -> Non
 
     monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
 
-    tasks._wait_for_container_migrations(
+    tasks._wait_for_container_health_endpoint(
         Context(),
         "planini-container-smoke",
         attempts=2,
         sleep_seconds=0.25,
     )
 
-    expected_command = (
-        "docker exec planini-container-smoke python -c "
-        "'from alembic import command; "
-        "from app.core.database import _build_alembic_config; "
-        "command.current(_build_alembic_config(), check_heads=True)'"
-    )
-    assert [command for command, _ in calls] == [expected_command, expected_command]
+    assert len(calls) == 2
+    probe_args = shlex.split(calls[0][0])
+    assert probe_args[:5] == [
+        "docker",
+        "exec",
+        "planini-container-smoke",
+        "python",
+        "-c",
+    ]
+    assert "json.load(response) == {'status': 'ok'}" in probe_args[-1]
+    assert calls[1][0] == calls[0][0]
     assert all(
         kwargs == {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"}
         for _, kwargs in calls
@@ -85,24 +94,74 @@ def test_wait_for_container_migrations_retries_until_current(monkeypatch) -> Non
     assert sleeps == [0.25]
 
 
-def test_wait_for_container_migrations_reports_final_failure(monkeypatch, capsys) -> None:
+def test_wait_for_container_health_endpoint_reports_timeout(monkeypatch, capsys) -> None:
+    class Context:
+        def run(self, command, **kwargs):
+            return RunResult(exited=1, stderr="Connection refused\n")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    try:
+        tasks._wait_for_container_health_endpoint(
+            Context(), "planini-smoke", attempts=2, sleep_seconds=0.25
+        )
+    except tasks.Exit as exc:
+        assert str(exc).startswith(
+            "Container health endpoint did not become ready after 2 attempt(s): "
+            "docker exec planini-smoke python -c "
+        )
+    else:
+        raise AssertionError("expected container health timeout")
+
+    assert capsys.readouterr().out == "Connection refused\n"
+    assert sleeps == [0.25]
+
+
+def test_check_container_migrations_accepts_current_head() -> None:
+    calls: list[tuple[str, dict]] = []
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return RunResult(exited=0)
+
+    tasks._check_container_migrations(Context(), "planini-container-smoke")
+
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    command_args = shlex.split(command)
+    assert command_args[:5] == [
+        "docker",
+        "exec",
+        "planini-container-smoke",
+        "python",
+        "-c",
+    ]
+    assert command_args[-1] == (
+        "from alembic import command; "
+        "from app.core.database import _build_alembic_config; "
+        "command.current(_build_alembic_config(), check_heads=True)"
+    )
+    assert kwargs == {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"}
+
+
+def test_check_container_migrations_reports_failure(capsys) -> None:
     class Context:
         def run(self, command, **kwargs):
             return RunResult(exited=255, stderr="Database is not on all head revisions\n")
 
-    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: None)
-
     try:
-        tasks._wait_for_container_migrations(Context(), "planini-smoke", attempts=0)
+        tasks._check_container_migrations(Context(), "planini-smoke")
     except tasks.Exit as exc:
-        assert str(exc) == (
-            "Container migrations did not reach all heads after 1 attempt(s): "
-            "docker exec planini-smoke python -c 'from alembic import command; "
-            "from app.core.database import _build_alembic_config; "
-            "command.current(_build_alembic_config(), check_heads=True)'"
+        message = str(exc)
+        assert message.startswith(
+            "Container migrations did not reach all heads: docker exec planini-smoke python -c "
         )
+        assert "_build_alembic_config" in message
+        assert "check_heads=True" in message
     else:
-        raise AssertionError("expected migration readiness check to fail")
+        raise AssertionError("expected container migration failure")
 
     assert capsys.readouterr().out == "Database is not on all head revisions\n"
 
@@ -1047,7 +1106,7 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
         "docker_smoke:\n    runs-on: ubuntu-latest\n    needs:\n      - docker_build" in ci_workflow
     )
     assert "python -m invoke check-container-smoke" in ci_workflow
-    assert "timeout-minutes: 60" in screenshot_workflow
+    assert "timeout-minutes: 45" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in screenshot_workflow
     assert "check-ios-e2e" not in testflight_workflow
@@ -1080,43 +1139,12 @@ def test_ci_skips_work_repeated_by_main_release() -> None:
     assert f"docker_build_platform:\n    {main_skip}" in workflow
 
 
-def test_review_deploy_waits_for_preview_health() -> None:
-    workflow = (
-        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "pr-review.yml"
-    ).read_text(encoding="utf-8")
-
-    assert "id: wake" in workflow
-    assert 'output.write("triggered=true\\n")' in workflow
-    assert "if: steps.wake.outputs.triggered == 'true'" in workflow
-    assert "python -m invoke wait-for-app" in workflow
-    assert '--url="$REVIEW_URL/health"' in workflow
-
-
-def test_ghcr_workflows_retry_registry_login() -> None:
-    root = Path(__file__).resolve().parents[1]
-    action = (root / ".github" / "actions" / "ghcr-login" / "action.yml").read_text(
-        encoding="utf-8"
-    )
-    ci_workflow = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    review_workflow = (root / ".github" / "workflows" / "pr-review.yml").read_text(encoding="utf-8")
-    release_workflow = (root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-
-    assert "max_attempts=3" in action
-    assert "docker login ghcr.io" in action
-    assert 'sleep "$delay_seconds"' in action
-    assert ci_workflow.count("uses: ./.github/actions/ghcr-login") == 3
-    assert review_workflow.count("uses: ./.github/actions/ghcr-login") == 1
-    assert release_workflow.count("uses: ./.github/actions/ghcr-login") == 3
-    assert all(
-        "docker/login-action@" not in workflow
-        for workflow in (ci_workflow, review_workflow, release_workflow)
-    )
-
-
 def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
+    readiness_checks: list[str] = []
     healthchecks: list[dict] = []
-    migration_checks: list[dict] = []
+    container_healthchecks: list[dict] = []
+    container_migration_checks: list[str] = []
 
     class Context:
         def run(self, command, **kwargs):
@@ -1128,13 +1156,22 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
     monkeypatch.setattr(
         tasks,
         "_wait_for_healthcheck",
-        lambda **kwargs: healthchecks.append(kwargs),
+        lambda **kwargs: (readiness_checks.append("host-health"), healthchecks.append(kwargs)),
     )
     monkeypatch.setattr(
         tasks,
-        "_wait_for_container_migrations",
-        lambda c, container_name, **kwargs: migration_checks.append(
-            {"container_name": container_name, **kwargs}
+        "_wait_for_container_health_endpoint",
+        lambda c, container_name, **kwargs: (
+            readiness_checks.append("container-health"),
+            container_healthchecks.append({"container_name": container_name, **kwargs}),
+        ),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_check_container_migrations",
+        lambda c, container_name: (
+            readiness_checks.append("migration-heads"),
+            container_migration_checks.append(container_name),
         ),
     )
 
@@ -1151,6 +1188,7 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
     assert prepare_args[-2] == "-c"
     start_args = shlex.split(calls[1][0])
     assert start_args[:3] == ["docker", "run", "--detach"]
+    assert "--rm" not in start_args
     assert "127.0.0.1:8123:8000" in start_args
     assert "ghcr.io/malaber/planini:sha-test" == start_args[-1]
     assert healthchecks == [
@@ -1160,13 +1198,15 @@ def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monk
             "sleep_seconds": 2.0,
         }
     ]
-    assert migration_checks == [
+    assert container_healthchecks == [
         {
             "container_name": "planini-container-smoke-4321",
-            "attempts": 30,
-            "sleep_seconds": 1.0,
+            "attempts": 150,
+            "sleep_seconds": 2.0,
         }
     ]
+    assert container_migration_checks == ["planini-container-smoke-4321"]
+    assert readiness_checks == ["container-health", "host-health", "migration-heads"]
     assert calls[2] == (
         "docker rm --force planini-container-smoke-4321",
         {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"},
@@ -1185,6 +1225,7 @@ def test_check_container_smoke_prints_logs_when_healthcheck_fails(
 
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
     monkeypatch.setattr(tasks.os, "getpid", lambda: 9876)
+    monkeypatch.setattr(tasks, "_wait_for_container_health_endpoint", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         tasks,
         "_wait_for_healthcheck",

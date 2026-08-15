@@ -2221,18 +2221,20 @@ private struct ListDetailScreen: View {
                 householdName: l10n.t("ios.public_lists.shared_list"),
                 name: publicList.name,
                 archived: false,
-                accentColorHex: publicList.accentColorHex
+                accentColorHex: publicList.accentColorHex,
+                accessRole: .editor
             )
         }
         return viewModel.lists.first { $0.id == displayedListID }
     }
 
     private var canEdit: Bool {
-        currentList.map { viewModel.canEdit(listID: $0.id) } ?? false
+        currentList?.accessRole.canEditItems ?? false
     }
 
     private var canManage: Bool {
-        currentList.map { viewModel.canManage(householdID: $0.householdID) } ?? false
+        guard publicList == nil else { return false }
+        return currentList?.accessRole.canManageHousehold ?? false
     }
 
     private var listBackground: some View {

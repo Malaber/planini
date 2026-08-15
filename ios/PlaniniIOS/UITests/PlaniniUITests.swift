@@ -196,7 +196,7 @@ final class PlaniniUITests: XCTestCase {
             relativeArtifactDirectory: artifactDirectory
         )
 
-        app.staticTexts[variant.initialListName].tap()
+        tapElement(marketingListRow)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertTrue(openAddItemSheet(in: app))
         let nameField = app.textFields["add-item-name-field"]
@@ -288,10 +288,8 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(tapTab("Lists", in: app))
         let initialListRow = app.buttons["list-row-\(initialListName)"]
         XCTAssertTrue(initialListRow.waitForExistence(timeout: 10))
-        let initialListNameText = app.staticTexts[initialListName]
-        XCTAssertTrue(initialListNameText.waitForExistence(timeout: 3))
         captureScreenshot(named: "promotion-list-of-lists")
-        initialListNameText.tap()
+        tapElement(initialListRow)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, initialListName)
         captureScreenshot(named: "ios-ui-list-detail")
@@ -2152,6 +2150,10 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(signedOutApp.staticTexts["list-detail-title"].waitForExistence(timeout: 12))
         XCTAssertEqual(signedOutApp.staticTexts["list-detail-title"].label, initialListName)
         XCTAssertTrue(
+            signedOutApp.buttons["add-item-button"].waitForExistence(timeout: 5),
+            "Expected a public editor link to keep list editing enabled."
+        )
+        XCTAssertTrue(
             tapItemToggleButton(
                 itemID: itemID,
                 named: itemName,
@@ -2356,6 +2358,7 @@ final class PlaniniUITests: XCTestCase {
         app.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
         app.launchEnvironment["PLANINI_UI_TEST_ACCESS_TOKEN"] = session.accessToken
         app.launchEnvironment["PLANINI_UI_TEST_DISPLAY_NAME"] = session.displayName
+        app.launchEnvironment["PLANINI_UI_TEST_RESET_PUBLIC_LISTS"] = "1"
         if let initialListName {
             app.launchEnvironment["PLANINI_UI_TEST_INITIAL_LIST_NAME"] = initialListName
         }

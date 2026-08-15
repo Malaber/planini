@@ -253,6 +253,9 @@ final class MobileAppViewModel: ObservableObject {
         pendingItemCreates = Self.loadPendingItemCreates(from: userDefaults)
         pendingItemEdits = Self.loadPendingItemEdits(from: userDefaults)
         pendingItemToggles = Self.loadPendingItemToggles(from: userDefaults)
+        if processInfo.environment["PLANINI_UI_TEST_RESET_PUBLIC_LISTS"] == "1" {
+            userDefaults.removeObject(forKey: Self.publicListsKey)
+        }
         publicLists = Self.loadPublicLists(from: userDefaults)
         watchSyncCoordinator.setStateProvider { [weak self] in
             let state = self?.makeSharedAppState() ?? SharedAppState()

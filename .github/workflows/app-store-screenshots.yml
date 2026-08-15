@@ -13,7 +13,7 @@ jobs:
     runs-on: macos-26
     # The two simulator passes can consume almost 35 minutes on hosted runners;
     # leave enough time for artifact upload and action cleanup.
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - name: Restore marketing Xcode cache
