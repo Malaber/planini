@@ -1257,7 +1257,9 @@ def test_container_entrypoint_migrates_before_starting_uvicorn() -> None:
     )
 
     startup_checks = "python -m app.core.startup_checks"
-    migrations = "python -m alembic upgrade head"
+    migrations = (
+        'python -c "from app.core.database import run_migrations_sync; run_migrations_sync()"'
+    )
     uvicorn = "exec python -m uvicorn app.main:app"
     assert start_script.index(startup_checks) < start_script.index(migrations)
     assert start_script.index(migrations) < start_script.index(uvicorn)

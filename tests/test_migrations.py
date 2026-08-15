@@ -5,6 +5,8 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
+from app.core import database
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CURRENT_HEAD = "0021_merge_member_public_heads"
 
@@ -14,6 +16,25 @@ def _migration_config(database_path: Path) -> Config:
     config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
     config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path}")
     return config
+
+
+def test_sync_migration_runner_uses_configured_database_url(tmp_path: Path, monkeypatch) -> None:
+    database_path = tmp_path / "configured.db"
+    monkeypatch.setattr(
+        database.settings,
+        "database_url",
+        f"sqlite+aiosqlite:///{database_path}",
+    )
+
+    database.run_migrations_sync()
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.connect() as connection:
+        current_revision = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    engine.dispose()
+    assert current_revision == CURRENT_HEAD
 
 
 def test_sale_migration_keeps_single_head_with_legacy_revisions(tmp_path: Path) -> None:
