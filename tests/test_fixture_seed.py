@@ -57,7 +57,7 @@ def _fixture_payload() -> dict[str, object]:
                 "owner_email": "owner@example.com",
                 "members": [
                     {"email": "owner@example.com", "role": "owner"},
-                    {"email": "member@example.com", "role": "member"},
+                    {"email": "member@example.com", "role": "editor"},
                 ],
                 "lists": [
                     {
@@ -277,7 +277,7 @@ def test_seed_data_enforces_preview_member_and_admin_membership_rules(tmp_path) 
                     {
                         "name": "Home",
                         "owner_email": "planini@schaedler.rocks",
-                        "members": [{"email": "planini_admin@schaedler.rocks", "role": "member"}],
+                        "members": [{"email": "planini_admin@schaedler.rocks", "role": "editor"}],
                         "lists": [],
                     },
                     {

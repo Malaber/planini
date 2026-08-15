@@ -1,12 +1,28 @@
 import Foundation
 
+public enum HouseholdRole: String, Codable, CaseIterable, Sendable {
+    case owner
+    case editor
+    case viewer
+
+    public var canEditItems: Bool {
+        self != .viewer
+    }
+
+    public var canManageHousehold: Bool {
+        self == .owner
+    }
+}
+
 public struct HouseholdSummary: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
     public let name: String
+    public let role: HouseholdRole
 
-    public init(id: UUID, name: String) {
+    public init(id: UUID, name: String, role: HouseholdRole = .editor) {
         self.id = id
         self.name = name
+        self.role = role
     }
 
     public init?(json: [String: Any]) {
@@ -18,7 +34,56 @@ public struct HouseholdSummary: Identifiable, Equatable, Codable, Sendable {
             return nil
         }
 
-        self.init(id: id, name: name)
+        self.init(
+            id: id,
+            name: name,
+            role: (json["role"] as? String).flatMap(HouseholdRole.init(rawValue:)) ?? .editor
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case role
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        role = try container.decodeIfPresent(HouseholdRole.self, forKey: .role) ?? .editor
+    }
+}
+
+public struct HouseholdMemberSummary: Identifiable, Equatable, Sendable {
+    public let userID: UUID
+    public let displayName: String
+    public let email: String
+    public let role: HouseholdRole
+
+    public var id: UUID {
+        userID
+    }
+
+    public init(userID: UUID, displayName: String, email: String, role: HouseholdRole) {
+        self.userID = userID
+        self.displayName = displayName
+        self.email = email
+        self.role = role
+    }
+
+    public init?(json: [String: Any]) {
+        guard
+            let userIDText = json["user_id"] as? String,
+            let userID = UUID(uuidString: userIDText),
+            let displayName = json["display_name"] as? String,
+            let email = json["email"] as? String,
+            let roleText = json["role"] as? String,
+            let role = HouseholdRole(rawValue: roleText)
+        else {
+            return nil
+        }
+        self.init(userID: userID, displayName: displayName, email: email, role: role)
     }
 }
 
@@ -26,11 +91,18 @@ public struct HouseholdInviteLink: Equatable, Sendable {
     public let inviteURL: String
     public let expiresAt: Date?
     public let maxUses: Int?
+    public let role: HouseholdRole
 
-    public init(inviteURL: String, expiresAt: Date?, maxUses: Int? = nil) {
+    public init(
+        inviteURL: String,
+        expiresAt: Date?,
+        maxUses: Int? = nil,
+        role: HouseholdRole = .editor
+    ) {
         self.inviteURL = inviteURL
         self.expiresAt = expiresAt
         self.maxUses = maxUses
+        self.role = role
     }
 
     public init?(json: [String: Any]) {
@@ -40,7 +112,8 @@ public struct HouseholdInviteLink: Equatable, Sendable {
 
         let expiresAt = (json["expires_at"] as? String).flatMap(Self.parseDate)
         let maxUses = json["max_uses"] as? Int
-        self.init(inviteURL: inviteURL, expiresAt: expiresAt, maxUses: maxUses)
+        let role = (json["role"] as? String).flatMap(HouseholdRole.init(rawValue:)) ?? .editor
+        self.init(inviteURL: inviteURL, expiresAt: expiresAt, maxUses: maxUses, role: role)
     }
 
     private static func parseDate(_ value: String) -> Date? {
@@ -98,6 +171,7 @@ public struct GroceryListSummary: Identifiable, Equatable, Codable, Sendable {
     public let name: String
     public let archived: Bool
     public let accentColorHex: String?
+    public let accessRole: HouseholdRole
 
     public init(
         id: UUID,
@@ -105,7 +179,8 @@ public struct GroceryListSummary: Identifiable, Equatable, Codable, Sendable {
         householdName: String,
         name: String,
         archived: Bool,
-        accentColorHex: String? = nil
+        accentColorHex: String? = nil,
+        accessRole: HouseholdRole = .editor
     ) {
         self.id = id
         self.householdID = householdID
@@ -113,6 +188,28 @@ public struct GroceryListSummary: Identifiable, Equatable, Codable, Sendable {
         self.name = name
         self.archived = archived
         self.accentColorHex = accentColorHex
+        self.accessRole = accessRole
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case householdID
+        case householdName
+        case name
+        case archived
+        case accentColorHex
+        case accessRole
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        householdID = try container.decode(UUID.self, forKey: .householdID)
+        householdName = try container.decode(String.self, forKey: .householdName)
+        name = try container.decode(String.self, forKey: .name)
+        archived = try container.decode(Bool.self, forKey: .archived)
+        accentColorHex = try container.decodeIfPresent(String.self, forKey: .accentColorHex)
+        accessRole = try container.decodeIfPresent(HouseholdRole.self, forKey: .accessRole) ?? .editor
     }
 }
 

@@ -96,7 +96,7 @@ async def _set_passkey_timestamps(
 async def _add_household_member(
     household_id: UUID,
     user_id: UUID,
-    role: str = "member",
+    role: str = "editor",
 ) -> None:
     async with AsyncSessionLocal() as session:
         session.add(
@@ -1681,6 +1681,172 @@ def test_api_role_boundaries_are_enforced(client) -> None:
         ).status_code
         == 403
     )
+
+
+def test_household_roles_enforce_access_and_owner_member_management(client) -> None:
+    owner_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    editor_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    viewer_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    owner_headers = {"Authorization": f"Bearer {create_access_token(owner_id)}"}
+    editor_headers = {"Authorization": f"Bearer {create_access_token(editor_id)}"}
+    viewer_headers = {"Authorization": f"Bearer {create_access_token(viewer_id)}"}
+
+    household = client.post(
+        "/api/v1/households",
+        json={"name": "Role home"},
+        headers=owner_headers,
+    ).json()
+    household_id = UUID(household["id"])
+    assert household["role"] == "owner"
+    asyncio.run(_add_household_member(household_id, editor_id, role="editor"))
+    asyncio.run(_add_household_member(household_id, viewer_id, role="viewer"))
+
+    grocery_list = client.post(
+        f"/api/v1/households/{household_id}/lists",
+        json={"name": "Weekly"},
+        headers=owner_headers,
+    ).json()
+    assert grocery_list["access_role"] == "owner"
+    list_id = grocery_list["id"]
+
+    viewer_households = client.get("/api/v1/households", headers=viewer_headers).json()
+    assert viewer_households == [{"id": str(household_id), "name": "Role home", "role": "viewer"}]
+    assert (
+        client.get(f"/api/v1/lists/{list_id}", headers=viewer_headers).json()["access_role"]
+        == "viewer"
+    )
+    assert client.get(f"/api/v1/lists/{list_id}/items", headers=viewer_headers).status_code == 200
+    assert (
+        client.post(
+            f"/api/v1/lists/{list_id}/items",
+            json={"name": "No write"},
+            headers=viewer_headers,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            f"/api/v1/households/{household_id}/lists",
+            json={"name": "No list"},
+            headers=editor_headers,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/v1/lists/{list_id}",
+            json={"name": "No rename"},
+            headers=editor_headers,
+        ).status_code
+        == 403
+    )
+
+    created_item = client.post(
+        f"/api/v1/lists/{list_id}/items",
+        json={"name": "Editor item"},
+        headers=editor_headers,
+    )
+    assert created_item.status_code == 200
+    assert (
+        client.delete(
+            f"/api/v1/items/{created_item.json()['id']}",
+            headers=editor_headers,
+        ).status_code
+        == 200
+    )
+
+    members = client.get(
+        f"/api/v1/households/{household_id}/members",
+        headers=viewer_headers,
+    )
+    assert members.status_code == 200
+    assert {member["role"] for member in members.json()} == {
+        "owner",
+        "editor",
+        "viewer",
+    }
+    assert (
+        client.patch(
+            f"/api/v1/households/{household_id}/members/{viewer_id}",
+            json={"role": "editor"},
+            headers=editor_headers,
+        ).status_code
+        == 403
+    )
+    updated = client.patch(
+        f"/api/v1/households/{household_id}/members/{viewer_id}",
+        json={"role": "editor"},
+        headers=owner_headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["role"] == "editor"
+    assert (
+        client.patch(
+            f"/api/v1/households/{household_id}/members/{owner_id}",
+            json={"role": "viewer"},
+            headers=owner_headers,
+        ).status_code
+        == 400
+    )
+    missing_user_id = uuid4()
+    assert (
+        client.patch(
+            f"/api/v1/households/{household_id}/members/{missing_user_id}",
+            json={"role": "viewer"},
+            headers=owner_headers,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.delete(
+            f"/api/v1/households/{household_id}/members/{owner_id}",
+            headers=owner_headers,
+        ).status_code
+        == 400
+    )
+    assert (
+        client.delete(
+            f"/api/v1/households/{household_id}/members/{editor_id}",
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.delete(
+            f"/api/v1/households/{household_id}/members/{missing_user_id}",
+            headers=owner_headers,
+        ).status_code
+        == 404
+    )
+
+
+def test_household_invites_assign_selected_role(client) -> None:
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    viewer_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households",
+        json={"name": "View only"},
+        headers=owner_headers,
+    ).json()
+    invite = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        json={"role": "viewer"},
+        headers=owner_headers,
+    ).json()
+    assert invite["role"] == "viewer"
+    token = invite["invite_url"].rsplit("/", 1)[-1]
+    preview = client.get(
+        f"/api/v1/households/invites/{token}",
+        headers=viewer_headers,
+    ).json()
+    assert preview["role"] == "viewer"
+    accepted = client.post(
+        f"/api/v1/households/invites/{token}/accept",
+        json={},
+        headers=viewer_headers,
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["role"] == "viewer"
 
 
 def test_household_invite_helpers_and_owner_accept_path(client) -> None:
@@ -4475,6 +4641,7 @@ def test_public_list_link_allows_anonymous_editing_without_household_membership(
     assert "data-list-settings-toggle" not in public_page.text
     public_list_payload = client.get(f"/api/v1/public/lists/{token}").json()
     assert public_list_payload["name"] == "Weekly"
+    assert public_list_payload["access_role"] == "editor"
     assert datetime.fromisoformat(public_list_payload["expires_at"]) > datetime.now(UTC)
 
     admin_headers = _auth_headers(client, f"admin-{uuid4()}@example.com", is_admin=True)

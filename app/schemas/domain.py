@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -46,11 +47,13 @@ class HouseholdCreate(BaseModel):
 class HouseholdOut(ORMModel):
     id: UUID
     name: str
+    role: Literal["owner", "editor", "viewer"]
 
 
 class HouseholdInviteCreate(BaseModel):
     expires_in_hours: int | None = Field(default=24, ge=1, le=24 * 30)
     max_uses: int | None = Field(default=None, ge=1, le=100)
+    role: Literal["editor", "viewer"] = "editor"
 
     @model_validator(mode="after")
     def require_expiration_or_use_limit(self) -> "HouseholdInviteCreate":
@@ -63,6 +66,7 @@ class HouseholdInviteOut(BaseModel):
     invite_url: str
     expires_at: datetime | None
     max_uses: int | None = None
+    role: Literal["editor", "viewer"]
 
 
 class HouseholdInvitePreviewOut(BaseModel):
@@ -72,6 +76,18 @@ class HouseholdInvitePreviewOut(BaseModel):
     max_uses: int | None = None
     remaining_uses: int | None = None
     already_member: bool
+    role: Literal["editor", "viewer"]
+
+
+class HouseholdMemberOut(BaseModel):
+    user_id: UUID
+    display_name: str
+    email: str
+    role: Literal["owner", "editor", "viewer"]
+
+
+class HouseholdMemberUpdate(BaseModel):
+    role: Literal["editor", "viewer"]
 
 
 class GroceryListCreate(BaseModel):
@@ -91,6 +107,7 @@ class GroceryListOut(ORMModel):
     accent_color: str | None
     archived: bool
     open_item_count: int = 0
+    access_role: Literal["owner", "editor", "viewer"] = "viewer"
 
 
 class PublicGroceryListOut(GroceryListOut):

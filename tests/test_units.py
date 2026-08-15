@@ -237,9 +237,10 @@ def test_issue_passkey_reset_commits_to_database() -> None:
 def test_websocket_hub_connect_broadcast_disconnect() -> None:
     hub = WebSocketHub()
     list_id = uuid4()
+    user_id = uuid4()
     ws = DummyWebSocket()
 
-    asyncio.run(hub.connect(list_id, ws))
+    asyncio.run(hub.connect(list_id, ws, user_id))
     assert ws.accepted is True
 
     asyncio.run(hub.broadcast(list_id, {"type": "x"}))
@@ -248,6 +249,11 @@ def test_websocket_hub_connect_broadcast_disconnect() -> None:
     hub.disconnect(list_id, ws)
     # cover no-op branch
     hub.disconnect(list_id, ws)
+
+    asyncio.run(hub.connect(list_id, ws, user_id))
+    asyncio.run(hub.disconnect_user(user_id, {list_id}))
+    assert ws.close_calls == 1
+    asyncio.run(hub.disconnect_user(user_id, {list_id}))
 
 
 def test_websocket_hub_drops_slow_connections_without_blocking_peers() -> None:

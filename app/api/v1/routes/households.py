@@ -4,22 +4,40 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ensure_household_member, get_current_user
+from app.api.deps import (
+    ensure_household_member,
+    ensure_household_owner,
+    get_current_user,
+)
 from app.core.database import get_db
-from app.models import Household, HouseholdInvite, HouseholdInviteUse, HouseholdMember, User
+from app.models import (
+    GroceryList,
+    Household,
+    HouseholdInvite,
+    HouseholdInviteUse,
+    HouseholdMember,
+    User,
+)
 from app.schemas.domain import (
     HouseholdCreate,
     HouseholdInviteCreate,
     HouseholdInviteOut,
     HouseholdInvitePreviewOut,
+    HouseholdMemberOut,
+    HouseholdMemberUpdate,
     HouseholdOut,
 )
+from app.services.websocket_hub import hub
 
 router = APIRouter(prefix="/households", tags=["households"])
+
+
+def _serialize_household(household: Household, role: str) -> HouseholdOut:
+    return HouseholdOut(id=household.id, name=household.name, role=role)
 
 
 def _hash_invite_token(token: str) -> str:
@@ -90,24 +108,26 @@ async def create_household(
     payload: HouseholdCreate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Household:
+) -> HouseholdOut:
     household = Household(name=payload.name, owner_user_id=user.id)
     db.add(household)
     await db.flush()
     db.add(HouseholdMember(household_id=household.id, user_id=user.id, role="owner"))
     await db.commit()
     await db.refresh(household)
-    return household
+    return _serialize_household(household, "owner")
 
 
 @router.get("", response_model=list[HouseholdOut])
 async def list_households(
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
-) -> list[Household]:
+) -> list[HouseholdOut]:
     result = await db.execute(
-        select(Household).join(HouseholdMember).where(HouseholdMember.user_id == user.id)
+        select(Household, HouseholdMember.role)
+        .join(HouseholdMember)
+        .where(HouseholdMember.user_id == user.id)
     )
-    return list(result.scalars().all())
+    return [_serialize_household(household, role) for household, role in result.all()]
 
 
 @router.get("/{household_id}", response_model=HouseholdOut)
@@ -115,10 +135,105 @@ async def get_household(
     household_id: UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Household:
-    await ensure_household_member(db, household_id, user.id)
+) -> HouseholdOut:
+    membership = await ensure_household_member(db, household_id, user.id)
     result = await db.execute(select(Household).where(Household.id == household_id))
-    return result.scalar_one()
+    return _serialize_household(result.scalar_one(), membership.role)
+
+
+@router.get("/{household_id}/members", response_model=list[HouseholdMemberOut])
+async def list_household_members(
+    household_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[HouseholdMemberOut]:
+    await ensure_household_member(db, household_id, user.id)
+    result = await db.execute(
+        select(HouseholdMember, User)
+        .join(User, User.id == HouseholdMember.user_id)
+        .where(HouseholdMember.household_id == household_id)
+        .order_by(User.display_name.asc(), User.email.asc())
+    )
+    return [
+        HouseholdMemberOut(
+            user_id=member.user_id,
+            display_name=member_user.display_name,
+            email=member_user.email,
+            role=member.role,
+        )
+        for member, member_user in result.all()
+    ]
+
+
+@router.patch(
+    "/{household_id}/members/{member_user_id}",
+    response_model=HouseholdMemberOut,
+)
+async def update_household_member(
+    household_id: UUID,
+    member_user_id: UUID,
+    payload: HouseholdMemberUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> HouseholdMemberOut:
+    await ensure_household_owner(db, household_id, user.id)
+    result = await db.execute(
+        select(HouseholdMember, User)
+        .join(User, User.id == HouseholdMember.user_id)
+        .where(
+            HouseholdMember.household_id == household_id,
+            HouseholdMember.user_id == member_user_id,
+        )
+    )
+    row = result.one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    membership, member_user = row
+    if membership.role == "owner":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The household owner role cannot be changed.",
+        )
+    membership.role = payload.role
+    await db.commit()
+    return HouseholdMemberOut(
+        user_id=membership.user_id,
+        display_name=member_user.display_name,
+        email=member_user.email,
+        role=membership.role,
+    )
+
+
+@router.delete("/{household_id}/members/{member_user_id}")
+async def remove_household_member(
+    household_id: UUID,
+    member_user_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    await ensure_household_owner(db, household_id, user.id)
+    result = await db.execute(
+        select(HouseholdMember).where(
+            HouseholdMember.household_id == household_id,
+            HouseholdMember.user_id == member_user_id,
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if membership.role == "owner":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The household owner cannot be removed.",
+        )
+    list_result = await db.execute(
+        select(GroceryList.id).where(GroceryList.household_id == household_id)
+    )
+    household_list_ids = set(list_result.scalars().all())
+    await db.execute(delete(HouseholdMember).where(HouseholdMember.id == membership.id))
+    await db.commit()
+    await hub.disconnect_user(member_user_id, household_list_ids)
+    return {"message": "deleted"}
 
 
 @router.post("/{household_id}/invites", response_model=HouseholdInviteOut)
@@ -133,12 +248,7 @@ async def create_household_invite(
     household = result.scalar_one_or_none()
     if household is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    await ensure_household_member(db, household_id, user.id)
-    if household.owner_user_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the household owner can create invite links.",
-        )
+    await ensure_household_owner(db, household_id, user.id)
 
     invite_options = payload or HouseholdInviteCreate()
     token = secrets.token_urlsafe(32)
@@ -153,13 +263,17 @@ async def create_household_invite(
         token_hash=_hash_invite_token(token),
         expires_at=expires_at,
         max_uses=invite_options.max_uses,
+        role=invite_options.role,
     )
     db.add(invite)
     await db.commit()
 
     invite_url = str(request.base_url).rstrip("/") + f"/invite/{token}"
     return HouseholdInviteOut(
-        invite_url=invite_url, expires_at=expires_at, max_uses=invite.max_uses
+        invite_url=invite_url,
+        expires_at=expires_at,
+        max_uses=invite.max_uses,
+        role=invite.role,
     )
 
 
@@ -191,6 +305,7 @@ async def get_household_invite(
         max_uses=invite.max_uses,
         remaining_uses=remaining_uses,
         already_member=already_member,
+        role=invite.role,
     )
 
 
@@ -199,7 +314,7 @@ async def accept_household_invite(
     token: str,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Household:
+) -> HouseholdOut:
     invite = await _get_valid_invite(db, token)
     household_result = await db.execute(
         select(Household).where(Household.id == invite.household_id)
@@ -214,10 +329,15 @@ async def accept_household_invite(
     membership = membership_result.scalar_one_or_none()
     if membership is None:
         await _claim_invite_use(db, invite, user)
-        db.add(HouseholdMember(household_id=invite.household_id, user_id=user.id, role="member"))
+        membership = HouseholdMember(
+            household_id=invite.household_id,
+            user_id=user.id,
+            role=invite.role,
+        )
+        db.add(membership)
 
     invite.accepted_at = datetime.now(UTC)
     invite.accepted_by_user_id = user.id
     await db.commit()
     await db.refresh(household)
-    return household
+    return _serialize_household(household, membership.role)

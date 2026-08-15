@@ -333,7 +333,7 @@ async def ensure_seed_data(db: AsyncSession, fixture_path: str) -> None:
         for member_payload in members_payload:
             member_user = users[str(member_payload["email"])]
             await _ensure_member(
-                db, household, member_user, str(member_payload.get("role", "member"))
+                db, household, member_user, str(member_payload.get("role", "editor"))
             )
         await _ensure_member(db, household, users[str(household_payload["owner_email"])], "owner")
 
@@ -341,7 +341,7 @@ async def ensure_seed_data(db: AsyncSession, fixture_path: str) -> None:
     preview_admin = users.get(PREVIEW_INSTANCE_ADMIN_EMAIL)
     if preview_member is not None:
         for household in households.values():
-            role = "owner" if household.owner_user_id == preview_member.id else "member"
+            role = "owner" if household.owner_user_id == preview_member.id else "editor"
             await _ensure_member(db, household, preview_member, role)
     if preview_admin is not None:
         await db.execute(delete(HouseholdMember).where(HouseholdMember.user_id == preview_admin.id))

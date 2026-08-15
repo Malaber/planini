@@ -5,7 +5,10 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
+from app.core import database
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CURRENT_HEAD = "0021_merge_member_public_heads"
 
 
 def _migration_config(database_path: Path) -> Config:
@@ -15,14 +18,45 @@ def _migration_config(database_path: Path) -> Config:
     return config
 
 
-def test_sale_migration_keeps_single_head_with_legacy_revision(tmp_path: Path) -> None:
+def _apply_historical_member_role_schema(engine) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE household_members SET role = 'editor' WHERE role = 'member'")
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE household_invites " "ADD COLUMN role VARCHAR(20) DEFAULT 'editor' NOT NULL"
+        )
+
+
+def test_sync_migration_runner_uses_configured_database_url(tmp_path: Path, monkeypatch) -> None:
+    database_path = tmp_path / "configured.db"
+    monkeypatch.setattr(
+        database.settings,
+        "database_url",
+        f"sqlite+aiosqlite:///{database_path}",
+    )
+
+    database._run_migrations_sync()
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.connect() as connection:
+        current_revision = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    engine.dispose()
+    assert current_revision == CURRENT_HEAD
+
+
+def test_sale_migration_keeps_single_head_with_legacy_revisions(tmp_path: Path) -> None:
     config = _migration_config(tmp_path / "graph.db")
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0020_merge_public_sale_heads"]
+    assert scripts.get_heads() == [CURRENT_HEAD]
     assert scripts.get_revision("0017_add_item_sale_window") is not None
+    assert scripts.get_revision("0018_add_household_member_roles") is not None
     assert scripts.get_revision("0018_add_public_list_links") is not None
     assert scripts.get_revision("0019_add_public_list_links") is not None
+    assert scripts.get_revision("0019_add_household_member_roles") is not None
 
 
 def test_legacy_sale_database_upgrades_to_current_head(tmp_path: Path) -> None:
@@ -41,6 +75,7 @@ def test_legacy_sale_database_upgrades_to_current_head(tmp_path: Path) -> None:
     item_columns = {column["name"] for column in inspect(engine).get_columns("grocery_items")}
     list_columns = {column["name"] for column in inspect(engine).get_columns("grocery_lists")}
     category_columns = {column["name"] for column in inspect(engine).get_columns("categories")}
+    invite_columns = {column["name"] for column in inspect(engine).get_columns("household_invites")}
     table_names = inspect(engine).get_table_names()
     with engine.connect() as connection:
         current_revision = connection.execute(
@@ -51,11 +86,73 @@ def test_legacy_sale_database_upgrades_to_current_head(tmp_path: Path) -> None:
     assert {"sale_starts_at", "sale_ends_at"} <= item_columns
     assert "accent_color" in list_columns
     assert "translations_text" in category_columns
+    assert "role" in invite_columns
     assert "public_list_links" in table_names
-    assert current_revision == "0020_merge_public_sale_heads"
+    assert current_revision == CURRENT_HEAD
 
 
-def test_current_sale_database_applies_sibling_category_migration(tmp_path: Path) -> None:
+def test_oldest_deployed_member_role_database_upgrades_to_current_head(tmp_path: Path) -> None:
+    database_path = tmp_path / "oldest-deployed-member-role.db"
+    config = _migration_config(database_path)
+    command.upgrade(config, "0017_add_list_accent_color")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    _apply_historical_member_role_schema(engine)
+    command.stamp(config, "0018_add_household_member_roles", purge=True)
+
+    assert "role" in {column["name"] for column in inspect(engine).get_columns("household_invites")}
+    assert "translations_text" not in {
+        column["name"] for column in inspect(engine).get_columns("categories")
+    }
+    assert "sale_starts_at" not in {
+        column["name"] for column in inspect(engine).get_columns("grocery_items")
+    }
+    assert "public_list_links" not in inspect(engine).get_table_names()
+
+    command.upgrade(config, "head")
+
+    item_columns = {column["name"] for column in inspect(engine).get_columns("grocery_items")}
+    category_columns = {column["name"] for column in inspect(engine).get_columns("categories")}
+    table_names = inspect(engine).get_table_names()
+    with engine.connect() as connection:
+        current_revision = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    engine.dispose()
+
+    assert {"sale_starts_at", "sale_ends_at"} <= item_columns
+    assert "translations_text" in category_columns
+    assert "public_list_links" in table_names
+    assert current_revision == CURRENT_HEAD
+
+
+def test_later_deployed_member_role_database_upgrades_to_current_head(tmp_path: Path) -> None:
+    database_path = tmp_path / "later-deployed-member-role.db"
+    config = _migration_config(database_path)
+    command.upgrade(config, "0018_add_category_translations")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    _apply_historical_member_role_schema(engine)
+    command.stamp(config, "0019_add_household_member_roles", purge=True)
+
+    command.upgrade(config, "head")
+
+    item_columns = {column["name"] for column in inspect(engine).get_columns("grocery_items")}
+    invite_columns = {column["name"] for column in inspect(engine).get_columns("household_invites")}
+    table_names = inspect(engine).get_table_names()
+    with engine.connect() as connection:
+        current_revision = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    engine.dispose()
+
+    assert {"sale_starts_at", "sale_ends_at"} <= item_columns
+    assert "role" in invite_columns
+    assert "public_list_links" in table_names
+    assert current_revision == CURRENT_HEAD
+
+
+def test_current_sale_database_applies_sibling_migrations(tmp_path: Path) -> None:
     database_path = tmp_path / "current-sale.db"
     config = _migration_config(database_path)
     command.upgrade(config, "0018_add_item_sale_window")
@@ -68,6 +165,7 @@ def test_current_sale_database_applies_sibling_category_migration(tmp_path: Path
     command.upgrade(config, "head")
 
     category_columns = {column["name"] for column in inspect(engine).get_columns("categories")}
+    invite_columns = {column["name"] for column in inspect(engine).get_columns("household_invites")}
     table_names = inspect(engine).get_table_names()
     with engine.connect() as connection:
         current_revision = connection.execute(
@@ -76,8 +174,9 @@ def test_current_sale_database_applies_sibling_category_migration(tmp_path: Path
     engine.dispose()
 
     assert "translations_text" in category_columns
+    assert "role" in invite_columns
     assert "public_list_links" in table_names
-    assert current_revision == "0020_merge_public_sale_heads"
+    assert current_revision == CURRENT_HEAD
 
 
 def test_public_list_database_upgrades_to_sale_and_merged_head(tmp_path: Path) -> None:
@@ -94,6 +193,7 @@ def test_public_list_database_upgrades_to_sale_and_merged_head(tmp_path: Path) -
     command.upgrade(config, "head")
 
     item_columns = {column["name"] for column in inspect(engine).get_columns("grocery_items")}
+    invite_columns = {column["name"] for column in inspect(engine).get_columns("household_invites")}
     with engine.connect() as connection:
         current_revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
@@ -101,7 +201,8 @@ def test_public_list_database_upgrades_to_sale_and_merged_head(tmp_path: Path) -
     engine.dispose()
 
     assert {"sale_starts_at", "sale_ends_at"} <= item_columns
-    assert current_revision == "0020_merge_public_sale_heads"
+    assert "role" in invite_columns
+    assert current_revision == CURRENT_HEAD
 
 
 def test_deployed_public_list_database_upgrades_to_current_head(tmp_path: Path) -> None:
@@ -119,6 +220,7 @@ def test_deployed_public_list_database_upgrades_to_current_head(tmp_path: Path) 
 
     category_columns = {column["name"] for column in inspect(engine).get_columns("categories")}
     item_columns = {column["name"] for column in inspect(engine).get_columns("grocery_items")}
+    invite_columns = {column["name"] for column in inspect(engine).get_columns("household_invites")}
     with engine.connect() as connection:
         current_revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
@@ -127,4 +229,5 @@ def test_deployed_public_list_database_upgrades_to_current_head(tmp_path: Path) 
 
     assert "translations_text" in category_columns
     assert {"sale_starts_at", "sale_ends_at"} <= item_columns
-    assert current_revision == "0020_merge_public_sale_heads"
+    assert "role" in invite_columns
+    assert current_revision == CURRENT_HEAD

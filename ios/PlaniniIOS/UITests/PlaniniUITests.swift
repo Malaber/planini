@@ -196,7 +196,7 @@ final class PlaniniUITests: XCTestCase {
             relativeArtifactDirectory: artifactDirectory
         )
 
-        app.staticTexts[variant.initialListName].tap()
+        tapElement(marketingListRow)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertTrue(openAddItemSheet(in: app))
         let nameField = app.textFields["add-item-name-field"]
@@ -288,10 +288,8 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(tapTab("Lists", in: app))
         let initialListRow = app.buttons["list-row-\(initialListName)"]
         XCTAssertTrue(initialListRow.waitForExistence(timeout: 10))
-        let initialListNameText = app.staticTexts[initialListName]
-        XCTAssertTrue(initialListNameText.waitForExistence(timeout: 3))
         captureScreenshot(named: "promotion-list-of-lists")
-        initialListNameText.tap()
+        tapElement(initialListRow)
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, initialListName)
         captureScreenshot(named: "ios-ui-list-detail")
@@ -2144,6 +2142,10 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(signedOutApp.staticTexts["list-detail-title"].waitForExistence(timeout: 12))
         XCTAssertEqual(signedOutApp.staticTexts["list-detail-title"].label, initialListName)
         XCTAssertTrue(
+            signedOutApp.buttons["add-item-button"].waitForExistence(timeout: 5),
+            "Expected a public editor link to keep list editing enabled."
+        )
+        XCTAssertTrue(
             tapItemToggleButton(
                 itemID: itemID,
                 named: itemName,
@@ -2969,6 +2971,9 @@ final class PlaniniUITests: XCTestCase {
 
         tapElement(app.buttons["open-household-invite-sheet-button"])
         XCTAssertTrue(inviteSheet.waitForExistence(timeout: 5))
+        let rolePicker = app.segmentedControls["household-invite-role-picker"]
+        XCTAssertTrue(rolePicker.waitForExistence(timeout: 5))
+        tapElement(rolePicker.buttons["Viewer"])
         XCTAssertTrue(app.steppers["household-invite-hours-stepper"].waitForExistence(timeout: 5))
 
         let durationLabel = app.staticTexts["household-invite-duration-label"]
@@ -2998,7 +3003,8 @@ final class PlaniniUITests: XCTestCase {
                 householdName: householdName,
                 accessToken: accessToken,
                 expectedMaxUses: 5,
-                expectedRemainingUses: 5
+                expectedRemainingUses: 5,
+                expectedRole: "viewer"
             )
         )
         captureScreenshot(named: "ios-ui-household-management")
@@ -3916,6 +3922,7 @@ final class PlaniniUITests: XCTestCase {
         accessToken: String,
         expectedMaxUses: Int? = nil,
         expectedRemainingUses: Int? = nil,
+        expectedRole: String? = nil,
         timeout: TimeInterval = 8
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
@@ -3924,7 +3931,8 @@ final class PlaniniUITests: XCTestCase {
                 preview.householdName == householdName,
                 preview.alreadyMember,
                 preview.maxUses == expectedMaxUses,
-                preview.remainingUses == expectedRemainingUses
+                preview.remainingUses == expectedRemainingUses,
+                expectedRole == nil || preview.role == expectedRole
             {
                 return true
             }
@@ -4502,12 +4510,14 @@ private struct UITestInvitePreview: Decodable {
     let alreadyMember: Bool
     let maxUses: Int?
     let remainingUses: Int?
+    let role: String?
 
     private enum CodingKeys: String, CodingKey {
         case householdName = "household_name"
         case alreadyMember = "already_member"
         case maxUses = "max_uses"
         case remainingUses = "remaining_uses"
+        case role
     }
 }
 

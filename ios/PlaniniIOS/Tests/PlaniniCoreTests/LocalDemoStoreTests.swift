@@ -10,10 +10,12 @@ struct LocalDemoStoreTests {
         let listData = try! #require(snapshot.listData[list.id])
 
         #expect(household.name == "Demo household")
+        #expect(household.role == .owner)
         #expect(list.householdID == household.id)
         #expect(list.householdName == household.name)
         #expect(list.name == "Weekly groceries")
         #expect(list.accentColorHex == "#3b82f6")
+        #expect(list.accessRole == .owner)
         #expect(snapshot.favoriteListID == list.id)
         #expect(snapshot.selectedListID == list.id)
         #expect(listData.items.map(\.name) == ["Apples", "Milk", "Pasta"])
@@ -95,6 +97,25 @@ struct LocalDemoStoreTests {
         let seeded = store.loadOrSeed()
         #expect(store.load() == seeded)
         #expect(store.loadOrSeed() == seeded)
+
+        let legacyHousehold = HouseholdSummary(id: UUID(), name: "Legacy demo")
+        let legacyList = GroceryListSummary(
+            id: UUID(),
+            householdID: legacyHousehold.id,
+            householdName: legacyHousehold.name,
+            name: "Legacy list",
+            archived: false
+        )
+        let legacySnapshot = LocalDemoSnapshot(
+            households: [legacyHousehold],
+            lists: [legacyList],
+            listData: [:],
+            favoriteListID: nil,
+            selectedListID: nil
+        )
+        store.save(legacySnapshot)
+        #expect(store.load()?.households.first?.role == .owner)
+        #expect(store.load()?.lists.first?.accessRole == .owner)
 
         var changed = seeded
         changed.favoriteListID = nil

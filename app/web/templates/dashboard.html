@@ -183,6 +183,13 @@
       <p class="dashboard-helper" data-dashboard-invite-household></p>
       <form class="dashboard-form invite-share-form" data-dashboard-invite-form>
         <label class="dashboard-field">
+          <span>{{ t("dashboard.member_role") }}</span>
+          <select name="role" data-invite-role>
+            <option value="editor">{{ t("dashboard.role_editor") }}</option>
+            <option value="viewer">{{ t("dashboard.role_viewer") }}</option>
+          </select>
+        </label>
+        <label class="dashboard-field">
           <span>{{ t("dashboard.invite_limit_type") }}</span>
           <select name="mode" data-invite-mode>
             <option value="time">{{ t("dashboard.invite_time_limited") }}</option>
@@ -216,6 +223,23 @@
           </button>
         </div>
       </div>
+    </section>
+  </div>
+
+  <div class="item-modal" data-dashboard-members-overlay hidden>
+    <button class="item-modal-backdrop" type="button" aria-label="{{ t("dashboard.close_members") }}" data-dashboard-members-close></button>
+    <section class="dashboard-card add-item-panel household-members-panel" data-dashboard-members-panel hidden>
+      <div class="add-item-panel-header">
+        <div>
+          <p class="dashboard-label">{{ t("dashboard.members_label") }}</p>
+          <h2 data-dashboard-members-title>{{ t("dashboard.members_title") }}</h2>
+        </div>
+        <button class="add-item-close" type="button" aria-label="{{ t("dashboard.close_members") }}" data-dashboard-members-close>
+          &times;
+        </button>
+      </div>
+      <p class="dashboard-helper">{{ t("dashboard.members_helper") }}</p>
+      <div class="household-member-list" data-dashboard-member-list></div>
     </section>
   </div>
 

@@ -459,12 +459,12 @@ test("dashboard helpers render household state and form status", async () => {
     });
 
     const households = [
-      { id: "house-1", name: "Home" },
-      { id: "house-2", name: "Office" },
+      { id: "house-1", name: "Home", role: "owner" },
+      { id: "house-2", name: "Office", role: "editor" },
     ];
     app.updateHouseholdOptions(root, households);
     const select = root.querySelector("[data-household-select]");
-    assert.equal(select.options.length, 3);
+    assert.equal(select.options.length, 2);
     assert.equal(select.options[0].textContent, "Select a household");
 
     const addToggle = root.querySelector("[data-dashboard-add-toggle]");
@@ -514,7 +514,9 @@ test("dashboard helpers render household state and form status", async () => {
     globalThis.fetch = async (url) => {
       fetchIndex += 1;
       if (fetchIndex === 1) {
-        return createResponse({ jsonData: [{ id: "house-1", name: "Home" }] });
+        return createResponse({
+          jsonData: [{ id: "house-1", name: "Home", role: "owner" }],
+        });
       }
       return createResponse({ jsonData: [{ id: "list-1", name: "Weekly" }] });
     };
@@ -684,6 +686,105 @@ test("helper guard clauses and alternate render paths are covered", async () => 
     noTokenRoot.dataset.listId = "list-1";
     app.connectListSocket(noTokenRoot, { socket: null });
     assert.equal(noTokenRoot.querySelector("[data-list-sync-status]").textContent, "Live updates unavailable.");
+  } finally {
+    env.restore();
+  }
+});
+
+test("household roles shape dashboard controls and viewer list access", async () => {
+  const env = installDom(`
+    <section data-dashboard>
+      <div data-household-list></div>
+      <div data-dashboard-empty hidden></div>
+      <div data-dashboard-member-list></div>
+      <h2 data-dashboard-members-title></h2>
+      <select data-invite-role><option value="editor">Editor</option><option value="viewer">Viewer</option></select>
+      <select data-invite-mode><option value="time">Time</option><option value="uses">Uses</option></select>
+      <input data-invite-hours-input value="72" />
+      <input data-invite-max-uses value="3" />
+    </section>
+    <section data-list-detail>
+      <button data-item-form-toggle>Add</button>
+      <button data-list-settings-toggle>Settings</button>
+      <div data-list-read-only hidden>Read only</div>
+    </section>
+  `);
+
+  try {
+    const app = await loadApp();
+    const dashboardRoot = document.querySelector("[data-dashboard]");
+    const households = [
+      { id: "owner-house", name: "Home", role: "owner" },
+      { id: "viewer-house", name: "Shared", role: "viewer" },
+    ];
+    app.renderHouseholds(
+      dashboardRoot,
+      households,
+      new Map([
+        ["owner-house", []],
+        ["viewer-house", []],
+      ]),
+    );
+    assert.equal(dashboardRoot.querySelectorAll("[data-open-members]").length, 2);
+    assert.equal(dashboardRoot.querySelectorAll("[data-open-invite-sheet]").length, 1);
+    assert.equal(dashboardRoot.querySelectorAll('[data-dashboard-add-option="list"]').length, 1);
+    assert.match(dashboardRoot.textContent, /Viewer/);
+
+    app.renderHouseholdMembers(
+      dashboardRoot,
+      households[0],
+      [
+        {
+          user_id: "owner-user",
+          display_name: "Owner",
+          email: "owner@example.com",
+          role: "owner",
+        },
+        {
+          user_id: "viewer-user",
+          display_name: "Viewer",
+          email: "viewer@example.com",
+          role: "viewer",
+        },
+      ],
+    );
+    assert.equal(dashboardRoot.querySelectorAll("[data-member-role]").length, 1);
+    assert.equal(dashboardRoot.querySelectorAll("[data-remove-member]").length, 1);
+    assert.equal(
+      dashboardRoot.querySelector("[data-member-role]").value,
+      "viewer",
+    );
+
+    dashboardRoot.querySelector("[data-invite-role]").value = "viewer";
+    assert.deepEqual(app.householdInvitePayload(dashboardRoot), {
+      expires_in_hours: 72,
+      role: "viewer",
+    });
+    dashboardRoot.querySelector("[data-invite-mode]").value = "uses";
+    assert.deepEqual(app.householdInvitePayload(dashboardRoot), {
+      expires_in_hours: null,
+      max_uses: 3,
+      role: "viewer",
+    });
+
+    const listRoot = document.querySelector("[data-list-detail]");
+    const state = {};
+    app.applyListAccess(listRoot, state, "viewer");
+    assert.equal(state.canEdit, false);
+    assert.equal(state.canManage, false);
+    assert.equal(listRoot.querySelector("[data-item-form-toggle]").hidden, true);
+    assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, true);
+    assert.equal(listRoot.querySelector("[data-list-read-only]").hidden, false);
+
+    app.applyListAccess(listRoot, state, "editor");
+    assert.equal(state.canEdit, true);
+    assert.equal(state.canManage, false);
+    assert.equal(listRoot.querySelector("[data-item-form-toggle]").hidden, false);
+    assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, true);
+
+    app.applyListAccess(listRoot, state, "owner");
+    assert.equal(state.canManage, true);
+    assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, false);
   } finally {
     env.restore();
   }

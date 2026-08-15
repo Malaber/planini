@@ -354,6 +354,7 @@ function syncDashboardModalState(root) {
     root.querySelector("[data-dashboard-household-overlay]"),
     root.querySelector("[data-dashboard-list-overlay]"),
     root.querySelector("[data-dashboard-invite-overlay]"),
+    root.querySelector("[data-dashboard-members-overlay]"),
   ];
   const hasModalOpen = overlays.some((overlay) => overlay instanceof HTMLElement && !overlay.hidden);
   document.body.classList.toggle("has-list-modal-open", hasModalOpen);
@@ -379,6 +380,11 @@ function setDashboardPanelOpen(root, panelName, isOpen) {
       overlay: root.querySelector("[data-dashboard-invite-overlay]"),
       panel: root.querySelector("[data-dashboard-invite-panel]"),
       focus: root.querySelector("[data-invite-mode]"),
+    },
+    members: {
+      overlay: root.querySelector("[data-dashboard-members-overlay]"),
+      panel: root.querySelector("[data-dashboard-members-panel]"),
+      focus: root.querySelector("[data-dashboard-members-close]"),
     },
   };
   const toggle = root.querySelector("[data-dashboard-add-toggle]");
@@ -416,27 +422,34 @@ function updateHouseholdOptions(root, households) {
   }
 
   const currentValue = select.value;
+  const manageableHouseholds = households.filter((household) => household.role === "owner");
   select.innerHTML = "";
 
   const placeholder = document.createElement("option");
   placeholder.value = "";
-  placeholder.textContent = households.length
+  placeholder.textContent = manageableHouseholds.length
     ? translate("dashboard.select_household", {}, "Select a household")
     : translate("dashboard.create_household_first", {}, "Create a household first");
   select.appendChild(placeholder);
 
-  households.forEach((household) => {
+  manageableHouseholds.forEach((household) => {
     const option = document.createElement("option");
     option.value = household.id;
     option.textContent = household.name;
     select.appendChild(option);
   });
 
-  if (households.some((household) => household.id === currentValue)) {
+  if (manageableHouseholds.some((household) => household.id === currentValue)) {
     select.value = currentValue;
-  } else if (households.length === 1) {
-    select.value = households[0].id;
+  } else if (manageableHouseholds.length === 1) {
+    select.value = manageableHouseholds[0].id;
   }
+
+  root.querySelectorAll('[data-dashboard-add-option="list"]').forEach((node) => {
+    if (node instanceof HTMLElement) {
+      node.hidden = manageableHouseholds.length === 0;
+    }
+  });
 }
 
 function updateDashboardListOptions(root, households, listsByHousehold) {
@@ -446,7 +459,9 @@ function updateDashboardListOptions(root, households, listsByHousehold) {
     return;
   }
 
-  const listOptions = households.flatMap((household) =>
+  const listOptions = households
+    .filter((household) => household.role !== "viewer")
+    .flatMap((household) =>
     (listsByHousehold.get(household.id) || []).map((list) => ({
       householdName: household.name,
       id: list.id,
@@ -490,22 +505,35 @@ function renderHouseholds(root, households, listsByHousehold) {
     const lists = listsByHousehold.get(household.id) || [];
     const card = document.createElement("article");
     card.className = "household-card";
+    const roleLabel = translate(
+      `dashboard.role_${household.role}`,
+      {},
+      household.role === "owner" ? "Owner" : household.role === "viewer" ? "Viewer" : "Editor"
+    );
+    const inviteButton = household.role === "owner"
+      ? `<button type="button" class="secondary-button" data-open-invite-sheet="${household.id}">
+          ${translate("dashboard.create_invite_link", {}, "Create invite link")}
+        </button>`
+      : "";
     card.innerHTML = `
       <div class="household-card-header">
         <div>
           <h3>${household.name}</h3>
-          <p class="household-meta">${translatePlural("dashboard.list_count", lists.length, {}, { one: "{count} list", other: "{count} lists" })}</p>
+          <p class="household-meta">${translatePlural("dashboard.list_count", lists.length, {}, { one: "{count} list", other: "{count} lists" })} · ${roleLabel}</p>
         </div>
-        <button type="button" class="secondary-button" data-open-invite-sheet="${household.id}">
-          ${translate("dashboard.create_invite_link", {}, "Create invite link")}
-        </button>
+        <div class="household-card-actions">
+          <button type="button" class="secondary-button" data-open-members="${household.id}" data-household-role="${household.role}">
+            ${translate("dashboard.members", {}, "Members")}
+          </button>
+          ${inviteButton}
+        </div>
       </div>
     `;
 
     const listGrid = document.createElement("ul");
     listGrid.className = "list-grid";
 
-    if (lists.length === 0) {
+    if (lists.length === 0 && household.role === "owner") {
       const emptyListState = document.createElement("li");
       emptyListState.innerHTML = `
         <button type="button" class="dashboard-action-card" data-dashboard-add-option="list">
@@ -515,7 +543,7 @@ function renderHouseholds(root, households, listsByHousehold) {
       `;
       listGrid.appendChild(emptyListState);
       card.appendChild(listGrid);
-    } else {
+    } else if (lists.length > 0) {
       lists.forEach((list) => {
         const openItemCount = Number.isInteger(list.open_item_count) ? list.open_item_count : 0;
         const item = document.createElement("li");
@@ -531,6 +559,46 @@ function renderHouseholds(root, households, listsByHousehold) {
     }
 
     container.appendChild(card);
+  });
+}
+
+function renderHouseholdMembers(root, household, members) {
+  const container = root.querySelector("[data-dashboard-member-list]");
+  const title = root.querySelector("[data-dashboard-members-title]");
+  if (!(container instanceof HTMLElement)) {
+    return;
+  }
+  if (title instanceof HTMLElement) {
+    title.textContent = translate(
+      "dashboard.members_title_named",
+      { household: household.name },
+      "{household} members"
+    );
+  }
+  container.innerHTML = "";
+  members.forEach((member) => {
+    const row = document.createElement("div");
+    row.className = "household-member-row";
+    const roleControl = household.role === "owner" && member.role !== "owner"
+      ? `<label>
+          <span class="sr-only">${translate("dashboard.member_role", {}, "Role")}</span>
+          <select data-member-role="${member.user_id}">
+            <option value="editor"${member.role === "editor" ? " selected" : ""}>${translate("dashboard.role_editor", {}, "Editor")}</option>
+            <option value="viewer"${member.role === "viewer" ? " selected" : ""}>${translate("dashboard.role_viewer", {}, "Viewer")}</option>
+          </select>
+        </label>
+        <button type="button" class="danger-button" data-remove-member="${member.user_id}">
+          ${translate("dashboard.remove_member", {}, "Remove")}
+        </button>`
+      : `<span class="household-member-role">${translate(`dashboard.role_${member.role}`, {}, member.role)}</span>`;
+    row.innerHTML = `
+      <div>
+        <strong>${member.display_name}</strong>
+        <small>${member.email}</small>
+      </div>
+      <div class="household-member-actions">${roleControl}</div>
+    `;
+    container.appendChild(row);
   });
 }
 
@@ -569,20 +637,21 @@ function syncInviteSheet(root) {
 
 function householdInvitePayload(root) {
   const mode = root.querySelector("[data-invite-mode]")?.value || "time";
+  const role = root.querySelector("[data-invite-role]")?.value === "viewer" ? "viewer" : "editor";
   if (mode === "uses") {
     const maxUsesInput = root.querySelector("[data-invite-max-uses]");
     const maxUses = boundedInteger(maxUsesInput?.value, 5, 1, 100);
     if (maxUsesInput instanceof HTMLInputElement) {
       maxUsesInput.value = String(maxUses);
     }
-    return { expires_in_hours: null, max_uses: maxUses };
+    return { expires_in_hours: null, max_uses: maxUses, role };
   }
   const hoursInput = root.querySelector("[data-invite-hours-input]");
   const expiresInHours = boundedInteger(hoursInput?.value, 24, 1, 720);
   if (hoursInput instanceof HTMLInputElement) {
     hoursInput.value = String(expiresInHours);
   }
-  return { expires_in_hours: expiresInHours };
+  return { expires_in_hours: expiresInHours, role };
 }
 
 async function copyText(value) {
@@ -739,6 +808,65 @@ async function initDashboard() {
       return;
     }
 
+    const openMembersButton = event.target.closest("[data-open-members]");
+    if (openMembersButton) {
+      const householdId = openMembersButton.getAttribute("data-open-members");
+      const householdName = openMembersButton.closest(".household-card")?.querySelector("h3")?.textContent || "";
+      const householdRole = openMembersButton.getAttribute("data-household-role") || "viewer";
+      if (!householdId) {
+        return;
+      }
+      root.dataset.membersHouseholdId = householdId;
+      root.dataset.membersHouseholdRole = householdRole;
+      root.dataset.membersHouseholdName = householdName;
+      toggleDashboardForms(root, true);
+      try {
+        const members = await fetchJson(`/api/v1/households/${householdId}/members`);
+        renderHouseholdMembers(
+          root,
+          { id: householdId, name: householdName, role: householdRole },
+          members
+        );
+        setDashboardPanelOpen(root, "members", true);
+      } catch (error) {
+        setDashboardMessage(root, "error", error instanceof Error ? error.message : "Could not load members.");
+      } finally {
+        toggleDashboardForms(root, false);
+      }
+      return;
+    }
+
+    const removeMemberButton = event.target.closest("[data-remove-member]");
+    if (removeMemberButton) {
+      const householdId = root.dataset.membersHouseholdId;
+      const memberUserId = removeMemberButton.getAttribute("data-remove-member");
+      if (!householdId || !memberUserId) {
+        return;
+      }
+      toggleDashboardForms(root, true);
+      try {
+        await fetchJson(`/api/v1/households/${householdId}/members/${memberUserId}`, {
+          method: "DELETE",
+        });
+        const members = await fetchJson(`/api/v1/households/${householdId}/members`);
+        renderHouseholdMembers(
+          root,
+          {
+            id: householdId,
+            name: root.dataset.membersHouseholdName || "",
+            role: root.dataset.membersHouseholdRole || "viewer",
+          },
+          members
+        );
+        setDashboardMessage(root, "success", translate("dashboard.member_removed", {}, "Member removed."));
+      } catch (error) {
+        setDashboardMessage(root, "error", error instanceof Error ? error.message : "Could not remove member.");
+      } finally {
+        toggleDashboardForms(root, false);
+      }
+      return;
+    }
+
     const openInviteButton = event.target.closest("[data-open-invite-sheet]");
     if (openInviteButton) {
       const householdId = openInviteButton.getAttribute("data-open-invite-sheet");
@@ -852,6 +980,41 @@ async function initDashboard() {
     }
   });
 
+  root.addEventListener("change", async (event) => {
+    const roleSelect = event.target.closest("[data-member-role]");
+    if (!(roleSelect instanceof HTMLSelectElement)) {
+      return;
+    }
+    const householdId = root.dataset.membersHouseholdId;
+    const memberUserId = roleSelect.getAttribute("data-member-role");
+    if (!householdId || !memberUserId) {
+      return;
+    }
+    toggleDashboardForms(root, true);
+    try {
+      await fetchJson(`/api/v1/households/${householdId}/members/${memberUserId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: roleSelect.value }),
+      });
+      setDashboardMessage(root, "success", translate("dashboard.member_role_updated", {}, "Member role updated."));
+    } catch (error) {
+      setDashboardMessage(root, "error", error instanceof Error ? error.message : "Could not update member role.");
+      const members = await fetchJson(`/api/v1/households/${householdId}/members`);
+      renderHouseholdMembers(
+        root,
+        {
+          id: householdId,
+          name: root.dataset.membersHouseholdName || "",
+          role: root.dataset.membersHouseholdRole || "viewer",
+        },
+        members
+      );
+    } finally {
+      toggleDashboardForms(root, false);
+    }
+  });
+
   root.querySelector("[data-dashboard-add-toggle]")?.addEventListener("click", () => {
     const panel = root.querySelector("[data-dashboard-add-panel]");
     setDashboardPanelOpen(root, "add", panel?.hidden ?? true);
@@ -881,6 +1044,12 @@ async function initDashboard() {
     });
   });
 
+  root.querySelectorAll("[data-dashboard-members-close]").forEach((node) => {
+    node.addEventListener("click", () => {
+      setDashboardPanelOpen(root, "members", false);
+    });
+  });
+
   root.querySelector("[data-invite-mode]")?.addEventListener("change", () => {
     syncInviteSheet(root);
   });
@@ -905,7 +1074,7 @@ async function initDashboard() {
       return;
     }
 
-    const panelNames = ["household", "list", "add"];
+    const panelNames = ["members", "invite", "household", "list", "add"];
     const openPanelName = panelNames.find((name) => {
       const panel = root.querySelector(`[data-dashboard-${name}-panel]`);
       return panel instanceof HTMLElement && !panel.hidden;
@@ -1827,6 +1996,7 @@ function persistOfflineListState(root, state) {
   window.localStorage?.setItem(
     offlineListStorageKey(listId),
     JSON.stringify({
+      accessRole: state.accessRole || "viewer",
       title: listTitleText(root),
       items: [...state.items.values()],
       lists: state.lists || [],
@@ -1843,6 +2013,7 @@ function persistOfflineListState(root, state) {
 }
 
 function applyOfflineListState(root, state, cachedState) {
+  applyListAccess(root, state, cachedState.accessRole || "editor");
   setListName(root, state, cachedState.title || listTitleText(root));
 
   state.categories = new Map((cachedState.categories || []).map((category) => [category.id, category]));
@@ -1853,7 +2024,7 @@ function applyOfflineListState(root, state, cachedState) {
   setDisabledCategoryIds(state, cachedState.disabledCategoryIds || []);
   replaceItems(state, cachedState.items || []);
   state.checkedRemainingCount = cachedState.checkedRemainingCount || 0;
-  state.pendingMutations = cachedState.pendingMutations || [];
+  state.pendingMutations = state.canEdit ? cachedState.pendingMutations || [] : [];
   syncCategoryRadioGroups(root, state);
   renderItems(root, state);
 }
@@ -4171,20 +4342,22 @@ function renderItems(root, state) {
     const headingActions = document.createElement("div");
     headingActions.className = "item-category-actions";
 
-    const quickAddButton = document.createElement("button");
-    quickAddButton.className = "item-category-quick-add";
-    quickAddButton.type = "button";
-    quickAddButton.dataset.itemQuickAddCategory = category?.id || "";
-    const quickAddLabel = category
-      ? translate("list_detail.quick_add_category", { name: category.name }, "Quick add to {name}")
-      : translate("list_detail.quick_add_uncategorized", {}, "Quick add uncategorized item");
-    quickAddButton.setAttribute("aria-label", quickAddLabel);
-    quickAddButton.title = quickAddLabel;
-    const quickAddIcon = document.createElement("span");
-    quickAddIcon.setAttribute("aria-hidden", "true");
-    quickAddIcon.textContent = "+";
-    quickAddButton.appendChild(quickAddIcon);
-    headingActions.appendChild(quickAddButton);
+    if (state.canEdit) {
+      const quickAddButton = document.createElement("button");
+      quickAddButton.className = "item-category-quick-add";
+      quickAddButton.type = "button";
+      quickAddButton.dataset.itemQuickAddCategory = category?.id || "";
+      const quickAddLabel = category
+        ? translate("list_detail.quick_add_category", { name: category.name }, "Quick add to {name}")
+        : translate("list_detail.quick_add_uncategorized", {}, "Quick add uncategorized item");
+      quickAddButton.setAttribute("aria-label", quickAddLabel);
+      quickAddButton.title = quickAddLabel;
+      const quickAddIcon = document.createElement("span");
+      quickAddIcon.setAttribute("aria-hidden", "true");
+      quickAddIcon.textContent = "+";
+      quickAddButton.appendChild(quickAddIcon);
+      headingActions.appendChild(quickAddButton);
+    }
     headingActions.appendChild(headingMeta);
     heading.appendChild(headingActions);
 
@@ -4203,13 +4376,17 @@ function renderItems(root, state) {
         state.highlightedItemId === item.id ? " is-highlighted" : ""
       }${menuIsOpen ? " has-open-menu" : ""}${onSale ? " is-on-sale" : ""}`;
       article.dataset.itemCard = item.id;
-      article.dataset.itemEdit = item.id;
+      if (state.canEdit) {
+        article.dataset.itemEdit = item.id;
+      }
 
-      const swipeAction = document.createElement("div");
-      swipeAction.className = "item-swipe-action";
-      swipeAction.setAttribute("aria-hidden", "true");
-      swipeAction.textContent = translate("list_detail.hide_for_later_short", {}, "Later 4h");
-      article.appendChild(swipeAction);
+      if (state.canEdit) {
+        const swipeAction = document.createElement("div");
+        swipeAction.className = "item-swipe-action";
+        swipeAction.setAttribute("aria-hidden", "true");
+        swipeAction.textContent = translate("list_detail.hide_for_later_short", {}, "Later 4h");
+        article.appendChild(swipeAction);
+      }
 
       const cardContent = document.createElement("div");
       cardContent.className = "item-card-content";
@@ -4217,73 +4394,85 @@ function renderItems(root, state) {
       const main = document.createElement("div");
       main.className = "item-main";
 
-      const checkButton = document.createElement("button");
+      const checkButton = document.createElement(state.canEdit ? "button" : "span");
       checkButton.className = `item-check${item.checked ? " is-checked" : ""}`;
-      checkButton.type = "button";
-      checkButton.dataset.itemToggle = item.id;
-      checkButton.setAttribute(
-        "aria-label",
-        item.checked
-          ? translate("list_detail.uncheck_item", { name: item.name }, "Uncheck {name}")
-          : translate("list_detail.check_item", { name: item.name }, "Check {name}")
-      );
+      if (state.canEdit) {
+        checkButton.type = "button";
+        checkButton.dataset.itemToggle = item.id;
+        checkButton.setAttribute(
+          "aria-label",
+          item.checked
+            ? translate("list_detail.uncheck_item", { name: item.name }, "Uncheck {name}")
+            : translate("list_detail.check_item", { name: item.name }, "Check {name}")
+        );
+      } else {
+        checkButton.setAttribute("aria-hidden", "true");
+      }
       main.appendChild(checkButton);
 
       main.appendChild(createItemCopy(item, onSale));
       cardContent.appendChild(main);
 
-      const actions = document.createElement("div");
-      actions.className = "item-actions";
+      if (state.canEdit) {
+        const actions = document.createElement("div");
+        actions.className = "item-actions";
 
-      const menuButton = document.createElement("button");
-      menuButton.type = "button";
-      menuButton.className = "item-more-button";
-      menuButton.dataset.itemMenuToggle = item.id;
-      menuButton.setAttribute(
-        "aria-label",
-        translate("list_detail.more_item_actions", { name: item.name }, "More actions for {name}")
-      );
-      menuButton.setAttribute("aria-controls", `item-more-menu-${item.id}`);
-      menuButton.setAttribute("aria-expanded", String(menuIsOpen));
-      menuButton.setAttribute("aria-haspopup", "menu");
-      const menuButtonIcon = document.createElement("span");
-      menuButtonIcon.className = "item-more-button-icon";
-      menuButtonIcon.setAttribute("aria-hidden", "true");
-      menuButtonIcon.textContent = "⋯";
-      menuButton.appendChild(menuButtonIcon);
-      actions.appendChild(menuButton);
-      cardContent.appendChild(actions);
+        const menuButton = document.createElement("button");
+        menuButton.type = "button";
+        menuButton.className = "item-more-button";
+        menuButton.dataset.itemMenuToggle = item.id;
+        menuButton.setAttribute(
+          "aria-label",
+          translate("list_detail.more_item_actions", { name: item.name }, "More actions for {name}")
+        );
+        menuButton.setAttribute("aria-controls", `item-more-menu-${item.id}`);
+        menuButton.setAttribute("aria-expanded", String(menuIsOpen));
+        menuButton.setAttribute("aria-haspopup", "menu");
+        const menuButtonIcon = document.createElement("span");
+        menuButtonIcon.className = "item-more-button-icon";
+        menuButtonIcon.setAttribute("aria-hidden", "true");
+        menuButtonIcon.textContent = "⋯";
+        menuButton.appendChild(menuButtonIcon);
+        actions.appendChild(menuButton);
+        cardContent.appendChild(actions);
+      }
 
       article.appendChild(cardContent);
 
-      const menu = document.createElement("div");
-      menu.className = "item-more-menu";
-      menu.id = `item-more-menu-${item.id}`;
-      menu.setAttribute("role", "menu");
-      menu.hidden = !menuIsOpen;
+      if (state.canEdit) {
+        const menu = document.createElement("div");
+        menu.className = "item-more-menu";
+        menu.id = `item-more-menu-${item.id}`;
+        menu.setAttribute("role", "menu");
+        menu.hidden = !menuIsOpen;
 
-      const currentListId = item.list_id || root.dataset.listId || "";
-      const moveTargetLists = (state.lists || []).filter((list) => list.id !== currentListId);
-      if (moveTargetLists.length > 0) {
-        const moveButton = document.createElement("button");
-        moveButton.type = "button";
-        moveButton.dataset.itemMoveOpen = item.id;
-        moveButton.setAttribute("role", "menuitem");
-        moveButton.textContent = translate(
-          "list_detail.move_to_list",
+        const currentListId = item.list_id || root.dataset.listId || "";
+        const moveTargetLists = (state.lists || []).filter((list) => list.id !== currentListId);
+        if (moveTargetLists.length > 0) {
+          const moveButton = document.createElement("button");
+          moveButton.type = "button";
+          moveButton.dataset.itemMoveOpen = item.id;
+          moveButton.setAttribute("role", "menuitem");
+          moveButton.textContent = translate(
+            "list_detail.move_to_list",
+            {},
+            "Move to list",
+          );
+          menu.appendChild(moveButton);
+        }
+
+        const hideButton = document.createElement("button");
+        hideButton.type = "button";
+        hideButton.dataset.itemHide = item.id;
+        hideButton.setAttribute("role", "menuitem");
+        hideButton.textContent = translate(
+          "list_detail.hide_item_for_later_menu",
           {},
-          "Move to list",
+          "Hide item for 4h",
         );
-        menu.appendChild(moveButton);
+        menu.appendChild(hideButton);
+        article.appendChild(menu);
       }
-
-      const hideButton = document.createElement("button");
-      hideButton.type = "button";
-      hideButton.dataset.itemHide = item.id;
-      hideButton.setAttribute("role", "menuitem");
-      hideButton.textContent = translate("list_detail.hide_item_for_later_menu", {}, "Hide item for 4h");
-      menu.appendChild(hideButton);
-      article.appendChild(menu);
       section.appendChild(article);
     });
 
@@ -4327,7 +4516,9 @@ function renderItems(root, state) {
         state.highlightedItemId === item.id ? " is-highlighted" : ""
       }${onSale ? " is-on-sale" : ""}`;
       article.dataset.itemCard = item.id;
-      article.dataset.itemEdit = item.id;
+      if (state.canEdit) {
+        article.dataset.itemEdit = item.id;
+      }
 
       const cardContent = document.createElement("div");
       cardContent.className = "item-card-content";
@@ -4335,14 +4526,16 @@ function renderItems(root, state) {
       const main = document.createElement("div");
       main.className = "item-main";
 
-      const unhideButton = document.createElement("button");
+      const unhideButton = document.createElement(state.canEdit ? "button" : "span");
       unhideButton.className = "item-check item-hidden-clock";
-      unhideButton.type = "button";
-      unhideButton.dataset.itemUnhide = item.id;
-      unhideButton.setAttribute(
-        "aria-label",
-        translate("list_detail.show_hidden_item", { name: item.name }, "Show {name} now")
-      );
+      if (state.canEdit) {
+        unhideButton.type = "button";
+        unhideButton.dataset.itemUnhide = item.id;
+        unhideButton.setAttribute(
+          "aria-label",
+          translate("list_detail.show_hidden_item", { name: item.name }, "Show {name} now")
+        );
+      }
       unhideButton.textContent = formatHiddenUntilLabel(item, renderNow);
       main.appendChild(unhideButton);
 
@@ -4396,7 +4589,9 @@ function renderItems(root, state) {
         state.highlightedItemId === item.id ? " is-highlighted" : ""
       }${onSale ? " is-on-sale" : ""}`;
       article.dataset.itemCard = item.id;
-      article.dataset.itemEdit = item.id;
+      if (state.canEdit) {
+        article.dataset.itemEdit = item.id;
+      }
 
       const cardContent = document.createElement("div");
       cardContent.className = "item-card-content";
@@ -4404,14 +4599,18 @@ function renderItems(root, state) {
       const main = document.createElement("div");
       main.className = "item-main";
 
-      const checkButton = document.createElement("button");
+      const checkButton = document.createElement(state.canEdit ? "button" : "span");
       checkButton.className = "item-check is-checked";
-      checkButton.type = "button";
-      checkButton.dataset.itemToggle = item.id;
-      checkButton.setAttribute(
-        "aria-label",
-        translate("list_detail.uncheck_item", { name: item.name }, "Uncheck {name}")
-      );
+      if (state.canEdit) {
+        checkButton.type = "button";
+        checkButton.dataset.itemToggle = item.id;
+        checkButton.setAttribute(
+          "aria-label",
+          translate("list_detail.uncheck_item", { name: item.name }, "Uncheck {name}")
+        );
+      } else {
+        checkButton.setAttribute("aria-hidden", "true");
+      }
       main.appendChild(checkButton);
 
       main.appendChild(createItemCopy(item, onSale));
@@ -4624,6 +4823,25 @@ function disposeSocket(state, markDisposed) {
   }
 }
 
+function applyListAccess(root, state, accessRole) {
+  state.accessRole = accessRole;
+  state.canEdit = accessRole === "owner" || accessRole === "editor";
+  state.canManage = accessRole === "owner";
+  root.querySelectorAll("[data-item-form-toggle]").forEach((node) => {
+    if (node instanceof HTMLElement) {
+      node.hidden = !state.canEdit;
+    }
+  });
+  const settingsButton = root.querySelector("[data-list-settings-toggle]");
+  if (settingsButton instanceof HTMLElement) {
+    settingsButton.hidden = !state.canManage;
+  }
+  const readOnlyNotice = root.querySelector("[data-list-read-only]");
+  if (readOnlyNotice instanceof HTMLElement) {
+    readOnlyNotice.hidden = accessRole !== "viewer";
+  }
+}
+
 async function loadListDetail(root, state) {
   if (isDemoList(root)) {
     const payload = state.demoPayload || getDemoPayload(root);
@@ -4631,6 +4849,7 @@ async function loadListDetail(root, state) {
       throw new Error(translate("list_detail.load_failed", {}, "Could not load the list."));
     }
 
+    applyListAccess(root, state, "owner");
     setListName(root, state, payload.list.name);
     renderListSwitcher(root, payload.list, []);
 
@@ -4690,6 +4909,7 @@ async function loadListDetail(root, state) {
     throw error;
   }
 
+  applyListAccess(root, state, groceryList.access_role || "viewer");
   setListName(root, state, groceryList.name);
   if (isPublicList(root)) {
     rememberPublicList(root, groceryList);
@@ -4712,7 +4932,11 @@ async function loadListDetail(root, state) {
   setDisabledCategoryIds(state, disabledCategories.category_ids || []);
   state.pendingMutations = [];
   const cachedState = isPublicList(root) ? null : loadOfflineListState(listId);
-  if (cachedState?.pendingMutations?.length > 0 && Array.isArray(cachedState.items)) {
+  if (
+    state.canEdit &&
+    cachedState?.pendingMutations?.length > 0 &&
+    Array.isArray(cachedState.items)
+  ) {
     state.pendingMutations = cachedState.pendingMutations;
     replaceItems(state, cachedState.items);
     state.checkedRemainingCount = cachedState.checkedRemainingCount || 0;
@@ -4911,6 +5135,9 @@ async function initListDetail() {
   const nameInput = root.querySelector("[data-item-name-input]");
   const listId = root.dataset.listId;
   const state = {
+    accessRole: "viewer",
+    canEdit: false,
+    canManage: false,
     categoryOrder: new Map(),
     categories: new Map(),
     checkedRemainingCount: 0,
@@ -5069,7 +5296,7 @@ async function initListDetail() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" || event.defaultPrevented) {
+    if (event.key !== "Enter" || event.defaultPrevented || !state.canEdit) {
       return;
     }
 
@@ -5167,7 +5394,11 @@ async function initListDetail() {
   }
 
   root.addEventListener("pointerdown", (event) => {
-    if (!(event.target instanceof HTMLElement) || event.target.closest("button")) {
+    if (
+      !state.canEdit ||
+      !(event.target instanceof HTMLElement) ||
+      event.target.closest("button")
+    ) {
       return;
     }
 
@@ -5897,6 +6128,7 @@ export {
   updateHouseholdOptions,
   updateDashboardListOptions,
   renderHouseholds,
+  renderHouseholdMembers,
   normalizeRememberedPublicList,
   loadRememberedPublicLists,
   saveRememberedPublicLists,
@@ -6050,6 +6282,7 @@ export {
   runUndoAction,
   handleSocketClose,
   disposeSocket,
+  applyListAccess,
   loadListDetail,
   connectListSocket,
   initListDetail,
