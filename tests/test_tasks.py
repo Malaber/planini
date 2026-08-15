@@ -1251,6 +1251,18 @@ def test_ghcr_workflows_retry_registry_login() -> None:
     )
 
 
+def test_container_entrypoint_migrates_before_starting_uvicorn() -> None:
+    start_script = (Path(__file__).resolve().parents[1] / "docker" / "start.sh").read_text(
+        encoding="utf-8"
+    )
+
+    startup_checks = "python -m app.core.startup_checks"
+    migrations = "python -m alembic upgrade head"
+    uvicorn = "exec python -m uvicorn app.main:app"
+    assert start_script.index(startup_checks) < start_script.index(migrations)
+    assert start_script.index(migrations) < start_script.index(uvicorn)
+
+
 def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
     healthchecks: list[dict] = []

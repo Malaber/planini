@@ -2,6 +2,7 @@
 set -eu
 
 python -m app.core.startup_checks
+python -m alembic upgrade head
 
 exec python -m uvicorn app.main:app \
   --host 0.0.0.0 \
