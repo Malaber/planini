@@ -1123,7 +1123,9 @@ def test_review_workflow_waits_for_backend_health_after_deployment() -> None:
     assert "review_health:\n    name: Review backend health" in workflow
     assert "needs:\n      - review_deploy" in workflow
     assert "${REVIEW_URL}/health" in workflow
-    assert 'if [ "$status" = "200" ]; then' in workflow
+    assert 'if [ "$status" = "200" ]' in workflow
+    assert "x-webhooker-placeholder" in workflow
+    assert '"status"[[:space:]]*:[[:space:]]*"ok"' in workflow
 
 
 def test_release_attaches_app_store_screenshots() -> None:

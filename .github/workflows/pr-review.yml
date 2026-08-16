@@ -179,12 +179,18 @@ jobs:
     steps:
       - name: Wait for review backend
         run: |
+          response_headers="${RUNNER_TEMP}/review-health-headers.txt"
+          response_body="${RUNNER_TEMP}/review-health-body.json"
           for attempt in $(seq 1 30); do
             status="$(
-              curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              curl --silent --show-error \
+                --dump-header "$response_headers" --output "$response_body" \
+                --write-out '%{http_code}' \
                 --connect-timeout 5 --max-time 10 "${REVIEW_URL}/health" || true
             )"
-            if [ "$status" = "200" ]; then
+            if [ "$status" = "200" ] \
+              && ! grep --ignore-case --quiet '^x-webhooker-placeholder:[[:space:]]*1' "$response_headers" \
+              && grep --quiet '"status"[[:space:]]*:[[:space:]]*"ok"' "$response_body"; then
               echo "Review backend is healthy at ${REVIEW_URL}/health."
               exit 0
             fi
