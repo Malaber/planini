@@ -125,7 +125,153 @@ public struct HouseholdInviteLink: Equatable, Sendable {
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
+        if let parsed = formatter.date(from: value) {
+            return parsed
+        }
+
+        let sqliteFormatter = DateFormatter()
+        sqliteFormatter.locale = Locale(identifier: "en_US_POSIX")
+        sqliteFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss"] {
+            sqliteFormatter.dateFormat = format
+            if let parsed = sqliteFormatter.date(from: value) {
+                return parsed
+            }
+        }
+        return nil
+    }
+}
+
+public struct ListHistoryEntrySummary: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let listID: UUID?
+    public let actorUserID: UUID
+    public let actorDisplayName: String
+    public let eventType: String
+    public let subjectID: UUID?
+    public let subjectName: String?
+    public let details: [String: String]
+    public let createdAt: Date
+
+    public init(
+        id: UUID,
+        listID: UUID?,
+        actorUserID: UUID,
+        actorDisplayName: String,
+        eventType: String,
+        subjectID: UUID?,
+        subjectName: String?,
+        details: [String: String],
+        createdAt: Date
+    ) {
+        self.id = id
+        self.listID = listID
+        self.actorUserID = actorUserID
+        self.actorDisplayName = actorDisplayName
+        self.eventType = eventType
+        self.subjectID = subjectID
+        self.subjectName = subjectName
+        self.details = details
+        self.createdAt = createdAt
+    }
+
+    public init?(json: [String: Any]) {
+        guard
+            let idText = json["id"] as? String,
+            let id = UUID(uuidString: idText),
+            let actorUserIDText = json["actor_user_id"] as? String,
+            let actorUserID = UUID(uuidString: actorUserIDText),
+            let actorDisplayName = json["actor_display_name"] as? String,
+            let eventType = json["event_type"] as? String,
+            let createdAtText = json["created_at"] as? String,
+            let createdAt = Self.parseDate(createdAtText)
+        else {
+            return nil
+        }
+
+        let rawDetails = json["details"] as? [String: Any] ?? [:]
+        self.init(
+            id: id,
+            listID: (json["list_id"] as? String).flatMap(UUID.init(uuidString:)),
+            actorUserID: actorUserID,
+            actorDisplayName: actorDisplayName,
+            eventType: eventType,
+            subjectID: (json["subject_id"] as? String).flatMap(UUID.init(uuidString:)),
+            subjectName: json["subject_name"] as? String,
+            details: rawDetails.compactMapValues { $0 as? String },
+            createdAt: createdAt
+        )
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let formatterWithFractions = ISO8601DateFormatter()
+        formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatterWithFractions.date(from: value) {
+            return parsed
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        if let parsed = formatter.date(from: value) {
+            return parsed
+        }
+
+        let sqliteFormatter = DateFormatter()
+        sqliteFormatter.locale = Locale(identifier: "en_US_POSIX")
+        sqliteFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss"] {
+            sqliteFormatter.dateFormat = format
+            if let parsed = sqliteFormatter.date(from: value) {
+                return parsed
+            }
+        }
+        return nil
+    }
+}
+
+public enum ListHistoryPresentation {
+    public static func message(for entry: ListHistoryEntrySummary) -> String {
+        let actor = entry.actorDisplayName
+        let subject = entry.subjectName ?? "this list"
+        switch entry.eventType {
+        case "list_created":
+            return "\(actor) created this list."
+        case "list_renamed":
+            let oldName = entry.details["old_name"] ?? "this list"
+            let newName = entry.details["new_name"] ?? subject
+            return "\(actor) renamed \(oldName) to \(newName)."
+        case "list_accent_changed":
+            return "\(actor) changed the list color."
+        case "category_order_changed":
+            return "\(actor) changed the category order."
+        case "list_categories_changed":
+            return "\(actor) changed enabled categories."
+        case "item_created":
+            return "\(actor) added \(subject)."
+        case "item_updated":
+            return "\(actor) edited \(subject)."
+        case "item_checked":
+            return "\(actor) checked off \(subject)."
+        case "item_unchecked":
+            return "\(actor) restored \(subject)."
+        case "item_deleted":
+            return "\(actor) removed \(subject)."
+        case "item_moved_out":
+            let target = entry.details["other_list"] ?? "another list"
+            return "\(actor) moved \(subject) to \(target)."
+        case "item_moved_in":
+            let source = entry.details["other_list"] ?? "another list"
+            return "\(actor) moved \(subject) here from \(source)."
+        case "member_added":
+            return "\(actor) added \(subject) to the household."
+        case "member_role_changed":
+            let role = entry.details["new_role"] ?? "a new role"
+            return "\(actor) changed \(subject)'s role to \(role)."
+        case "member_removed":
+            return "\(actor) removed \(subject) from the household."
+        default:
+            return "\(actor) updated this list."
+        }
     }
 }
 

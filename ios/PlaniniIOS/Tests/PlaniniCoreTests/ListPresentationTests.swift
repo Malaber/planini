@@ -84,6 +84,77 @@ struct ListPresentationTests {
         #expect(HouseholdMemberSummary(json: [:]) == nil)
     }
 
+    @Test func listHistoryEntryParsesJSON() throws {
+        let entryID = UUID()
+        let listID = UUID()
+        let actorID = UUID()
+        let subjectID = UUID()
+        let entry = try #require(
+            ListHistoryEntrySummary(
+                json: [
+                    "id": entryID.uuidString,
+                    "list_id": listID.uuidString,
+                    "actor_user_id": actorID.uuidString,
+                    "actor_display_name": "Alex",
+                    "event_type": "item_updated",
+                    "subject_id": subjectID.uuidString,
+                    "subject_name": "Milk",
+                    "details": ["fields": "name, note", "removed": NSNull()],
+                    "created_at": "2026-08-13T12:34:56.123Z",
+                ]
+            )
+        )
+
+        #expect(entry.id == entryID)
+        #expect(entry.listID == listID)
+        #expect(entry.actorUserID == actorID)
+        #expect(entry.actorDisplayName == "Alex")
+        #expect(entry.eventType == "item_updated")
+        #expect(entry.subjectID == subjectID)
+        #expect(entry.subjectName == "Milk")
+        #expect(entry.details == ["fields": "name, note"])
+        #expect(entry.createdAt.timeIntervalSince1970 > 0)
+
+        let householdEntry = ListHistoryEntrySummary(
+            json: [
+                "id": UUID().uuidString,
+                "list_id": NSNull(),
+                "actor_user_id": actorID.uuidString,
+                "actor_display_name": "Alex",
+                "event_type": "member_added",
+                "subject_id": NSNull(),
+                "subject_name": NSNull(),
+                "details": [:],
+                "created_at": "2026-08-13T12:34:56",
+            ]
+        )
+        #expect(householdEntry?.listID == nil)
+        #expect(householdEntry?.subjectID == nil)
+        #expect(householdEntry?.subjectName == nil)
+        let sqliteEntry = ListHistoryEntrySummary(
+            json: [
+                "id": UUID().uuidString,
+                "actor_user_id": actorID.uuidString,
+                "actor_display_name": "Alex",
+                "event_type": "list_created",
+                "created_at": "2026-08-13T12:34:56.123456",
+            ]
+        )
+        #expect(sqliteEntry?.createdAt.timeIntervalSince1970 ?? 0 > 0)
+        #expect(ListHistoryEntrySummary(json: [:]) == nil)
+        #expect(
+            ListHistoryEntrySummary(
+                json: [
+                    "id": UUID().uuidString,
+                    "actor_user_id": actorID.uuidString,
+                    "actor_display_name": "Alex",
+                    "event_type": "item_created",
+                    "created_at": "not-a-date",
+                ]
+            ) == nil
+        )
+    }
+
     @Test func publicListEditLinkParsesJSON() {
         let link = PublicListEditLink(
             json: [
@@ -113,6 +184,79 @@ struct ListPresentationTests {
                     "expires_at": "not-a-date",
                 ]
             ) == nil
+        )
+    }
+
+    @Test func listHistoryPresentationDescribesEveryEvent() {
+        let actorID = UUID()
+        func entry(
+            _ eventType: String,
+            subject: String? = "Milk",
+            details: [String: String] = [:]
+        ) -> ListHistoryEntrySummary {
+            ListHistoryEntrySummary(
+                id: UUID(),
+                listID: UUID(),
+                actorUserID: actorID,
+                actorDisplayName: "Alex",
+                eventType: eventType,
+                subjectID: UUID(),
+                subjectName: subject,
+                details: details,
+                createdAt: Date(timeIntervalSince1970: 1)
+            )
+        }
+
+        let messages = [
+            ListHistoryPresentation.message(for: entry("list_created")),
+            ListHistoryPresentation.message(
+                for: entry(
+                    "list_renamed",
+                    subject: "Market",
+                    details: ["old_name": "Weekly", "new_name": "Market"]
+                )
+            ),
+            ListHistoryPresentation.message(for: entry("list_accent_changed")),
+            ListHistoryPresentation.message(for: entry("category_order_changed")),
+            ListHistoryPresentation.message(for: entry("list_categories_changed")),
+            ListHistoryPresentation.message(for: entry("item_created")),
+            ListHistoryPresentation.message(for: entry("item_updated")),
+            ListHistoryPresentation.message(for: entry("item_checked")),
+            ListHistoryPresentation.message(for: entry("item_unchecked")),
+            ListHistoryPresentation.message(for: entry("item_deleted")),
+            ListHistoryPresentation.message(
+                for: entry("item_moved_out", details: ["other_list": "Hardware"])
+            ),
+            ListHistoryPresentation.message(
+                for: entry("item_moved_in", details: ["other_list": "Weekly"])
+            ),
+            ListHistoryPresentation.message(for: entry("member_added", subject: "Sam")),
+            ListHistoryPresentation.message(
+                for: entry("member_role_changed", subject: "Sam", details: ["new_role": "viewer"])
+            ),
+            ListHistoryPresentation.message(for: entry("member_removed", subject: "Sam")),
+            ListHistoryPresentation.message(for: entry("unknown", subject: nil)),
+        ]
+
+        #expect(
+            messages == [
+                "Alex created this list.",
+                "Alex renamed Weekly to Market.",
+                "Alex changed the list color.",
+                "Alex changed the category order.",
+                "Alex changed enabled categories.",
+                "Alex added Milk.",
+                "Alex edited Milk.",
+                "Alex checked off Milk.",
+                "Alex restored Milk.",
+                "Alex removed Milk.",
+                "Alex moved Milk to Hardware.",
+                "Alex moved Milk here from Weekly.",
+                "Alex added Sam to the household.",
+                "Alex changed Sam's role to viewer.",
+                "Alex removed Sam from the household.",
+                "Alex updated this list.",
+            ]
         )
     }
 

@@ -31,6 +31,7 @@ from app.schemas.domain import (
     HouseholdMemberUpdate,
     HouseholdOut,
 )
+from app.services.list_history import record_list_history
 from app.services.websocket_hub import hub
 
 router = APIRouter(prefix="/households", tags=["households"])
@@ -194,7 +195,19 @@ async def update_household_member(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="The household owner role cannot be changed.",
         )
+    previous_role = membership.role
     membership.role = payload.role
+    if membership.role != previous_role:
+        record_list_history(
+            db,
+            household_id=household_id,
+            list_id=None,
+            actor=user,
+            event_type="member_role_changed",
+            subject_id=member_user.id,
+            subject_name=member_user.display_name,
+            details={"old_role": previous_role, "new_role": membership.role},
+        )
     await db.commit()
     return HouseholdMemberOut(
         user_id=membership.user_id,
@@ -213,14 +226,17 @@ async def remove_household_member(
 ) -> dict[str, str]:
     await ensure_household_owner(db, household_id, user.id)
     result = await db.execute(
-        select(HouseholdMember).where(
+        select(HouseholdMember, User)
+        .join(User, User.id == HouseholdMember.user_id)
+        .where(
             HouseholdMember.household_id == household_id,
             HouseholdMember.user_id == member_user_id,
         )
     )
-    membership = result.scalar_one_or_none()
-    if membership is None:
+    row = result.one_or_none()
+    if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    membership, member_user = row
     if membership.role == "owner":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -230,6 +246,16 @@ async def remove_household_member(
         select(GroceryList.id).where(GroceryList.household_id == household_id)
     )
     household_list_ids = set(list_result.scalars().all())
+    record_list_history(
+        db,
+        household_id=household_id,
+        list_id=None,
+        actor=user,
+        event_type="member_removed",
+        subject_id=member_user.id,
+        subject_name=member_user.display_name,
+        details={"role": membership.role},
+    )
     await db.execute(delete(HouseholdMember).where(HouseholdMember.id == membership.id))
     await db.commit()
     await hub.disconnect_user(member_user_id, household_list_ids)
@@ -335,6 +361,16 @@ async def accept_household_invite(
             role=invite.role,
         )
         db.add(membership)
+        record_list_history(
+            db,
+            household_id=invite.household_id,
+            list_id=None,
+            actor=user,
+            event_type="member_added",
+            subject_id=user.id,
+            subject_name=user.display_name,
+            details={"role": invite.role},
+        )
 
     invite.accepted_at = datetime.now(UTC)
     invite.accepted_by_user_id = user.id

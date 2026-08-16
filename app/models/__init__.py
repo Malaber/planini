@@ -5,6 +5,7 @@ from app.models.grocery_list import GroceryList
 from app.models.household import Household, HouseholdInvite, HouseholdInviteUse, HouseholdMember
 from app.models.list_category_order import ListCategoryOrder
 from app.models.list_disabled_category import ListDisabledCategory
+from app.models.list_history import ListHistoryEntry
 from app.models.passkey import Passkey
 from app.models.passkey_add_link import PasskeyAddLink
 from app.models.public_list_link import PublicListLink
@@ -25,4 +26,5 @@ __all__ = [
     "Category",
     "ListCategoryOrder",
     "ListDisabledCategory",
+    "ListHistoryEntry",
 ]

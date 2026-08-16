@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, inspect, text
 from app.core import database
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CURRENT_HEAD = "0021_merge_member_public_heads"
+CURRENT_HEAD = "0022_add_list_history"
 
 
 def _migration_config(database_path: Path) -> Config:
@@ -57,6 +57,7 @@ def test_sale_migration_keeps_single_head_with_legacy_revisions(tmp_path: Path) 
     assert scripts.get_revision("0018_add_public_list_links") is not None
     assert scripts.get_revision("0019_add_public_list_links") is not None
     assert scripts.get_revision("0019_add_household_member_roles") is not None
+    assert scripts.get_revision("0021_add_list_history") is not None
 
 
 def test_legacy_sale_database_upgrades_to_current_head(tmp_path: Path) -> None:
@@ -76,6 +77,9 @@ def test_legacy_sale_database_upgrades_to_current_head(tmp_path: Path) -> None:
     list_columns = {column["name"] for column in inspect(engine).get_columns("grocery_lists")}
     category_columns = {column["name"] for column in inspect(engine).get_columns("categories")}
     invite_columns = {column["name"] for column in inspect(engine).get_columns("household_invites")}
+    history_columns = {
+        column["name"] for column in inspect(engine).get_columns("list_history_entries")
+    }
     table_names = inspect(engine).get_table_names()
     with engine.connect() as connection:
         current_revision = connection.execute(
@@ -88,6 +92,18 @@ def test_legacy_sale_database_upgrades_to_current_head(tmp_path: Path) -> None:
     assert "translations_text" in category_columns
     assert "role" in invite_columns
     assert "public_list_links" in table_names
+    assert {
+        "id",
+        "household_id",
+        "list_id",
+        "actor_user_id",
+        "actor_display_name",
+        "event_type",
+        "subject_id",
+        "subject_name",
+        "details",
+        "created_at",
+    } == history_columns
     assert current_revision == CURRENT_HEAD
 
 
@@ -149,6 +165,39 @@ def test_later_deployed_member_role_database_upgrades_to_current_head(tmp_path: 
     assert {"sale_starts_at", "sale_ends_at"} <= item_columns
     assert "role" in invite_columns
     assert "public_list_links" in table_names
+    assert current_revision == CURRENT_HEAD
+
+
+def test_deployed_list_history_database_upgrades_to_current_head(tmp_path: Path) -> None:
+    database_path = tmp_path / "deployed-list-history.db"
+    config = _migration_config(database_path)
+    command.upgrade(config, "0021_add_list_history")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    expected_columns = {
+        "id",
+        "household_id",
+        "list_id",
+        "actor_user_id",
+        "actor_display_name",
+        "event_type",
+        "subject_id",
+        "subject_name",
+        "details",
+        "created_at",
+    }
+    assert expected_columns == {
+        column["name"] for column in inspect(engine).get_columns("list_history_entries")
+    }
+
+    command.upgrade(config, "head")
+
+    with engine.connect() as connection:
+        current_revision = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    engine.dispose()
+
     assert current_revision == CURRENT_HEAD
 
 

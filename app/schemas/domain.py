@@ -110,6 +110,25 @@ class GroceryListOut(ORMModel):
     access_role: Literal["owner", "editor", "viewer"] = "viewer"
 
 
+class ListHistoryEntryOut(ORMModel):
+    id: UUID
+    list_id: UUID | None
+    actor_user_id: UUID
+    actor_display_name: str
+    event_type: str
+    subject_id: UUID | None
+    subject_name: str | None
+    details: dict[str, str | None] = Field(default_factory=dict)
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def normalize_created_at(cls, value: datetime) -> datetime:
+        if value.utcoffset() is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+
 class PublicGroceryListOut(GroceryListOut):
     expires_at: datetime
 

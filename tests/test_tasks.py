@@ -1106,12 +1106,26 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
         "docker_smoke:\n    runs-on: ubuntu-latest\n    needs:\n      - docker_build" in ci_workflow
     )
     assert "python -m invoke check-container-smoke" in ci_workflow
+    assert "--legacy-revision=0021_add_list_history" in ci_workflow
     assert "timeout-minutes: 45" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in screenshot_workflow
     assert "check-ios-e2e" not in testflight_workflow
     assert "check-ios-ui-e2e" not in testflight_workflow
     assert "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}" in testflight_workflow
+
+
+def test_review_workflow_waits_for_backend_health_after_deployment() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "pr-review.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "review_health:\n    name: Review backend health" in workflow
+    assert "needs:\n      - review_deploy" in workflow
+    assert "${REVIEW_URL}/health" in workflow
+    assert 'if [ "$status" = "200" ]' in workflow
+    assert "x-webhooker-placeholder" in workflow
+    assert '"status"[[:space:]]*:[[:space:]]*"ok"' in workflow
 
 
 def test_release_attaches_app_store_screenshots() -> None:

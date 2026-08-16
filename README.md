@@ -142,4 +142,3 @@ docker compose exec app python scripts/create_passkey_reset_link.py \
 ## Python version
 
 This project is configured for Python 3.14 in Docker and CI.
-

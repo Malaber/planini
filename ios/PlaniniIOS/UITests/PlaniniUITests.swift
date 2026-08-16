@@ -907,9 +907,10 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(moveNoticeMessage.label.contains("Hosting errands"))
         captureScreenshot(named: "ios-ui-moved-item-notice")
         let moveUndoButtonID = "move-item-undo-button-\(seededItemID.uuidString)"
-        scrollToHittable(app.buttons[moveUndoButtonID], in: app, maxSwipes: 12)
         let moveUndoButton = app.buttons[moveUndoButtonID]
-        XCTAssertTrue(moveUndoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(moveUndoButton.waitForExistence(timeout: 3))
+        scrollToHittable(moveUndoButton, in: app, maxSwipes: 2)
+        XCTAssertTrue(moveUndoButton.isHittable)
         tapElement(moveUndoButton)
         XCTAssertTrue(
             waitForItem(
@@ -1112,6 +1113,14 @@ final class PlaniniUITests: XCTestCase {
                 accessToken: session.accessToken
             )
         )
+        let historySection = app.descendants(matching: .any)["list-history-section"]
+        scrollToHittable(historySection, in: app, maxSwipes: 14)
+        XCTAssertTrue(historySection.waitForExistence(timeout: 8))
+        let colorHistoryEntry = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "changed the list color"))
+            .firstMatch
+        XCTAssertTrue(colorHistoryEntry.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["list-history-refresh-button"].exists)
         captureScreenshot(named: "ios-ui-list-settings")
 
         let disabledKonservenToggle = firstExistingElement(
@@ -2350,6 +2359,7 @@ final class PlaniniUITests: XCTestCase {
         app.launchEnvironment["PLANINI_BACKEND_BASE_URL_OVERRIDE"] = baseURL.absoluteString
         app.launchEnvironment["PLANINI_UI_TEST_ACCESS_TOKEN"] = session.accessToken
         app.launchEnvironment["PLANINI_UI_TEST_DISPLAY_NAME"] = session.displayName
+        app.launchEnvironment["PLANINI_UI_TEST_RESET_PUBLIC_LISTS"] = "1"
         if let initialListName {
             app.launchEnvironment["PLANINI_UI_TEST_INITIAL_LIST_NAME"] = initialListName
         }

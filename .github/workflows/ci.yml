@@ -418,8 +418,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Smoke test published container with persistent database
+      - name: Smoke test published container with oldest persistent database
         env:
           IMAGE: ${{ needs.docker_build.outputs.image }}
           IMAGE_TAG: ${{ needs.docker_build.outputs.primary_tag }}
         run: python -m invoke check-container-smoke --image="$IMAGE:$IMAGE_TAG"
+      - name: Smoke test published container with deployed list-history database
+        env:
+          IMAGE: ${{ needs.docker_build.outputs.image }}
+          IMAGE_TAG: ${{ needs.docker_build.outputs.primary_tag }}
+        run: >-
+          python -m invoke check-container-smoke
+          --image="$IMAGE:$IMAGE_TAG"
+          --legacy-revision=0021_add_list_history

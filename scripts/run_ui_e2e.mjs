@@ -1768,10 +1768,23 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
       inviteePage.getByRole("button", { name: "Add item" }).first(),
       "Viewer should not see item creation",
     );
-    await expectHidden(
-      inviteePage.getByRole("button", { name: "Open list settings" }),
-      "Viewer should not see list settings",
+    const viewerSettingsButton = inviteePage.getByRole("button", { name: "Open list settings" });
+    await expectVisible(
+      viewerSettingsButton,
+      "Viewer should be able to open list history",
     );
+    await viewerSettingsButton.click();
+    const viewerSettingsPanel = inviteePage.locator("[data-list-settings-panel]");
+    await expectVisible(viewerSettingsPanel, "Viewer should open list history");
+    await expectHidden(
+      viewerSettingsPanel.locator("[data-list-settings-management]"),
+      "Viewer should not see owner list controls",
+    );
+    await expectVisible(
+      viewerSettingsPanel.locator('[data-history-event="member_added"]'),
+      "Viewer should see household membership history",
+    );
+    await viewerSettingsPanel.locator("[data-list-settings-close]").click();
 
     await ownerPage.goto(new URL("/?dashboard=1", baseUrl).toString(), {
       waitUntil: "networkidle",
@@ -1801,10 +1814,24 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
       inviteePage.getByRole("button", { name: "Add item" }).first(),
       "Editor should see item creation",
     );
-    await expectHidden(
-      inviteePage.getByRole("button", { name: "Open list settings" }),
-      "Editor should not see owner list settings",
+    const editorSettingsButton = inviteePage.getByRole("button", {
+      name: "Open list settings",
+    });
+    await expectVisible(
+      editorSettingsButton,
+      "Editor should be able to open list history",
     );
+    await editorSettingsButton.click();
+    const editorSettingsPanel = inviteePage.locator("[data-list-settings-panel]");
+    await expectHidden(
+      editorSettingsPanel.locator("[data-list-settings-management]"),
+      "Editor should not see owner list controls",
+    );
+    await expectVisible(
+      editorSettingsPanel.locator('[data-history-event="member_role_changed"]'),
+      "Editor should see household role history",
+    );
+    await editorSettingsPanel.locator("[data-list-settings-close]").click();
 
     await inviteeMemberRow.getByRole("button", { name: "Remove" }).click();
     await expectVisible(
@@ -2400,6 +2427,23 @@ async function main() {
     const renamedList = await apiJson(context.request, `/api/v1/lists/${scenario.listId}`);
     assert.equal(renamedList.name, renamedListName, "List rename should persist through the API");
     scenario.listName = renamedListName;
+    const historyList = settingsPanel.locator("[data-list-history]");
+    await expectVisible(
+      historyList.locator('[data-history-event="list_renamed"]', { hasText: renamedListName }),
+      "List settings should show persisted rename history",
+    );
+    const listHistory = await apiJson(
+      context.request,
+      `/api/v1/lists/${scenario.listId}/history`,
+    );
+    assert(
+      listHistory.some((entry) => entry.event_type === "item_created"),
+      "List history API should include item creation",
+    );
+    assert(
+      listHistory.some((entry) => entry.event_type === "list_renamed"),
+      "List history API should include list rename",
+    );
     await assertSeedSettingsCategoryColors(page);
     const topCategoryBefore = (
       await textList(page.locator(".item-category-group:not(.item-sale-group) > .item-category-header h3"))

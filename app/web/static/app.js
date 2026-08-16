@@ -3074,6 +3074,7 @@ async function flushCategoryOrderSaveQueue(root, state) {
         persistOfflineListState(root, state);
       }
     }
+    await loadListHistory(root, state);
     setCategoryOrderSaveStatus(root, state, "", "");
   } catch (error) {
     tracker.queuedIds = null;
@@ -3606,6 +3607,7 @@ async function setCategoryDisabled(root, state, categoryId, disabled) {
   renderItems(root, state);
   renderCategoryOrderSettings(root, state);
   persistOfflineListState(root, state);
+  await loadListHistory(root, state);
   return true;
 }
 
@@ -3912,6 +3914,180 @@ function renderCategoryOrderSettings(root, state) {
   });
 }
 
+function formatListHistoryTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString(getPreferredLocale(), {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function listHistoryMessage(entry) {
+  const actor = entry.actor_display_name || translate("list_detail.history_someone", {}, "Someone");
+  const subject = entry.subject_name || translate("list_detail.history_this_list", {}, "this list");
+  const details = entry.details || {};
+  switch (entry.event_type) {
+    case "list_created":
+      return translate("list_detail.history_list_created", { actor }, "{actor} created this list.");
+    case "list_renamed":
+      return translate(
+        "list_detail.history_list_renamed",
+        {
+          actor,
+          old_name: details.old_name || translate("list_detail.history_this_list", {}, "this list"),
+          new_name: details.new_name || subject,
+        },
+        "{actor} renamed {old_name} to {new_name}."
+      );
+    case "list_accent_changed":
+      return translate("list_detail.history_list_accent_changed", { actor }, "{actor} changed the list color.");
+    case "category_order_changed":
+      return translate("list_detail.history_category_order_changed", { actor }, "{actor} changed the category order.");
+    case "list_categories_changed":
+      return translate("list_detail.history_categories_changed", { actor }, "{actor} changed enabled categories.");
+    case "item_created":
+      return translate("list_detail.history_item_created", { actor, subject }, "{actor} added {subject}.");
+    case "item_updated":
+      return translate("list_detail.history_item_updated", { actor, subject }, "{actor} edited {subject}.");
+    case "item_checked":
+      return translate("list_detail.history_item_checked", { actor, subject }, "{actor} checked off {subject}.");
+    case "item_unchecked":
+      return translate("list_detail.history_item_unchecked", { actor, subject }, "{actor} restored {subject}.");
+    case "item_deleted":
+      return translate("list_detail.history_item_deleted", { actor, subject }, "{actor} removed {subject}.");
+    case "item_moved_out":
+      return translate(
+        "list_detail.history_item_moved_out",
+        {
+          actor,
+          subject,
+          list: details.other_list || translate("list_detail.history_another_list", {}, "another list"),
+        },
+        "{actor} moved {subject} to {list}."
+      );
+    case "item_moved_in":
+      return translate(
+        "list_detail.history_item_moved_in",
+        {
+          actor,
+          subject,
+          list: details.other_list || translate("list_detail.history_another_list", {}, "another list"),
+        },
+        "{actor} moved {subject} here from {list}."
+      );
+    case "member_added":
+      return translate(
+        "list_detail.history_member_added",
+        { actor, subject },
+        "{actor} added {subject} to the household."
+      );
+    case "member_role_changed":
+      return translate(
+        "list_detail.history_member_role_changed",
+        {
+          actor,
+          subject,
+          role: details.new_role || translate("list_detail.history_new_role", {}, "a new role"),
+        },
+        "{actor} changed {subject}'s role to {role}."
+      );
+    case "member_removed":
+      return translate(
+        "list_detail.history_member_removed",
+        { actor, subject },
+        "{actor} removed {subject} from the household."
+      );
+    default:
+      return translate("list_detail.history_updated", { actor }, "{actor} updated this list.");
+  }
+}
+
+function renderListHistory(root, entries, status = "ready", errorMessage = "") {
+  const container = root.querySelector("[data-list-history]");
+  if (!(container instanceof HTMLElement)) {
+    return;
+  }
+  container.innerHTML = "";
+
+  if (status === "loading") {
+    const loading = document.createElement("p");
+    loading.className = "dashboard-helper list-history-state";
+    loading.textContent = translate("list_detail.history_loading", {}, "Loading history...");
+    container.appendChild(loading);
+    return;
+  }
+  if (status === "error") {
+    const error = document.createElement("p");
+    error.className = "dashboard-helper list-history-state is-error";
+    error.textContent = errorMessage || translate("list_detail.history_load_failed", {}, "Could not load history.");
+    container.appendChild(error);
+    return;
+  }
+
+  const safeEntries = Array.isArray(entries) ? entries : [];
+  if (safeEntries.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "dashboard-helper list-history-state";
+    empty.textContent = translate("list_detail.history_empty", {}, "No activity yet.");
+    container.appendChild(empty);
+    return;
+  }
+
+  safeEntries.forEach((entry) => {
+    const row = document.createElement("article");
+    row.className = "list-history-row";
+    row.dataset.historyEvent = entry.event_type || "unknown";
+
+    const marker = document.createElement("span");
+    marker.className = "list-history-marker";
+    marker.setAttribute("aria-hidden", "true");
+    row.appendChild(marker);
+
+    const copy = document.createElement("div");
+    const message = document.createElement("p");
+    message.textContent = listHistoryMessage(entry);
+    copy.appendChild(message);
+    const timestamp = document.createElement("time");
+    timestamp.dateTime = entry.created_at || "";
+    timestamp.textContent = formatListHistoryTimestamp(entry.created_at);
+    copy.appendChild(timestamp);
+    row.appendChild(copy);
+    container.appendChild(row);
+  });
+}
+
+async function loadListHistory(root, state) {
+  const container = root.querySelector("[data-list-history]");
+  if (!(container instanceof HTMLElement)) {
+    return [];
+  }
+  if (isDemoList(root)) {
+    state.listHistory = [];
+    renderListHistory(root, []);
+    return [];
+  }
+
+  renderListHistory(root, [], "loading");
+  try {
+    const entries = await fetchJson(`/api/v1/lists/${root.dataset.listId}/history`);
+    state.listHistory = Array.isArray(entries) ? entries : [];
+    renderListHistory(root, state.listHistory);
+    return state.listHistory;
+  } catch (error) {
+    state.listHistory = [];
+    renderListHistory(
+      root,
+      [],
+      "error",
+      error instanceof Error ? error.message : ""
+    );
+    return [];
+  }
+}
+
 function setListSettingsOpen(root, state, isOpen) {
   const overlay = root.querySelector("[data-list-settings-overlay]");
   const panel = root.querySelector("[data-list-settings-panel]");
@@ -3927,6 +4103,7 @@ function setListSettingsOpen(root, state, isOpen) {
     setItemEditPanelOpen(root, state, null);
     setListName(root, state, state.listName || listTitleText(root));
     renderCategoryOrderSettings(root, state);
+    void loadListHistory(root, state);
   }
 
   syncModalState(root);
@@ -4834,7 +5011,11 @@ function applyListAccess(root, state, accessRole) {
   });
   const settingsButton = root.querySelector("[data-list-settings-toggle]");
   if (settingsButton instanceof HTMLElement) {
-    settingsButton.hidden = !state.canManage;
+    settingsButton.hidden = false;
+  }
+  const settingsManagement = root.querySelector("[data-list-settings-management]");
+  if (settingsManagement instanceof HTMLElement) {
+    settingsManagement.hidden = !state.canManage;
   }
   const readOnlyNotice = root.querySelector("[data-list-read-only]");
   if (readOnlyNotice instanceof HTMLElement) {
@@ -5154,6 +5335,7 @@ async function initListDetail() {
     itemEditSaveTimerId: null,
     items: new Map(),
     lists: [],
+    listHistory: [],
     listName: "",
     movedItemNotices: new Map(),
     movingItemId: null,
@@ -5221,6 +5403,10 @@ async function initListDetail() {
     });
   });
 
+  root.querySelector("[data-list-history-refresh]")?.addEventListener("click", () => {
+    void loadListHistory(root, state);
+  });
+
   root.querySelector("[data-public-list-link-form]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     await createPublicListLink(root);
@@ -5237,6 +5423,7 @@ async function initListDetail() {
     submitButton.disabled = true;
     try {
       await saveListName(root, state, input.value);
+      await loadListHistory(root, state);
       setListMessage(
         root,
         "success",
@@ -6261,6 +6448,10 @@ export {
   applyCategoryReorder,
   setItemEditPanelOpen,
   renderCategoryOrderSettings,
+  formatListHistoryTimestamp,
+  listHistoryMessage,
+  renderListHistory,
+  loadListHistory,
   setListSettingsOpen,
   renderItemSuggestions,
   isItemOnSale,

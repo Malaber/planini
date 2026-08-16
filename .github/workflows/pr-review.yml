@@ -167,3 +167,37 @@ jobs:
               issue_number,
               body,
             });
+
+  review_health:
+    name: Review backend health
+    needs:
+      - review_deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      REVIEW_URL: https://pr-${{ github.event.pull_request.number }}.pr.planini.malaber.de
+    steps:
+      - name: Wait for review backend
+        run: |
+          response_headers="${RUNNER_TEMP}/review-health-headers.txt"
+          response_body="${RUNNER_TEMP}/review-health-body.json"
+          for attempt in $(seq 1 30); do
+            status="$(
+              curl --silent --show-error \
+                --dump-header "$response_headers" --output "$response_body" \
+                --write-out '%{http_code}' \
+                --connect-timeout 5 --max-time 10 "${REVIEW_URL}/health" || true
+            )"
+            if [ "$status" = "200" ] \
+              && ! grep --ignore-case --quiet '^x-webhooker-placeholder:[[:space:]]*1' "$response_headers" \
+              && grep --quiet '"status"[[:space:]]*:[[:space:]]*"ok"' "$response_body"; then
+              echo "Review backend is healthy at ${REVIEW_URL}/health."
+              exit 0
+            fi
+            echo "Review backend is not healthy yet (status=${status:-unreachable}, attempt=$attempt/30)."
+            sleep 10
+          done
+
+          echo "Review backend did not become healthy at ${REVIEW_URL}/health." >&2
+          curl --silent --show-error --include --max-time 20 "${REVIEW_URL}/health" || true
+          exit 1

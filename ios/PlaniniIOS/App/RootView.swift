@@ -2232,11 +2232,6 @@ private struct ListDetailScreen: View {
         currentList?.accessRole.canEditItems ?? false
     }
 
-    private var canManage: Bool {
-        guard publicList == nil else { return false }
-        return currentList.map { viewModel.canManage(householdID: $0.householdID) } ?? false
-    }
-
     private var listBackground: some View {
         ZStack {
             Color(uiColor: .systemGroupedBackground)
@@ -2445,7 +2440,7 @@ private struct ListDetailScreen: View {
                 }
             }
 
-            if canManage, publicList == nil {
+            if publicList == nil, currentList != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingListSettings = true
@@ -2821,6 +2816,10 @@ private struct ListSettingsSheet: View {
         viewModel.lists.first { $0.id == listID }
     }
 
+    private var canManage: Bool {
+        currentList?.accessRole.canManageHousehold ?? false
+    }
+
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -2863,6 +2862,9 @@ private struct ListSettingsSheet: View {
             syncOrderedCategories()
             syncCategoryOrderSaveState(viewModel.categoryOrderBackgroundSaveState)
         }
+        .task {
+            await viewModel.loadListHistory(listID: listID)
+        }
         .onChange(of: currentList?.name ?? "") { _ in syncName() }
         .onChange(of: currentList?.accentColorHex ?? "") { _ in syncAccentColor() }
         .onChange(of: name) { _ in scheduleNameAutosave() }
@@ -2903,6 +2905,7 @@ private struct ListSettingsSheet: View {
                     publicLinkSection
                 }
                 categoriesSection
+                listHistorySection
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 24)
@@ -2924,6 +2927,7 @@ private struct ListSettingsSheet: View {
                 .frame(minHeight: 50)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .disabled(!canManage)
                 .accessibilityIdentifier("list-name-field")
         }
     }
@@ -2987,7 +2991,7 @@ private struct ListSettingsSheet: View {
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .disabled(isSavingAccentColor)
+        .disabled(isSavingAccentColor || !canManage)
         .accessibilityIdentifier("list-accent-color-\(option.id)")
         .accessibilityLabel(l10n.t(option.localizationKey))
         .accessibilityValue(
@@ -3002,6 +3006,7 @@ private struct ListSettingsSheet: View {
 
     private func saveAccentColor(_ accentColorHex: String?) {
         guard
+            canManage,
             isSavingAccentColor == false,
             ListAccentColorOption.option(for: selectedAccentColorHex)
                 != ListAccentColorOption.option(for: accentColorHex)
@@ -3021,6 +3026,7 @@ private struct ListSettingsSheet: View {
             if saved {
                 syncAccentColor()
                 saveState = .saved
+                await viewModel.loadListHistory(listID: listID)
             } else {
                 syncAccentColor()
                 saveState = .failed
@@ -3151,6 +3157,7 @@ private struct ListSettingsSheet: View {
                         categoryRow(category: category)
                             .padding(.horizontal, 16)
                             .contentShape(Rectangle())
+                            .allowsHitTesting(canManage)
                             .onDrop(
                                 of: [.text],
                                 delegate: CategoryReorderDropDelegate(
@@ -3176,12 +3183,150 @@ private struct ListSettingsSheet: View {
         }
     }
 
+    private var listHistorySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(l10n.t("ios.list_settings.history_title"))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    Task { await viewModel.loadListHistory(listID: listID) }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isLoadingListHistory)
+                .accessibilityLabel(l10n.t("ios.list_settings.history_refresh"))
+                .accessibilityIdentifier("list-history-refresh-button")
+            }
+
+            VStack(spacing: 0) {
+                if viewModel.isLoadingListHistory && viewModel.listHistoryListID == listID {
+                    ProgressView(l10n.t("ios.list_settings.history_loading"))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .accessibilityIdentifier("list-history-loading")
+                } else if viewModel.listHistoryErrorMessage != nil {
+                    Label(
+                        l10n.t("ios.list_settings.history_error"),
+                        systemImage: "exclamationmark.triangle"
+                    )
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .accessibilityIdentifier("list-history-error")
+                } else if viewModel.listHistory.isEmpty {
+                    Text(
+                        l10n.t(
+                            viewModel.isLocalMode
+                                ? "ios.list_settings.history_synced_only"
+                                : "ios.list_settings.history_empty"
+                        )
+                    )
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .accessibilityIdentifier("list-history-empty")
+                } else {
+                    ForEach(Array(viewModel.listHistory.enumerated()), id: \.element.id) { index, entry in
+                        historyRow(entry)
+                        if index < viewModel.listHistory.count - 1 {
+                            Divider().padding(.leading, 52)
+                        }
+                    }
+                }
+            }
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .accessibilityIdentifier("list-history-section")
+        }
+    }
+
+    private func historyRow(_ entry: ListHistoryEntrySummary) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: historyIcon(for: entry.eventType))
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(historyMessage(for: entry))
+                    .font(.subheadline)
+                Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("list-history-row-\(entry.id.uuidString)")
+    }
+
+    private func historyIcon(for eventType: String) -> String {
+        switch eventType {
+        case "item_created", "member_added", "item_moved_in":
+            return "plus.circle"
+        case "item_deleted", "member_removed", "item_moved_out":
+            return "minus.circle"
+        case "item_checked":
+            return "checkmark.circle"
+        case "item_unchecked":
+            return "arrow.uturn.backward.circle"
+        case "member_role_changed":
+            return "person.badge.key"
+        case "list_renamed", "item_updated":
+            return "pencil"
+        case "list_accent_changed":
+            return "paintpalette"
+        case "category_order_changed", "list_categories_changed":
+            return "line.3.horizontal.decrease.circle"
+        default:
+            return "clock.arrow.circlepath"
+        }
+    }
+
+    private func historyMessage(for entry: ListHistoryEntrySummary) -> String {
+        let key: String
+        switch entry.eventType {
+        case "list_created": key = "history_list_created"
+        case "list_renamed": key = "history_list_renamed"
+        case "list_accent_changed": key = "history_list_accent_changed"
+        case "category_order_changed": key = "history_category_order_changed"
+        case "list_categories_changed": key = "history_categories_changed"
+        case "item_created": key = "history_item_created"
+        case "item_updated": key = "history_item_updated"
+        case "item_checked": key = "history_item_checked"
+        case "item_unchecked": key = "history_item_unchecked"
+        case "item_deleted": key = "history_item_deleted"
+        case "item_moved_out": key = "history_item_moved_out"
+        case "item_moved_in": key = "history_item_moved_in"
+        case "member_added": key = "history_member_added"
+        case "member_role_changed": key = "history_member_role_changed"
+        case "member_removed": key = "history_member_removed"
+        default: key = "history_updated"
+        }
+        let subject = entry.subjectName ?? currentList?.name ?? ""
+        return l10n.t(
+            "ios.list_settings.\(key)",
+            [
+                "actor": entry.actorDisplayName,
+                "subject": subject,
+                "old_name": entry.details["old_name"] ?? subject,
+                "new_name": entry.details["new_name"] ?? subject,
+                "list": entry.details["other_list"] ?? subject,
+                "role": entry.details["new_role"] ?? "",
+            ]
+        )
+    }
+
     private func categoryRow(category: GroceryCategorySummary) -> some View {
         CategorySettingsRow(
             category: category,
             disabled: viewModel.isCategoryDisabled(category.id),
             itemCount: viewModel.itemCount(inCategory: category.id),
-            isBusy: busyCategoryID == category.id,
+            isBusy: busyCategoryID == category.id || !canManage,
             onToggleDisabled: { disabled in
                 set(category, disabled: disabled)
             },
@@ -3203,6 +3348,7 @@ private struct ListSettingsSheet: View {
 
     private func scheduleNameAutosave() {
         nameSaveTask?.cancel()
+        guard canManage else { return }
         guard currentList != nil else { return }
         guard trimmedName.isEmpty == false else {
             saveState = .unsaved
@@ -3225,6 +3371,7 @@ private struct ListSettingsSheet: View {
 
     private func saveNameNow() {
         nameSaveTask?.cancel()
+        guard canManage else { return }
         guard nameNeedsSave, let currentList else {
             if isSavingName == false && trimmedName.isEmpty == false {
                 saveState = .saved
@@ -3245,6 +3392,7 @@ private struct ListSettingsSheet: View {
                 } else {
                     scheduleNameAutosave()
                 }
+                await viewModel.loadListHistory(listID: listID)
             } else {
                 saveState = .failed
             }
@@ -3252,6 +3400,7 @@ private struct ListSettingsSheet: View {
     }
 
     private func saveCategoryOrder(_ categoryIDs: [UUID]) {
+        guard canManage else { return }
         saveState = .saving
         viewModel.saveCategoryOrderInBackground(categoryIDs: categoryIDs)
     }
@@ -3275,6 +3424,7 @@ private struct ListSettingsSheet: View {
     }
 
     private func set(_ category: GroceryCategorySummary, disabled: Bool) {
+        guard canManage else { return }
         guard busyCategoryID == nil else { return }
         let affectedCount = viewModel.itemCount(inCategory: category.id)
         if disabled && affectedCount > 0 {
@@ -3285,12 +3435,16 @@ private struct ListSettingsSheet: View {
     }
 
     private func runCategoryToggle(categoryID: UUID, disabled: Bool) {
+        guard canManage else { return }
         busyCategoryID = categoryID
         saveState = .saving
         Task { @MainActor in
             let saved = await viewModel.setCategory(id: categoryID, disabled: disabled)
             busyCategoryID = nil
             saveState = saved ? .saved : .failed
+            if saved {
+                await viewModel.loadListHistory(listID: listID)
+            }
         }
     }
 
@@ -4699,10 +4853,14 @@ private struct EditItemSheet: View {
     }
 
     private func scheduleAutosave() {
-        scheduleAutosave(recordHistory: suppressHistoryRecording == false)
+        guard suppressHistoryRecording == false else { return }
+        scheduleAutosave(recordHistory: true)
     }
 
-    private func scheduleAutosave(recordHistory: Bool) {
+    private func scheduleAutosave(
+        recordHistory: Bool,
+        delayNanoseconds: UInt64 = 450_000_000
+    ) {
         saveTask?.cancel()
         let payload = currentPayload
         guard payload.name.isEmpty == false else {
@@ -4719,7 +4877,9 @@ private struct EditItemSheet: View {
         persistHistory()
         saveStatus = .saving
         saveTask = Task {
-            try? await Task.sleep(nanoseconds: 450_000_000)
+            if delayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            }
             guard Task.isCancelled == false else { return }
             let saved = await viewModel.saveEdit(item: item, payload: payload)
             guard Task.isCancelled == false else { return }
@@ -4748,7 +4908,7 @@ private struct EditItemSheet: View {
             saleEnabled = false
         }
         persistHistory()
-        scheduleAutosave(recordHistory: false)
+        scheduleAutosave(recordHistory: false, delayNanoseconds: 0)
         DispatchQueue.main.async {
             suppressHistoryRecording = false
         }
