@@ -2232,11 +2232,6 @@ private struct ListDetailScreen: View {
         currentList?.accessRole.canEditItems ?? false
     }
 
-    private var canManage: Bool {
-        guard publicList == nil else { return false }
-        return currentList?.accessRole.canManageHousehold ?? false
-    }
-
     private var listBackground: some View {
         ZStack {
             Color(uiColor: .systemGroupedBackground)
@@ -4858,10 +4853,14 @@ private struct EditItemSheet: View {
     }
 
     private func scheduleAutosave() {
-        scheduleAutosave(recordHistory: suppressHistoryRecording == false)
+        guard suppressHistoryRecording == false else { return }
+        scheduleAutosave(recordHistory: true)
     }
 
-    private func scheduleAutosave(recordHistory: Bool) {
+    private func scheduleAutosave(
+        recordHistory: Bool,
+        delayNanoseconds: UInt64 = 450_000_000
+    ) {
         saveTask?.cancel()
         let payload = currentPayload
         guard payload.name.isEmpty == false else {
@@ -4878,7 +4877,9 @@ private struct EditItemSheet: View {
         persistHistory()
         saveStatus = .saving
         saveTask = Task {
-            try? await Task.sleep(nanoseconds: 450_000_000)
+            if delayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+            }
             guard Task.isCancelled == false else { return }
             let saved = await viewModel.saveEdit(item: item, payload: payload)
             guard Task.isCancelled == false else { return }
@@ -4907,7 +4908,7 @@ private struct EditItemSheet: View {
             saleEnabled = false
         }
         persistHistory()
-        scheduleAutosave(recordHistory: false)
+        scheduleAutosave(recordHistory: false, delayNanoseconds: 0)
         DispatchQueue.main.async {
             suppressHistoryRecording = false
         }

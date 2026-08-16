@@ -18,6 +18,16 @@ def _migration_config(database_path: Path) -> Config:
     return config
 
 
+def _apply_historical_member_role_schema(engine) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE household_members SET role = 'editor' WHERE role = 'member'")
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE household_invites " "ADD COLUMN role VARCHAR(20) DEFAULT 'editor' NOT NULL"
+        )
+
+
 def test_sync_migration_runner_uses_configured_database_url(tmp_path: Path, monkeypatch) -> None:
     database_path = tmp_path / "configured.db"
     monkeypatch.setattr(
@@ -43,6 +53,7 @@ def test_sale_migration_keeps_single_head_with_legacy_revisions(tmp_path: Path) 
 
     assert scripts.get_heads() == [CURRENT_HEAD]
     assert scripts.get_revision("0017_add_item_sale_window") is not None
+    assert scripts.get_revision("0018_add_household_member_roles") is not None
     assert scripts.get_revision("0018_add_public_list_links") is not None
     assert scripts.get_revision("0019_add_public_list_links") is not None
     assert scripts.get_revision("0019_add_household_member_roles") is not None
@@ -95,13 +106,19 @@ def test_legacy_sale_database_upgrades_to_current_head(tmp_path: Path) -> None:
     assert current_revision == CURRENT_HEAD
 
 
-def test_deployed_member_role_database_upgrades_to_current_head(tmp_path: Path) -> None:
-    database_path = tmp_path / "deployed-member-role.db"
+def test_oldest_deployed_member_role_database_upgrades_to_current_head(tmp_path: Path) -> None:
+    database_path = tmp_path / "oldest-deployed-member-role.db"
     config = _migration_config(database_path)
-    command.upgrade(config, "0019_add_household_member_roles")
+    command.upgrade(config, "0017_add_list_accent_color")
 
     engine = create_engine(f"sqlite:///{database_path}")
+    _apply_historical_member_role_schema(engine)
+    command.stamp(config, "0018_add_household_member_roles", purge=True)
+
     assert "role" in {column["name"] for column in inspect(engine).get_columns("household_invites")}
+    assert "translations_text" not in {
+        column["name"] for column in inspect(engine).get_columns("categories")
+    }
     assert "sale_starts_at" not in {
         column["name"] for column in inspect(engine).get_columns("grocery_items")
     }
@@ -110,6 +127,7 @@ def test_deployed_member_role_database_upgrades_to_current_head(tmp_path: Path) 
     command.upgrade(config, "head")
 
     item_columns = {column["name"] for column in inspect(engine).get_columns("grocery_items")}
+    category_columns = {column["name"] for column in inspect(engine).get_columns("categories")}
     table_names = inspect(engine).get_table_names()
     with engine.connect() as connection:
         current_revision = connection.execute(
@@ -118,6 +136,33 @@ def test_deployed_member_role_database_upgrades_to_current_head(tmp_path: Path) 
     engine.dispose()
 
     assert {"sale_starts_at", "sale_ends_at"} <= item_columns
+    assert "translations_text" in category_columns
+    assert "public_list_links" in table_names
+    assert current_revision == CURRENT_HEAD
+
+
+def test_later_deployed_member_role_database_upgrades_to_current_head(tmp_path: Path) -> None:
+    database_path = tmp_path / "later-deployed-member-role.db"
+    config = _migration_config(database_path)
+    command.upgrade(config, "0018_add_category_translations")
+
+    engine = create_engine(f"sqlite:///{database_path}")
+    _apply_historical_member_role_schema(engine)
+    command.stamp(config, "0019_add_household_member_roles", purge=True)
+
+    command.upgrade(config, "head")
+
+    item_columns = {column["name"] for column in inspect(engine).get_columns("grocery_items")}
+    invite_columns = {column["name"] for column in inspect(engine).get_columns("household_invites")}
+    table_names = inspect(engine).get_table_names()
+    with engine.connect() as connection:
+        current_revision = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    engine.dispose()
+
+    assert {"sale_starts_at", "sale_ends_at"} <= item_columns
+    assert "role" in invite_columns
     assert "public_list_links" in table_names
     assert current_revision == CURRENT_HEAD
 

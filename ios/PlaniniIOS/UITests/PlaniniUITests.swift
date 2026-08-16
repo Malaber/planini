@@ -907,9 +907,10 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(moveNoticeMessage.label.contains("Hosting errands"))
         captureScreenshot(named: "ios-ui-moved-item-notice")
         let moveUndoButtonID = "move-item-undo-button-\(seededItemID.uuidString)"
-        scrollToHittable(app.buttons[moveUndoButtonID], in: app, maxSwipes: 12)
         let moveUndoButton = app.buttons[moveUndoButtonID]
-        XCTAssertTrue(moveUndoButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(moveUndoButton.waitForExistence(timeout: 3))
+        scrollToHittable(moveUndoButton, in: app, maxSwipes: 2)
+        XCTAssertTrue(moveUndoButton.isHittable)
         tapElement(moveUndoButton)
         XCTAssertTrue(
             waitForItem(
