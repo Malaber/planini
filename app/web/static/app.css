@@ -2697,10 +2697,6 @@ a.public-list-entry:hover {
     background: transparent;
   }
 
-  .item-category-group + .item-category-group {
-    margin-top: 0.5rem;
-  }
-
   .item-category-header {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;

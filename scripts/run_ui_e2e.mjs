@@ -256,6 +256,13 @@ async function assertCategoryCorners(page) {
       };
       check(group, "overflowX", "visible");
       check(group, "overflowY", "visible");
+      const previous = group.previousElementSibling;
+      if (matchMedia("(max-width: 720px)").matches && previous?.matches(".item-category-group")) {
+        const gap = group.getBoundingClientRect().top - previous.getBoundingClientRect().bottom;
+        if (Math.abs(gap) > 0.5) {
+          failures.push(`${label}: mobile category boundary has a ${gap}px gap`);
+        }
+      }
       for (const child of group.children) {
         for (const edge of ["Top", "Bottom"]) {
           const isEdge = edge === "Top"
