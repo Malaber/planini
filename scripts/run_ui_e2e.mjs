@@ -242,6 +242,53 @@ async function assertSuggestionPlusButtonInline(suggestion, message) {
   );
 }
 
+async function assertCategoryCorners(page) {
+  logStep("Checking shared category corners and unclipped menus");
+  const failures = await page.locator(".item-category-group").evaluateAll((groups) => {
+    const failures = [];
+    for (const group of groups) {
+      const groupStyle = getComputedStyle(group);
+      const label = group.querySelector("h3")?.textContent;
+      const check = (node, property, expected) => {
+        if (getComputedStyle(node)[property] !== expected) {
+          failures.push(`${label}: ${node.className} ${property} should be ${expected}`);
+        }
+      };
+      check(group, "overflowX", "visible");
+      check(group, "overflowY", "visible");
+      const previous = group.previousElementSibling;
+      if (matchMedia("(max-width: 720px)").matches && previous?.matches(".item-category-group")) {
+        const gap = group.getBoundingClientRect().top - previous.getBoundingClientRect().bottom;
+        if (Math.abs(gap) > 0.5) {
+          failures.push(`${label}: mobile category boundary has a ${gap}px gap`);
+        }
+      }
+      for (const child of group.children) {
+        for (const edge of ["Top", "Bottom"]) {
+          const isEdge = edge === "Top"
+            ? child === group.firstElementChild
+            : child === group.lastElementChild;
+          for (const side of ["Left", "Right"]) {
+            const property = `border${edge}${side}Radius`;
+            const expected = isEdge ? groupStyle[property] : "0px";
+            check(child, property, expected);
+            const content = child.querySelector(":scope > .item-card-content");
+            if (content) check(content, property, expected);
+            const swipe = child.querySelector(":scope > .item-swipe-action");
+            if (swipe && side === "Left") check(swipe, property, expected);
+          }
+        }
+        if (child.matches(".item-card")) {
+          check(child, "overflowX", "visible");
+          check(child, "overflowY", "visible");
+        }
+      }
+    }
+    return failures;
+  });
+  assert.deepEqual(failures, [], "Category backgrounds must follow shared outer corners");
+}
+
 async function assertBrownWhiteAccentChrome(page) {
   logStep("Checking brown-white accent chrome");
   const matches = await page.evaluate((tokens) => {
@@ -1426,6 +1473,7 @@ async function runCheckedStressListFlow(page, stressListUrl) {
   assert.equal(await loadMoreMeta.textContent(), "248 older items not loaded");
   await assertBrownWhiteAccentChrome(page);
 
+  await assertCategoryCorners(page);
   await loadMoreButton.click();
   await expectCheckedCardCount(checkedGroup, 110);
   assert.equal(await headingMeta.textContent(), "258 items");
@@ -2148,6 +2196,8 @@ async function main() {
       page.locator(".item-category-header h3", { hasText: "Checked off" }),
       "Expected checked-off section before promotion screenshot",
     );
+    await expectVisible(page.locator(".item-sale-group"), "Expected sale group for corner coverage");
+    await assertCategoryCorners(page);
     await screenshot(page, "promotion-filled-list");
 
     const hackfleischCard = await revealCheckedItemCard(page, "Hackfleisch");
