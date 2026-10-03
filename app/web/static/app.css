@@ -1045,6 +1045,7 @@ a.public-list-entry:hover {
   gap: 0.9rem;
   padding: 0.8rem 0.95rem;
   background: inherit;
+  border-radius: inherit;
   transform: translateX(var(--item-swipe-x, 0));
   transition: transform 0.18s ease;
 }
@@ -1062,6 +1063,8 @@ a.public-list-entry:hover {
   align-items: center;
   justify-content: center;
   background: var(--brand-lime);
+  border-top-left-radius: inherit;
+  border-bottom-left-radius: inherit;
   color: #fff;
   font-size: 0.88rem;
   font-weight: 800;
@@ -1385,6 +1388,17 @@ a.public-list-entry:hover {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
+/* Round painted edges without clipping item menus outside the group. */
+.item-category-group > :first-child {
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+
+.item-category-group > :last-child {
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+
 .item-sale-group {
   border-color: rgba(245, 158, 11, 0.72);
   box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.18);
@@ -1392,8 +1406,6 @@ a.public-list-entry:hover {
 
 .item-category-header {
   display: grid;
-  border-top-left-radius: inherit;
-  border-top-right-radius: inherit;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.55rem;
