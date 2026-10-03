@@ -242,6 +242,63 @@ async function assertSuggestionPlusButtonInline(suggestion, message) {
   );
 }
 
+async function assertEditDialogFits(page) {
+  logStep("Checking edit dialog with long localized titles at narrow widths");
+  const panel = page.locator("[data-item-edit-panel]");
+  const viewport = page.viewportSize();
+  const original = await panel.evaluate((node) => {
+    const title = node.querySelector("[data-item-edit-title]");
+    const label = node.querySelector(".dashboard-label");
+    const status = node.querySelector("[data-item-edit-status]");
+    const text = node.querySelector("[data-item-edit-status-text]");
+    const original = { title: title.textContent, label: label.textContent, text: text.textContent, hidden: status.hidden };
+    label.textContent = "Artikel bearbeiten";
+    text.textContent = "Gespeichert.";
+    status.hidden = false;
+    return original;
+  });
+  try {
+    for (const width of [320, 390, 720, 1024]) {
+      await page.setViewportSize({ width, height: viewport.height });
+      for (const title of ["Blumenkohl / Brokkoli Auflauf", "W".repeat(180)]) {
+        await panel.locator("[data-item-edit-title]").evaluate((node, title) => { node.textContent = title; }, title);
+        for (const scrolled of [false, true]) {
+          const layout = await panel.evaluate((node, scrolled) => {
+            node.scrollTop = scrolled ? node.scrollHeight : 0;
+            const rect = node.getBoundingClientRect();
+            const close = node.querySelector(".add-item-close");
+            const button = close.getBoundingClientRect();
+            if (rect.left < 0 || rect.right > innerWidth) {
+              throw new Error(`Dialog bounds ${rect.left}..${rect.right}, viewport ${innerWidth}, modal ${getComputedStyle(node.parentElement).gridTemplateColumns}, panel width ${getComputedStyle(node).width}`);
+            }
+            return {
+              fitsViewport: rect.left >= 0 && rect.right <= innerWidth,
+              noHorizontalScroll: node.scrollWidth <= node.clientWidth + 1,
+              closeVisible: button.left >= rect.left && button.right <= rect.right
+                && button.top >= Math.max(0, rect.top) && button.bottom <= Math.min(innerHeight, rect.bottom),
+              closeHittable: close.contains(document.elementFromPoint(button.x + button.width / 2, button.y + button.height / 2)),
+            };
+          }, scrolled);
+          assert.deepEqual(layout, {
+            fitsViewport: true, noHorizontalScroll: true, closeVisible: true, closeHittable: true,
+          }, `Edit dialog must fit at ${width}px with ${title.length} characters, scrolled=${scrolled}`);
+        }
+        await panel.evaluate((node) => { node.scrollTop = 0; });
+        if (width === 390 && title.length < 180) await screenshot(page, "edit-dialog-long-title-mobile");
+      }
+    }
+  } finally {
+    await panel.evaluate((node, original) => {
+      node.querySelector("[data-item-edit-title]").textContent = original.title;
+      node.querySelector(".dashboard-label").textContent = original.label;
+      node.querySelector("[data-item-edit-status-text]").textContent = original.text;
+      node.querySelector("[data-item-edit-status]").hidden = original.hidden;
+      node.scrollTop = 0;
+    }, original);
+    await page.setViewportSize(viewport);
+  }
+}
+
 async function assertCategoryCorners(page) {
   logStep("Checking shared category corners and unclipped menus");
   const failures = await page.locator(".item-category-group").evaluateAll((groups) => {
@@ -2223,6 +2280,15 @@ async function main() {
       "Clicking item should open edit modal",
     );
     await screenshot(page, "promotion-edit-item-dialogue");
+    const layoutPage = await context.newPage();
+    try {
+      await layoutPage.goto(listUrl, { waitUntil: "networkidle" });
+      await itemCard(layoutPage, "Tomaten").click();
+      await expectVisible(layoutPage.locator("[data-item-edit-panel]"), "Expected edit dialog for layout checks");
+      await assertEditDialogFits(layoutPage);
+    } finally {
+      await layoutPage.close();
+    }
     const editSearch = editForm.locator("[data-item-edit-category-search]");
     await editSearch.fill("brot");
     await expectVisible(
