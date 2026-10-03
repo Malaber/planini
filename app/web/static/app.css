@@ -1695,6 +1695,20 @@ a.public-list-entry:hover {
   transform-origin: top center;
 }
 
+[data-item-edit-panel] {
+  box-sizing: border-box;
+}
+
+[data-item-edit-panel] .dashboard-field {
+  min-width: 0;
+}
+
+[data-item-edit-panel] .dashboard-field input {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .item-move-modal {
   z-index: 50;
 }
@@ -1774,6 +1788,23 @@ a.public-list-entry:hover {
   box-shadow: 0 1px 0 rgba(217, 197, 179, 0.72);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+
+[data-item-edit-panel] .add-item-panel-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+[data-item-edit-panel] .add-item-panel-header > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+[data-item-edit-title] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 
 .item-edit-header-actions,
@@ -2840,11 +2871,17 @@ a.public-list-entry:hover {
     -webkit-backdrop-filter: blur(8px);
   }
 
+  [data-item-edit-panel] .add-item-panel-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .item-edit-header-actions {
+    grid-row: 1;
     gap: 0.45rem;
   }
 
   .item-edit-header-actions .item-edit-live-status {
+    margin-right: auto;
     max-width: min(8rem, 28vw);
     font-size: 0.86rem;
   }
