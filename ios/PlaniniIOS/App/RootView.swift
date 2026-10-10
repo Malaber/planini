@@ -2190,6 +2190,7 @@ private struct ListDetailScreen: View {
     @State private var displayedListID: UUID
     @State private var editingItem: GroceryItemRecord?
     @State private var addItemPresentation: AddItemPresentation?
+    @State private var isStartingShoppingMode = false
     @State private var highlightedItemID: UUID?
     @State private var moveNotice: ItemMoveNotice?
     @State private var moveNoticeDismissTask: Task<Void, Never>?
@@ -2325,6 +2326,24 @@ private struct ListDetailScreen: View {
                         Text(list.householdName)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        let isShoppingModeActive = viewModel.shoppingModeListID == list.id
+                        Button {
+                            isStartingShoppingMode = true
+                            Task {
+                                _ = await viewModel.startShoppingMode(listID: list.id)
+                                isStartingShoppingMode = false
+                            }
+                        } label: {
+                            Label(
+                                isShoppingModeActive ? "Shopping mode active" : "Start shopping mode",
+                                systemImage: isShoppingModeActive ? "cart.fill" : "cart"
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(isStartingShoppingMode)
+                        .accessibilityIdentifier("shopping-mode-button")
                     }
                     .listRowInsets(CompactListLayout.summaryInsets)
                 }

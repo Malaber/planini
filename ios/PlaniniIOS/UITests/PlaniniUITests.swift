@@ -293,6 +293,7 @@ final class PlaniniUITests: XCTestCase {
         XCTAssertTrue(listTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(listTitle.label, initialListName)
         captureScreenshot(named: "ios-ui-list-detail")
+        assertShoppingModeAvailable(in: app)
 
         guard let visibleQuickAddSection = firstVisibleQuickAddSection(in: app, timeout: 5) else {
             XCTFail("Expected at least one list section with quick-add controls.")
@@ -3689,6 +3690,12 @@ final class PlaniniUITests: XCTestCase {
             if waitForElementToDisappear(sheet, timeout: 2) {
                 return true
             }
+            if element.exists {
+                tapTrailingControl(in: element, app: app)
+            }
+            if waitForElementToDisappear(sheet, timeout: 2) {
+                return true
+            }
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
 
@@ -3818,6 +3825,23 @@ final class PlaniniUITests: XCTestCase {
         tapCancelButton(in: app)
         XCTAssertTrue(waitForElementToDisappear(onboardingSheet, timeout: 5))
         XCTAssertTrue(app.buttons["login-passkey-button"].waitForExistence(timeout: 3))
+    }
+
+    private func assertShoppingModeAvailable(in app: XCUIApplication) {
+        let shoppingModeButton = app.buttons["shopping-mode-button"]
+        XCTAssertTrue(shoppingModeButton.waitForExistence(timeout: 3))
+        captureScreenshot(named: "ios-ui-shopping-mode-button")
+        shoppingModeButton.tap()
+
+        let becameActive = NSPredicate(format: "label CONTAINS %@", "Shopping mode active")
+        let activeExpectation = XCTNSPredicateExpectation(predicate: becameActive, object: shoppingModeButton)
+        let alert = app.alerts.firstMatch
+        let alertAppeared = alert.waitForExistence(timeout: 1)
+        if alertAppeared {
+            alert.buttons["OK"].tap()
+        }
+        let active = XCTWaiter().wait(for: [activeExpectation], timeout: 3) == .completed
+        XCTAssertTrue(active || alertAppeared)
     }
 
     private func assertAccountRegistrationAvailable(in app: XCUIApplication) {
