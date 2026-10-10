@@ -27,14 +27,14 @@ const staleBlueAccentTokens = [
   "245, 251, 253",
 ];
 const seedMainCategoryColors = new Map([
-  ["Milch & Eier", "rgb(216, 180, 226)"],
-  ["Tiefkuehlkost", "rgb(77, 208, 225)"],
-  ["Gemuese", "rgb(126, 217, 87)"],
+  ["Dairy & Eggs", "rgb(216, 180, 226)"],
+  ["Frozen Foods", "rgb(77, 208, 225)"],
+  ["Produce", "rgb(126, 217, 87)"],
 ]);
 const seedSettingsCategoryColors = new Map([
-  ["Backwaren", "rgb(251, 146, 60)"],
-  ["Backzutaten", "rgb(236, 72, 153)"],
-  ["Fleisch", "rgb(239, 68, 68)"],
+  ["Bakery", "rgb(251, 146, 60)"],
+  ["Baking Supplies", "rgb(236, 72, 153)"],
+  ["Meat", "rgb(239, 68, 68)"],
 ]);
 
 function logStep(message) {
@@ -134,6 +134,43 @@ async function apiJson(requestContext, url, options = {}) {
   throw lastError;
 }
 
+function waitForPasskeyOptions(page, pathPattern) {
+  return page.waitForResponse((response) => {
+    const request = response.request();
+    return request.method() === "POST" && pathPattern.test(new URL(response.url()).pathname);
+  });
+}
+
+async function assertRegistrationOptions(response) {
+  assert(response.ok(), `Expected passkey registration options, got ${response.status()}`);
+  const options = await response.json();
+  assert.equal(
+    options.authenticatorSelection?.residentKey,
+    "required",
+    "Expected reusable passkey library to require a resident key",
+  );
+  assert.equal(
+    options.authenticatorSelection?.userVerification,
+    "required",
+    "Expected reusable passkey library to require user verification during registration",
+  );
+}
+
+async function assertAuthenticationOptions(response, expectedCredentialCount) {
+  assert(response.ok(), `Expected passkey authentication options, got ${response.status()}`);
+  const options = await response.json();
+  assert.equal(
+    options.userVerification,
+    "required",
+    "Expected reusable passkey library to require user verification during authentication",
+  );
+  assert.equal(
+    options.allowCredentials?.length,
+    expectedCredentialCount,
+    "Expected reusable passkey library to constrain credential management verification",
+  );
+}
+
 function isTransientApiError(error) {
   const message = String(error?.message ?? error);
   return /socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|Target page, context or browser has been closed/u.test(
@@ -203,6 +240,110 @@ async function assertSuggestionPlusButtonInline(suggestion, message) {
     },
     message,
   );
+}
+
+async function assertEditDialogFits(page) {
+  logStep("Checking edit dialog with long localized titles at narrow widths");
+  const panel = page.locator("[data-item-edit-panel]");
+  const viewport = page.viewportSize();
+  const original = await panel.evaluate((node) => {
+    const title = node.querySelector("[data-item-edit-title]");
+    const label = node.querySelector(".dashboard-label");
+    const status = node.querySelector("[data-item-edit-status]");
+    const text = node.querySelector("[data-item-edit-status-text]");
+    const original = { title: title.textContent, label: label.textContent, text: text.textContent, hidden: status.hidden };
+    label.textContent = "Artikel bearbeiten";
+    text.textContent = "Gespeichert.";
+    status.hidden = false;
+    return original;
+  });
+  try {
+    for (const width of [320, 390, 720, 1024]) {
+      await page.setViewportSize({ width, height: viewport.height });
+      for (const title of ["Blumenkohl / Brokkoli Auflauf", "W".repeat(180)]) {
+        await panel.locator("[data-item-edit-title]").evaluate((node, title) => { node.textContent = title; }, title);
+        for (const scrolled of [false, true]) {
+          const layout = await panel.evaluate((node, scrolled) => {
+            node.scrollTop = scrolled ? node.scrollHeight : 0;
+            const rect = node.getBoundingClientRect();
+            const close = node.querySelector(".add-item-close");
+            const button = close.getBoundingClientRect();
+            if (rect.left < 0 || rect.right > innerWidth) {
+              throw new Error(`Dialog bounds ${rect.left}..${rect.right}, viewport ${innerWidth}, modal ${getComputedStyle(node.parentElement).gridTemplateColumns}, panel width ${getComputedStyle(node).width}`);
+            }
+            return {
+              fitsViewport: rect.left >= 0 && rect.right <= innerWidth,
+              noHorizontalScroll: node.scrollWidth <= node.clientWidth + 1,
+              closeVisible: button.left >= rect.left && button.right <= rect.right
+                && button.top >= Math.max(0, rect.top) && button.bottom <= Math.min(innerHeight, rect.bottom),
+              closeHittable: close.contains(document.elementFromPoint(button.x + button.width / 2, button.y + button.height / 2)),
+            };
+          }, scrolled);
+          assert.deepEqual(layout, {
+            fitsViewport: true, noHorizontalScroll: true, closeVisible: true, closeHittable: true,
+          }, `Edit dialog must fit at ${width}px with ${title.length} characters, scrolled=${scrolled}`);
+        }
+        await panel.evaluate((node) => { node.scrollTop = 0; });
+        if (width === 390 && title.length < 180) await screenshot(page, "edit-dialog-long-title-mobile");
+      }
+    }
+  } finally {
+    await panel.evaluate((node, original) => {
+      node.querySelector("[data-item-edit-title]").textContent = original.title;
+      node.querySelector(".dashboard-label").textContent = original.label;
+      node.querySelector("[data-item-edit-status-text]").textContent = original.text;
+      node.querySelector("[data-item-edit-status]").hidden = original.hidden;
+      node.scrollTop = 0;
+    }, original);
+    await page.setViewportSize(viewport);
+  }
+}
+
+async function assertCategoryCorners(page) {
+  logStep("Checking shared category corners and unclipped menus");
+  const failures = await page.locator(".item-category-group").evaluateAll((groups) => {
+    const failures = [];
+    for (const group of groups) {
+      const groupStyle = getComputedStyle(group);
+      const label = group.querySelector("h3")?.textContent;
+      const check = (node, property, expected) => {
+        if (getComputedStyle(node)[property] !== expected) {
+          failures.push(`${label}: ${node.className} ${property} should be ${expected}`);
+        }
+      };
+      check(group, "overflowX", "visible");
+      check(group, "overflowY", "visible");
+      const previous = group.previousElementSibling;
+      if (matchMedia("(max-width: 720px)").matches && previous?.matches(".item-category-group")) {
+        const gap = group.getBoundingClientRect().top - previous.getBoundingClientRect().bottom;
+        if (Math.abs(gap) > 0.5) {
+          failures.push(`${label}: mobile category boundary has a ${gap}px gap`);
+        }
+      }
+      for (const child of group.children) {
+        for (const edge of ["Top", "Bottom"]) {
+          const isEdge = edge === "Top"
+            ? child === group.firstElementChild
+            : child === group.lastElementChild;
+          for (const side of ["Left", "Right"]) {
+            const property = `border${edge}${side}Radius`;
+            const expected = isEdge ? groupStyle[property] : "0px";
+            check(child, property, expected);
+            const content = child.querySelector(":scope > .item-card-content");
+            if (content) check(content, property, expected);
+            const swipe = child.querySelector(":scope > .item-swipe-action");
+            if (swipe && side === "Left") check(swipe, property, expected);
+          }
+        }
+        if (child.matches(".item-card")) {
+          check(child, "overflowX", "visible");
+          check(child, "overflowY", "visible");
+        }
+      }
+    }
+    return failures;
+  });
+  assert.deepEqual(failures, [], "Category backgrounds must follow shared outer corners");
 }
 
 async function assertBrownWhiteAccentChrome(page) {
@@ -682,7 +823,12 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
   const secondPasskeyName = "Laptop passkey";
   await page.getByRole("button", { name: "Add another passkey" }).click();
   await page.getByLabel("Name this passkey").fill(secondPasskeyName);
+  const registrationOptions = waitForPasskeyOptions(
+    page,
+    /\/api\/v1\/auth\/passkeys\/register\/options$/,
+  );
   await page.getByRole("button", { name: "Continue" }).click();
+  await assertRegistrationOptions(await registrationOptions);
   await expectVisible(
     page.locator("[data-passkey-success]", { hasText: "Another passkey is ready to use." }),
     "Expected passkey add success message",
@@ -704,7 +850,12 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
   const renamedPasskeyName = "Travel passkey";
   await page.locator(".passkey-row").nth(1).getByRole("button", { name: "Rename" }).click();
   await page.getByLabel("Rename this passkey").fill(renamedPasskeyName);
+  const renameOptions = waitForPasskeyOptions(
+    page,
+    /\/api\/v1\/auth\/passkeys\/[^/]+\/rename\/options$/,
+  );
   await page.getByRole("button", { name: "Save and verify" }).click();
+  await assertAuthenticationOptions(await renameOptions, 1);
   await expectVisible(
     page.locator("[data-passkey-success]", {
       hasText: "Passkey renamed after confirming it still works.",
@@ -763,7 +914,12 @@ async function runPasskeyManagementFlow(page, context, owner, rpId, authenticato
     deletePanel.locator("strong", { hasText: "another" }),
     "Expected the delete confirmation to emphasize another passkey",
   );
+  const deleteOptions = waitForPasskeyOptions(
+    page,
+    /\/api\/v1\/auth\/passkeys\/[^/]+\/delete\/options$/,
+  );
   await page.getByRole("button", { name: "Continue to verification" }).click();
+  await assertAuthenticationOptions(await deleteOptions, 1);
   await expectVisible(
     page.locator("[data-passkey-success]", {
       hasText: "Passkey deleted after confirming another one worked.",
@@ -859,10 +1015,13 @@ async function loginAsAdmin(page, user) {
 async function runAdminTableControlsFlow(page) {
   logStep("Checking admin table sorting, page size persistence, and reset controls");
   await page.goto(new URL("/admin/user/list", baseUrl).toString(), { waitUntil: "networkidle" });
-  await expectVisible(page.getByRole("link", { name: "50 / Page" }), "Expected 50 row default");
+  const pageSizeDropdown = page.locator(".card-footer .dropdown");
+  const pageSizeToggle = pageSizeDropdown.locator('[data-bs-toggle="dropdown"]');
+  await expectVisible(pageSizeToggle, "Expected 50 row default");
+  assert.match((await pageSizeToggle.textContent()) ?? "", /50 \/ Page/);
 
-  await page.getByRole("link", { name: "50 / Page" }).click();
-  await page.locator(".dropdown-menu .dropdown-item", { hasText: "100 / Page" }).click();
+  await pageSizeToggle.click();
+  await pageSizeDropdown.getByRole("link", { name: "100 / Page", exact: true }).click();
   await page.waitForURL(/\/admin\/user\/list\?pageSize=100/);
 
   await page.getByRole("link", { name: "Email" }).click();
@@ -872,7 +1031,7 @@ async function runAdminTableControlsFlow(page) {
   await page.waitForURL(/\/admin\/category\/list\?pageSize=100/);
   await expectVisible(page.getByRole("link", { name: "100 / Page" }), "Expected page size to persist");
 
-  await page.getByRole("link", { name: "Name" }).click();
+  await page.getByRole("link", { name: "English" }).click();
   await page.waitForURL(/\/admin\/category\/list\?.*pageSize=100.*sortBy=name.*sort=asc/);
 
   await page.getByRole("link", { name: "Reset view" }).click();
@@ -896,6 +1055,65 @@ async function runAdminBackupFlow(page) {
   const stat = await fs.stat(path.join(backupDir, fileName));
   assert(stat.size > 0, `Expected backup file ${fileName} to be non-empty`);
   await screenshot(page, "admin-backup-created");
+}
+
+async function runAdminCategoryTranslationFlow(adminPage, userPage, requestContext, seed) {
+  const scenario = await scenarioFromSeed(seed, requestContext);
+  const suffix = Date.now();
+  const englishName = `Seasonal E2E ${suffix}`;
+  const germanName = `Saison E2E ${suffix}`;
+
+  logStep("Creating translated category through admin frontend");
+  await adminPage.goto(new URL("/admin/category/create", baseUrl).toString(), {
+    waitUntil: "networkidle",
+  });
+  await expectVisible(
+    adminPage.getByLabel("English (en)"),
+    "Expected mandatory English category field",
+  );
+  await expectVisible(
+    adminPage.getByLabel("German (de)"),
+    "Expected German category translation field",
+  );
+  await adminPage.getByLabel("English (en)").fill(englishName);
+  await adminPage.getByLabel("German (de)").fill(germanName);
+  await adminPage.getByLabel("Color").fill("#8b5cf6");
+  await adminPage.getByLabel("Aliases").fill("seasonal");
+  await adminPage.locator('input[type="submit"][value="Save"]').click();
+  await adminPage.waitForURL(/\/admin\/category\/list/);
+  await expectVisible(
+    adminPage.locator("tr", { hasText: englishName }),
+    "Expected translated category in admin list",
+  );
+
+  const germanCategories = await apiJson(
+    requestContext,
+    `/api/v1/lists/${scenario.listId}/categories`,
+    { headers: { "Accept-Language": "de-DE,de;q=0.9" } },
+  );
+  const translatedCategory = germanCategories.find((category) => category.name === germanName);
+  assert(translatedCategory, "Expected German category name from localized API");
+  assert.equal(translatedCategory.translations.de, germanName);
+
+  logStep("Showing translated defaults and admin category in German list UI");
+  await userPage.goto(
+    new URL(`/lists/${scenario.listId}?lang=de`, baseUrl).toString(),
+    { waitUntil: "networkidle" },
+  );
+  await userPage.getByRole("button", { name: "Listeneinstellungen öffnen" }).click();
+  const settingsPanel = userPage.locator("[data-list-settings-panel]");
+  await expectVisible(
+    settingsPanel.locator(".settings-category-row", { hasText: germanName }),
+    "Expected admin translation in German list settings",
+  );
+  await expectVisible(
+    settingsPanel.locator(".settings-category-row", { hasText: "Backwaren" }),
+    "Expected seeded default German translation",
+  );
+  await userPage.goto(
+    new URL(`/lists/${scenario.listId}?lang=en`, baseUrl).toString(),
+    { waitUntil: "networkidle" },
+  );
 }
 
 async function runAdminPasskeyAddLinkFlow(page, seed, rpId) {
@@ -935,6 +1153,7 @@ async function runAdminPasskeyAddLinkFlow(page, seed, rpId) {
     await loginAsAdmin(adminPage, adminUser);
     await runAdminBackupFlow(adminPage);
     await runAdminTableControlsFlow(adminPage);
+    await runAdminCategoryTranslationFlow(adminPage, page, page.context().request, seed);
     await adminPage.goto(new URL("/admin/user/list", baseUrl).toString(), { waitUntil: "networkidle" });
     const targetUserRow = adminPage.locator("tr", { hasText: targetUser.email }).first();
     await expectVisible(
@@ -1091,6 +1310,79 @@ function itemCard(page, text) {
 
 function escapedRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function assertItemMoreContextMenu(card, itemName) {
+  const layoutBefore = await card.evaluate((node) => {
+    const next = node.nextElementSibling;
+    const cardRect = node.getBoundingClientRect();
+    const nextRect = next?.getBoundingClientRect();
+    return {
+      cardCount: document.querySelectorAll(".item-card").length,
+      cardHeight: cardRect.height,
+      nextTop: nextRect?.top ?? null,
+    };
+  });
+  await card.getByRole("button", { name: `More actions for ${itemName}` }).click();
+  const menu = card.locator(".item-more-menu");
+  await expectVisible(menu, `Expected ${itemName} context menu`);
+  const layoutAfter = await card.evaluate((node) => {
+    const button = node.querySelector("[data-item-menu-toggle]");
+    const menuNode = node.querySelector(".item-more-menu");
+    const next = node.nextElementSibling;
+    if (!(button instanceof HTMLElement)) {
+      throw new Error("Expected item menu toggle");
+    }
+    if (!(menuNode instanceof HTMLElement)) {
+      throw new Error("Expected item menu popup");
+    }
+    const cardRect = node.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    const menuRect = menuNode.getBoundingClientRect();
+    const nextRect = next?.getBoundingClientRect();
+    const buttonStyle = getComputedStyle(button);
+    const menuStyle = getComputedStyle(menuNode);
+    return {
+      buttonAlignItems: buttonStyle.alignItems,
+      buttonDisplay: buttonStyle.display,
+      buttonJustifyContent: buttonStyle.justifyContent,
+      buttonBottom: buttonRect.bottom,
+      cardCount: document.querySelectorAll(".item-card").length,
+      cardHeight: cardRect.height,
+      cardLeft: cardRect.left,
+      cardWidth: cardRect.width,
+      menuLeft: menuRect.left,
+      menuPosition: menuStyle.position,
+      menuTop: menuRect.top,
+      menuWidth: menuRect.width,
+      nextTop: nextRect?.top ?? null,
+    };
+  });
+
+  assert.equal(layoutAfter.buttonAlignItems, "center", "More actions button should center icon vertically");
+  assert(
+    layoutAfter.buttonDisplay === "flex" || layoutAfter.buttonDisplay === "inline-flex",
+    `More actions button should use flex centering; got ${layoutAfter.buttonDisplay}`,
+  );
+  assert.equal(layoutAfter.buttonJustifyContent, "center", "More actions button should center icon horizontally");
+  assert.equal(layoutAfter.cardCount, layoutBefore.cardCount, "Opening item actions should not add a list row");
+  assert(
+    Math.abs(layoutAfter.cardHeight - layoutBefore.cardHeight) <= 2,
+    `Opening item actions should not resize the item row; before ${layoutBefore.cardHeight}, after ${layoutAfter.cardHeight}`,
+  );
+  assert.equal(layoutAfter.menuPosition, "absolute", "Item menu should be an overlay popup");
+  assert(
+    layoutAfter.menuWidth < layoutAfter.cardWidth * 0.75,
+    "Item menu should not render as a full-width list row",
+  );
+  assert(layoutAfter.menuLeft >= layoutAfter.cardLeft, "Item menu should stay aligned inside the card");
+  assert(layoutAfter.menuTop >= layoutAfter.buttonBottom - 8, "Item menu should open below the actions button");
+  if (layoutBefore.nextTop !== null && layoutAfter.nextTop !== null) {
+    assert(
+      Math.abs(layoutAfter.nextTop - layoutBefore.nextTop) <= 1,
+      "Opening item menu should not push the next item down",
+    );
+  }
 }
 
 async function swipeItemRight(card) {
@@ -1293,6 +1585,7 @@ async function runCheckedStressListFlow(page, stressListUrl) {
   assert.equal(await loadMoreMeta.textContent(), "248 older items not loaded");
   await assertBrownWhiteAccentChrome(page);
 
+  await assertCategoryCorners(page);
   await loadMoreButton.click();
   await expectCheckedCardCount(checkedGroup, 110);
   assert.equal(await headingMeta.textContent(), "258 items");
@@ -1375,6 +1668,108 @@ async function runListQuickSwitchFlow(page, scenario, primaryListUrl) {
   );
 }
 
+async function runPublicListLinkFlow(browser, ownerPage, scenario, listUrl) {
+  logStep("Creating and editing through public list link");
+  await ownerPage.goto(listUrl, { waitUntil: "networkidle" });
+  await ownerPage.getByRole("button", { name: "List settings" }).click();
+  const shareForm = ownerPage.locator("[data-public-list-link-form]");
+  await expectVisible(shareForm, "Expected public list link form in list settings");
+  await shareForm.getByLabel("Link valid for days").fill("2");
+  await shareForm.getByRole("button", { name: "Create public link" }).click();
+  const linkInput = ownerPage.locator("[data-public-list-link-url]");
+  await expectVisible(linkInput, "Expected generated public link output");
+  const publicUrl = await linkInput.inputValue();
+  assert(publicUrl.includes("/public/lists/"), "Expected generated public URL to use public list route");
+  await ownerPage
+    .locator("[data-list-settings-panel]")
+    .getByRole("button", { name: /Close list settings/ })
+    .click();
+
+  const publicContext = await browser.newContext();
+  const publicPage = await publicContext.newPage();
+  try {
+    await publicPage.goto(publicUrl, { waitUntil: "networkidle" });
+    await expectVisible(
+      publicPage.locator("[data-list-title]", { hasText: scenario.listName }),
+      "Expected anonymous public list page to load the shared list",
+    );
+    await expectHidden(
+      publicPage.locator("[data-list-switcher]"),
+      "Expected public list page to hide household list switcher",
+    );
+    await expectHidden(
+      publicPage.locator("[data-list-settings-toggle]"),
+      "Expected public visitor to have item editing without owner list settings",
+    );
+    await publicPage.getByRole("button", { name: "Add item" }).click();
+    await publicPage.locator("[data-item-form]").getByLabel("Item name").fill("Public pears");
+    await publicPage.locator("[data-item-panel]").getByRole("button", { name: "Save now" }).click();
+    const publicItemCard = publicPage.locator("[data-item-card]", { hasText: "Public pears" });
+    await expectVisible(publicItemCard, "Expected anonymous visitor to add an item");
+    await publicItemCard.click();
+    const publicEditPanel = publicPage.locator("[data-item-edit-panel]", {
+      hasText: "Public pears",
+    });
+    await expectVisible(publicEditPanel, "Expected anonymous visitor to open item editor");
+    await publicEditPanel.locator('input[name="note"]').fill("shared link edit");
+    await expectVisible(
+      publicEditPanel.locator("[data-item-edit-status]", { hasText: "Saved." }),
+      "Expected anonymous item edit to save",
+    );
+    await publicEditPanel.locator("[data-item-edit-close]").click();
+    await expectVisible(
+      publicItemCard.locator(".item-meta", { hasText: "shared link edit" }),
+      "Expected anonymous item edit to remain visible",
+    );
+    await publicItemCard.getByRole("button", { name: /check/i }).click();
+    const checkedPublicItem = publicPage.locator("[data-item-card].is-checked", {
+      hasText: "Public pears",
+    });
+    await expectVisible(
+      checkedPublicItem,
+      "Expected anonymous visitor to check an item",
+    );
+    await checkedPublicItem.click();
+    const publicDeletePanel = publicPage.locator("[data-item-edit-panel]", {
+      hasText: "Public pears",
+    });
+    await expectVisible(publicDeletePanel, "Expected checked public item editor");
+    await publicDeletePanel.locator("[data-item-edit-delete]").click();
+    await expectHidden(
+      publicPage.locator("[data-item-card]", { hasText: "Public pears" }),
+      "Expected anonymous visitor to delete the public test item",
+    );
+  } finally {
+    await publicPage.close();
+    await publicContext.close();
+  }
+
+  logStep("Remembering an opened public link on the signed-in dashboard");
+  await ownerPage.goto(publicUrl, { waitUntil: "networkidle" });
+  await expectVisible(
+    ownerPage.locator("[data-list-title]", { hasText: scenario.listName }),
+    "Expected signed-in owner to open the same public link",
+  );
+  await ownerPage.goto(new URL("/?dashboard=1", baseUrl).toString(), { waitUntil: "networkidle" });
+  const rememberedPublicList = ownerPage.locator("[data-public-lists] li", {
+    hasText: scenario.listName,
+  });
+  await expectVisible(
+    rememberedPublicList,
+    "Expected dashboard to remember a public list opened while signed in",
+  );
+  await rememberedPublicList.getByRole("button", { name: /remove/i }).click();
+  await expectHidden(
+    rememberedPublicList,
+    "Expected remembered public list to be easy to remove",
+  );
+  await ownerPage.goto(listUrl, { waitUntil: "networkidle" });
+  await expectVisible(
+    ownerPage.locator("[data-list-title]", { hasText: scenario.listName }),
+    "Expected public-link persistence check to return to the primary list",
+  );
+}
+
 async function runOfflineSyncFlow(page, requestContext, listId) {
   logStep("Checking offline list item save and resync");
   const offlineName = `Fresh thing offline ${Date.now()}`;
@@ -1439,14 +1834,25 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
   );
 
   await ownerHouseholdCard.getByRole("button", { name: "Create invite link" }).click();
-  const inviteInput = ownerHouseholdCard.locator(
-    `[data-invite-link-input="${scenario.householdId}"]`,
-  );
+  const invitePanel = ownerPage.locator("[data-dashboard-invite-panel]");
+  await expectVisible(invitePanel, "Expected invite share sheet");
+  await invitePanel.getByLabel("Role").selectOption("viewer");
+  await invitePanel.getByLabel("Limit").selectOption("uses");
+  await invitePanel.locator("[data-invite-max-uses]").fill("2");
+  await invitePanel.getByRole("button", { name: "Create invite link" }).click();
+  const inviteInput = invitePanel.locator("[data-invite-sheet-link-input]");
   await expectVisible(inviteInput, "Expected invite link field after creating invite");
   const inviteUrl = await inviteInput.inputValue();
   assert(inviteUrl.includes("/invite/"), "Expected invite URL");
   const inviteToken = extractInviteToken(inviteUrl);
   assert(inviteToken, "Expected invite token");
+  const invitePreview = await apiJson(
+    ownerPage.context().request,
+    `/api/v1/households/invites/${inviteToken}`,
+  );
+  assert.equal(invitePreview.max_uses, 2, "Expected limited-use invite");
+  assert.equal(invitePreview.remaining_uses, 2, "Expected unused invite to show both uses");
+  assert.equal(invitePreview.role, "viewer", "Expected viewer invite role");
 
   const inviteeContext = await browser.newContext(contextOptions());
   const inviteePage = await inviteeContext.newPage();
@@ -1482,6 +1888,10 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
       inviteePage.getByRole("heading", { name: scenario.householdName }),
       "Expected invite page household name",
     );
+    await expectVisible(
+      inviteePage.getByText("This link has 2 uses remaining."),
+      "Expected limited-use invite copy",
+    );
     await inviteePage.getByRole("button", { name: "Accept invite" }).click();
     await inviteePage.waitForURL(new URL("/", baseUrl).toString());
     const acceptedHouseholdCard = inviteePage
@@ -1493,12 +1903,110 @@ async function runInviteFlow(ownerPage, browser, scenario, seed, rpId) {
       "Invitee should see the seeded list after accepting the invite",
     );
     await expectVisible(
+      acceptedHouseholdCard.getByText("Viewer", { exact: false }),
+      "Invitee should see viewer role on the household",
+    );
+    assert.equal(
+      await acceptedHouseholdCard.getByRole("button", { name: "Create invite link" }).count(),
+      0,
+      "Viewer should not see invite management",
+    );
+    await expectVisible(
       acceptedHouseholdCard
         .locator(`a[href="/lists/${scenario.listId}"]`)
         .filter({ hasText: expectedOpenItemLabel }),
       "Invitee should see the seeded list open item count after accepting the invite",
     );
     await screenshot(inviteePage, "invite-accepted");
+
+    await acceptedHouseholdCard.locator(`a[href="/lists/${scenario.listId}"]`).click();
+    await expectVisible(
+      inviteePage.getByText("Viewer access: this list is read-only."),
+      "Viewer should see read-only list status",
+    );
+    await expectHidden(
+      inviteePage.getByRole("button", { name: "Add item" }).first(),
+      "Viewer should not see item creation",
+    );
+    const viewerSettingsButton = inviteePage.getByRole("button", { name: "Open list settings" });
+    await expectVisible(
+      viewerSettingsButton,
+      "Viewer should be able to open list history",
+    );
+    await viewerSettingsButton.click();
+    const viewerSettingsPanel = inviteePage.locator("[data-list-settings-panel]");
+    await expectVisible(viewerSettingsPanel, "Viewer should open list history");
+    await expectHidden(
+      viewerSettingsPanel.locator("[data-list-settings-management]"),
+      "Viewer should not see owner list controls",
+    );
+    await expectVisible(
+      viewerSettingsPanel.locator('[data-history-event="member_added"]'),
+      "Viewer should see household membership history",
+    );
+    await viewerSettingsPanel.locator("[data-list-settings-close]").click();
+
+    await ownerPage.goto(new URL("/?dashboard=1", baseUrl).toString(), {
+      waitUntil: "networkidle",
+    });
+    const refreshedOwnerHouseholdCard = ownerPage
+      .locator(".household-card", { hasText: scenario.householdName })
+      .first();
+    await refreshedOwnerHouseholdCard.getByRole("button", { name: "Members" }).click();
+    const memberPanel = ownerPage.locator("[data-dashboard-members-panel]");
+    await expectVisible(memberPanel, "Owner should open household members");
+    const inviteeMemberRow = memberPanel
+      .locator(".household-member-row", { hasText: invitee.email })
+      .first();
+    await expectVisible(inviteeMemberRow, "Owner should see accepted invitee");
+    await inviteeMemberRow.getByLabel("Role").selectOption("editor");
+    await expectVisible(
+      ownerPage.locator("[data-dashboard-success]", { hasText: "Member role updated." }),
+      "Owner should update invitee to editor",
+    );
+
+    await inviteePage.reload({ waitUntil: "networkidle" });
+    await expectHidden(
+      inviteePage.getByText("Viewer access: this list is read-only."),
+      "Editor should no longer see viewer status",
+    );
+    await expectVisible(
+      inviteePage.getByRole("button", { name: "Add item" }).first(),
+      "Editor should see item creation",
+    );
+    const editorSettingsButton = inviteePage.getByRole("button", {
+      name: "Open list settings",
+    });
+    await expectVisible(
+      editorSettingsButton,
+      "Editor should be able to open list history",
+    );
+    await editorSettingsButton.click();
+    const editorSettingsPanel = inviteePage.locator("[data-list-settings-panel]");
+    await expectHidden(
+      editorSettingsPanel.locator("[data-list-settings-management]"),
+      "Editor should not see owner list controls",
+    );
+    await expectVisible(
+      editorSettingsPanel.locator('[data-history-event="member_role_changed"]'),
+      "Editor should see household role history",
+    );
+    await editorSettingsPanel.locator("[data-list-settings-close]").click();
+
+    await inviteeMemberRow.getByRole("button", { name: "Remove" }).click();
+    await expectVisible(
+      ownerPage.locator("[data-dashboard-success]", { hasText: "Member removed." }),
+      "Owner should remove invitee",
+    );
+    await inviteePage.goto(new URL("/?dashboard=1", baseUrl).toString(), {
+      waitUntil: "networkidle",
+    });
+    assert.equal(
+      await inviteePage.locator(".household-card", { hasText: scenario.householdName }).count(),
+      0,
+      "Removed member should lose household access",
+    );
+    await screenshot(inviteePage, "member-removed");
   } finally {
     await inviteeContext.close();
   }
@@ -1601,6 +2109,18 @@ async function main() {
     await installSeededPasskey(authenticator, owner, rpId);
     await assertSupportPage(page);
     await assertPrivacyPage(page);
+    logStep("Checking signed-out list Smart App Banner context");
+    const signedOutListPath = "/lists/11111111-2222-3333-4444-555555555555";
+    const signedOutListUrl = new URL(signedOutListPath, baseUrl).toString();
+    await page.goto(signedOutListUrl, { waitUntil: "networkidle" });
+    const signedOutLoginUrl = new URL(page.url());
+    assert.equal(signedOutLoginUrl.pathname, "/login");
+    assert.equal(signedOutLoginUrl.searchParams.get("next"), signedOutListPath);
+    assert.equal(
+      await page.locator('head meta[name="apple-itunes-app"]').getAttribute("content"),
+      `app-id=6762043307, app-argument=${signedOutListUrl}`,
+      "Expected signed-out Smart App Banner to preserve current list",
+    );
     logStep("Signing in with the seeded owner passkey");
     await loginFromRoot(page, owner, "Households and Lists");
     await screenshot(page, "promotion-list-of-lists");
@@ -1636,6 +2156,11 @@ async function main() {
       page.goto(listUrl, { waitUntil: "networkidle" }),
       pageTwo.goto(listUrl, { waitUntil: "networkidle" }),
     ]);
+    assert.equal(
+      await page.locator('head meta[name="apple-itunes-app"]').getAttribute("content"),
+      `app-id=6762043307, app-argument=${listUrl}`,
+      "Expected Smart App Banner to deep-link to the current list",
+    );
 
     const addForm = page.locator("[data-item-form]");
     const editForm = page.locator("[data-item-edit-form]");
@@ -1646,6 +2171,7 @@ async function main() {
     await assertSeedMainCategoryColors(page);
     await assertBrownWhiteAccentChrome(page);
     await runListQuickSwitchFlow(page, scenario, listUrl);
+    await runPublicListLinkFlow(browser, page, scenario, listUrl);
 
     if (deviceName === "desktop") {
       await page.keyboard.press("Enter");
@@ -1664,24 +2190,8 @@ async function main() {
 
     const spaghettiCard = itemCard(page, "Spaghetti");
     if (deviceName === "desktop") {
-      const cardCountBeforeMenu = await page.locator(".item-card").count();
-      const cardHeightBeforeMenu = (await spaghettiCard.boundingBox())?.height ?? 0;
-      await spaghettiCard.getByRole("button", { name: "More actions for Spaghetti" }).click();
-      await expectVisible(
-        spaghettiCard.getByRole("button", { name: "Hide item for 4h" }),
-        "Expected more-actions context menu",
-      );
-      assert.equal(
-        await page.locator(".item-card").count(),
-        cardCountBeforeMenu,
-        "Opening item actions should not add a list row",
-      );
-      const cardHeightAfterMenu = (await spaghettiCard.boundingBox())?.height ?? 0;
-      assert(
-        Math.abs(cardHeightAfterMenu - cardHeightBeforeMenu) <= 2,
-        `Opening item actions should not resize the item row; before ${cardHeightBeforeMenu}, after ${cardHeightAfterMenu}`,
-      );
-      await spaghettiCard.getByRole("button", { name: "Hide item for 4h" }).click();
+      await assertItemMoreContextMenu(spaghettiCard, "Spaghetti");
+      await spaghettiCard.getByRole("menuitem", { name: "Hide item for 4h" }).click();
     } else {
       await swipeItemRight(spaghettiCard);
     }
@@ -1732,8 +2242,8 @@ async function main() {
     await page.locator(".item-category-header h3", { hasText: "Checked off" }).waitFor({ state: "hidden" });
     await expectVisible(page.locator(".item-card", { hasText: "Brot" }), "Brot should be active again");
 
-    const backwarenHeader = page.locator(".item-category-header h3", { hasText: "Backwaren" }).first();
-    await expectVisible(backwarenHeader, "Expected Backwaren section");
+    const backwarenHeader = page.locator(".item-category-header h3", { hasText: "Bakery" }).first();
+    await expectVisible(backwarenHeader, "Expected Bakery section");
 
     const looseItemCard = page.locator(".item-card", { hasText: "Loose item" });
     await looseItemCard.getByRole("button").first().click();
@@ -1798,6 +2308,8 @@ async function main() {
       page.locator(".item-category-header h3", { hasText: "Checked off" }),
       "Expected checked-off section before promotion screenshot",
     );
+    await expectVisible(page.locator(".item-sale-group"), "Expected sale group for corner coverage");
+    await assertCategoryCorners(page);
     await screenshot(page, "promotion-filled-list");
 
     const hackfleischCard = await revealCheckedItemCard(page, "Hackfleisch");
@@ -1823,11 +2335,20 @@ async function main() {
       "Clicking item should open edit modal",
     );
     await screenshot(page, "promotion-edit-item-dialogue");
+    const layoutPage = await context.newPage();
+    try {
+      await layoutPage.goto(listUrl, { waitUntil: "networkidle" });
+      await itemCard(layoutPage, "Tomaten").click();
+      await expectVisible(layoutPage.locator("[data-item-edit-panel]"), "Expected edit dialog for layout checks");
+      await assertEditDialogFits(layoutPage);
+    } finally {
+      await layoutPage.close();
+    }
     const editSearch = editForm.locator("[data-item-edit-category-search]");
     await editSearch.fill("brot");
     await expectVisible(
-      editForm.locator(".category-radio-option", { hasText: "Backwaren" }),
-      "Alias search should find Backwaren",
+      editForm.locator(".category-radio-option", { hasText: "Bakery" }),
+      "Alias search should find Bakery",
     );
     const aliasTexts = await textList(
       editForm.locator(".category-radio-option .category-radio-copy span"),
@@ -1837,7 +2358,7 @@ async function main() {
       editForm.getByRole("button", { name: "Save changes" }),
       "Edit modal should live-save without a save button",
     );
-    await editForm.locator(".category-radio-option", { hasText: "Backwaren" }).click();
+    await editForm.locator(".category-radio-option", { hasText: "Bakery" }).click();
     await editForm.locator('input[name="quantity_text"]').fill("4 loaves");
     const editPanel = page.locator("[data-item-edit-panel]");
     const editHeader = editPanel.locator(".add-item-panel-header");
@@ -1947,8 +2468,45 @@ async function main() {
       () => document.querySelector('[data-item-edit-form] input[name="quantity_text"]')?.value === "4 loaves",
       { timeout: 5000 },
     );
+    await editForm.getByLabel("On sale").check();
+    await expectVisible(
+      editForm.locator("[data-sale-window-fields]"),
+      "Enabling a sale should reveal its start and end controls",
+    );
     await page.locator("[data-item-edit-panel] .add-item-close[data-item-edit-close]").click();
     await expectHidden(page.locator("[data-item-edit-overlay]"), "Edit modal should close before opening settings");
+    const promotedTomaten = page.locator("[data-item-sale-card]", { hasText: "Tomaten" }).first();
+    await expectVisible(promotedTomaten, "Active sale item should be promoted in the On sale section");
+    await expectVisible(
+      itemCard(page, "Tomaten").locator(".item-sale-badge"),
+      "Normal item row should stay highlighted as on sale",
+    );
+    await promotedTomaten.locator("[data-item-toggle]").click();
+    await page.waitForFunction(
+      () => {
+        const promoted = [...document.querySelectorAll("[data-item-sale-card]")].find((node) =>
+          node.textContent?.includes("Tomaten"),
+        );
+        const normal = [...document.querySelectorAll("[data-item-card]")].find((node) =>
+          node.textContent?.includes("Tomaten"),
+        );
+        return Boolean(promoted?.classList.contains("is-checked") && normal?.classList.contains("is-checked"));
+      },
+      { timeout: 5000 },
+    );
+    await promotedTomaten.locator("[data-item-toggle]").click();
+    await page.waitForFunction(
+      () => {
+        const promoted = [...document.querySelectorAll("[data-item-sale-card]")].find((node) =>
+          node.textContent?.includes("Tomaten"),
+        );
+        const normal = [...document.querySelectorAll("[data-item-card]")].find((node) =>
+          node.textContent?.includes("Tomaten"),
+        );
+        return Boolean(promoted && normal && !promoted.classList.contains("is-checked") && !normal.classList.contains("is-checked"));
+      },
+      { timeout: 5000 },
+    );
 
     await page.getByRole("button", { name: "Add item" }).click();
     const moveThingName = `Move target ${Date.now()}`;
@@ -1956,12 +2514,40 @@ async function main() {
     await page.locator(".add-item-save-button").click();
     const moveThingCard = page.locator("[data-item-card]", { hasText: moveThingName }).first();
     await expectVisible(moveThingCard, "Expected move target item before moving");
-    await moveThingCard.click();
+
+    await moveThingCard.locator(".item-main").click();
+    await expectVisible(page.locator("[data-item-edit-panel]"), "Expected item editor before moving");
+    await page.locator("[data-item-edit-panel]").getByRole("button", { name: "Move to list" }).click();
+    const moveDialog = page.locator("[data-item-move-panel]");
+    await expectVisible(moveDialog, "Expected shared move modal above item editor");
     await expectVisible(
-      page.locator("[data-item-edit-panel]").getByRole("heading", { name: moveThingName }),
-      "Expected move target edit modal",
+      moveDialog.getByRole("button", { name: scenario.moveTargetListName, exact: true }),
+      "Expected target list in shared move modal from item editor",
     );
-    await editForm.getByLabel("Move to list").selectOption({ label: scenario.moveTargetListName });
+    await moveDialog.locator("[data-item-move-close].add-item-close").click();
+    await expectHidden(moveDialog, "Expected closing move modal to return to item editor");
+    await expectVisible(page.locator("[data-item-edit-panel]"), "Expected item editor to remain open");
+    await page.locator("[data-item-edit-panel] [data-item-edit-close].add-item-close").click();
+    await expectHidden(page.locator("[data-item-edit-overlay]"), "Expected item editor to close");
+
+    await moveThingCard.getByRole("button", { name: `More actions for ${moveThingName}` }).click();
+    await expectVisible(
+      moveThingCard.getByRole("menu"),
+      "Expected move target context menu",
+    );
+    assert.equal(
+      await moveThingCard.evaluate((node) =>
+        getComputedStyle(node.closest(".list-focus-card")).overflow
+      ),
+      "visible",
+      "Open item menu should not be clipped by the list card",
+    );
+    await moveThingCard.getByRole("menuitem", { name: "Move to list" }).click();
+    await expectVisible(
+      moveDialog,
+      "Expected same shared move modal from item context menu",
+    );
+    await moveDialog.getByRole("button", { name: scenario.moveTargetListName, exact: true }).click();
     const movedNotice = page.locator("[data-moved-item-notice]", { hasText: moveThingName }).first();
     await expectVisible(
       movedNotice,
@@ -2012,13 +2598,30 @@ async function main() {
     const renamedList = await apiJson(context.request, `/api/v1/lists/${scenario.listId}`);
     assert.equal(renamedList.name, renamedListName, "List rename should persist through the API");
     scenario.listName = renamedListName;
+    const historyList = settingsPanel.locator("[data-list-history]");
+    await expectVisible(
+      historyList.locator('[data-history-event="list_renamed"]', { hasText: renamedListName }),
+      "List settings should show persisted rename history",
+    );
+    const listHistory = await apiJson(
+      context.request,
+      `/api/v1/lists/${scenario.listId}/history`,
+    );
+    assert(
+      listHistory.some((entry) => entry.event_type === "item_created"),
+      "List history API should include item creation",
+    );
+    assert(
+      listHistory.some((entry) => entry.event_type === "list_renamed"),
+      "List history API should include list rename",
+    );
     await assertSeedSettingsCategoryColors(page);
     const topCategoryBefore = (
-      await textList(page.locator(".item-category-group > .item-category-header h3"))
+      await textList(page.locator(".item-category-group:not(.item-sale-group) > .item-category-header h3"))
     ).slice(0, 3);
     assert.equal(topCategoryBefore[0], "Uncategorized", "Uncategorized should stay on top");
 
-    await moveCategoryBefore(page, "Backwaren", "Nudeln");
+    await moveCategoryBefore(page, "Bakery", "Pasta");
     await page.locator("[data-list-settings-panel] .add-item-close").click();
 
     await page.waitForFunction(
@@ -2026,8 +2629,9 @@ async function main() {
         const headers = [...document.querySelectorAll(".item-category-group > .item-category-header h3")].map(
           (node) => node.textContent?.trim(),
         );
-        return headers.indexOf("Backwaren") > -1 && headers.indexOf("Backwaren") < headers.indexOf("Nudeln");
+        return headers.indexOf("Bakery") > -1 && headers.indexOf("Bakery") < headers.indexOf("Pasta");
       },
+      null,
       { timeout: 5000 },
     );
     await pageTwo.waitForFunction(
@@ -2035,22 +2639,23 @@ async function main() {
         const headers = [...document.querySelectorAll(".item-category-group > .item-category-header h3")].map(
           (node) => node.textContent?.trim(),
         );
-        return headers.indexOf("Backwaren") > -1 && headers.indexOf("Backwaren") < headers.indexOf("Nudeln");
+        return headers.indexOf("Bakery") > -1 && headers.indexOf("Bakery") < headers.indexOf("Pasta");
       },
+      null,
       { timeout: 5000 },
     );
 
     const backwarenGroup = page
       .locator(".item-category-group")
-      .filter({ has: page.locator(".item-category-header h3", { hasText: "Backwaren" }) })
+      .filter({ has: page.locator(".item-category-header h3", { hasText: "Bakery" }) })
       .first();
-    await backwarenGroup.getByRole("button", { name: "Quick add to Backwaren" }).click();
+    await backwarenGroup.getByRole("button", { name: "Quick add to Bakery" }).click();
     await expectVisible(page.locator("[data-item-panel]"), "Category quick add should open add modal");
     assert.equal(
       (await addForm
         .locator('.category-radio-option:has(input[name="category_id"]:checked) .category-radio-copy strong')
         .textContent())?.trim(),
-      "Backwaren",
+      "Bakery",
       "Category quick add should preselect that category",
     );
     const freshThingName = `Fresh thing ${Date.now()}`;
@@ -2066,18 +2671,18 @@ async function main() {
     await expectInViewport(freshThingCard, "New item should be scrolled into view after saving");
     await expectVisible(
       page
-        .locator(".item-category-group", { hasText: "Backwaren" })
+        .locator(".item-category-group", { hasText: "Bakery" })
         .locator(".item-card", { hasText: freshThingName }),
-      "New item should land in the Backwaren section",
+      "New item should land in the Bakery section",
     );
 
     await page.getByRole("button", { name: "Open list settings" }).click();
     await expectVisible(page.getByRole("heading", { name: "Category order" }), "Expected settings modal");
-    const backwarenDisableRow = settingsPanel.locator(".settings-category-row", { hasText: "Backwaren" });
-    await dragCategoryAfter(page, "Backwaren", "Nudeln");
-    await backwarenDisableRow.getByRole("button", { name: /Disable Backwaren/i }).click();
+    const backwarenDisableRow = settingsPanel.locator(".settings-category-row", { hasText: "Bakery" });
+    await dragCategoryAfter(page, "Bakery", "Pasta");
+    await backwarenDisableRow.getByRole("button", { name: /Disable Bakery/i }).click();
     await expectVisible(
-      page.locator("[data-category-disable-confirm-panel]", { hasText: "Disable Backwaren?" }),
+      page.locator("[data-category-disable-confirm-panel]", { hasText: "Disable Bakery?" }),
       "Disabling a populated category should use the app confirmation modal",
     );
     await page.locator("[data-category-disable-confirm-confirm]").click();
@@ -2108,14 +2713,14 @@ async function main() {
     }
     await addForm.locator("[data-item-category-search]").fill("brot");
     await expectHidden(
-      addForm.locator(".category-radio-option", { hasText: "Backwaren" }),
+      addForm.locator(".category-radio-option", { hasText: "Bakery" }),
       "Disabled category should not be selectable when adding items",
     );
     await page.locator("[data-item-panel] .add-item-close").click();
     await page.getByRole("button", { name: "Open list settings" }).click();
     await settingsPanel
-      .locator(".settings-category-row", { hasText: "Backwaren" })
-      .getByRole("button", { name: /Enable Backwaren/i })
+      .locator(".settings-category-row", { hasText: "Bakery" })
+      .getByRole("button", { name: /Enable Bakery/i })
       .click();
     await page.locator("[data-list-settings-panel] .add-item-close").click();
 
@@ -2149,7 +2754,7 @@ async function main() {
   const summary = [
     "## UI E2E",
     "",
-    `Browser UI flow passed for ${deviceName} using seeded real database data and passkey auth for public support and privacy contacts, route rendering, login gating, multi-passkey enrollment and deletion, add/edit flows, fuzzy duplicate suggestions, undo toasts, category alias search, category disabling, admin navigation, websocket updates, and household invite acceptance.`,
+    `Browser UI flow passed for ${deviceName} using seeded real database data and passkey auth for public support and privacy contacts, route rendering, login gating, multi-passkey enrollment and deletion, translated category administration and locale fallback, add/edit flows, fuzzy duplicate suggestions, undo toasts, category alias search, category disabling, admin navigation, websocket updates, and household invite acceptance.`,
     "",
   ].join("\n");
   await fs.writeFile(path.join(artifactDir, "summary.md"), summary);

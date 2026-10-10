@@ -11,12 +11,20 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from webauthn.helpers import bytes_to_base64url
 
-from app.api.v1.routes.households import _as_utc
-from app.api.v1.routes.auth import _expected_origins
+from app.api.v1.routes.households import _as_utc, _claim_invite_use
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token
-from app.models import AuthSession, HouseholdInvite, HouseholdMember, Passkey, PasskeyAddLink, User
-from app.schemas.auth import PasskeyOut
+from app.schemas.domain import GroceryItemOut, ListHistoryEntryOut
+from app.models import (
+    AuthSession,
+    HouseholdInvite,
+    HouseholdInviteUse,
+    HouseholdMember,
+    Passkey,
+    PasskeyAddLink,
+    User,
+)
+from fastpasskey import PasskeyOut
 from app.services.backups import (
     BackupConfirmationError,
     BackupConfigurationError,
@@ -88,7 +96,7 @@ async def _set_passkey_timestamps(
 async def _add_household_member(
     household_id: UUID,
     user_id: UUID,
-    role: str = "member",
+    role: str = "editor",
 ) -> None:
     async with AsyncSessionLocal() as session:
         session.add(
@@ -341,26 +349,45 @@ def test_full_flow(client) -> None:
     admin_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
     category = client.post(
         "/api/v1/categories",
-        json={"name": "Produce", "color": "green", "aliases": ["Veg", "Fruit & veg"]},
+        json={
+            "name": "Produce",
+            "color": "green",
+            "aliases": ["Veg", "Fruit & veg"],
+            "translations": {"de": "Gemüse"},
+        },
         headers=admin_headers,
     ).json()
     assert category["aliases"] == ["Veg", "Fruit & veg"]
+    assert category["translations"] == {"de": "Gemüse"}
 
     assert client.get("/api/v1/categories", headers=admin_headers).status_code == 200
 
     updated_category = client.patch(
         f"/api/v1/categories/{category['id']}",
-        json={"name": "Dairy", "color": "blue", "aliases": ["Milk", "Cheese"]},
+        json={
+            "name": "Dairy",
+            "color": "blue",
+            "aliases": ["Milk", "Cheese"],
+            "translations": {"de": "Milchprodukte"},
+        },
         headers=admin_headers,
     ).json()
     assert updated_category["name"] == "Dairy"
     assert updated_category["aliases"] == ["Milk", "Cheese"]
+    assert updated_category["translations"] == {"de": "Milchprodukte"}
 
     bakery_category = client.post(
         "/api/v1/categories",
         json={"name": "Bakery", "color": "orange"},
         headers=admin_headers,
     ).json()
+    localized_categories = client.get(
+        f"/api/v1/lists/{list_id}/categories",
+        headers={**headers, "Accept-Language": "de-DE,de;q=0.9"},
+    ).json()
+    localized_by_id = {entry["id"]: entry for entry in localized_categories}
+    assert localized_by_id[category["id"]]["name"] == "Milchprodukte"
+    assert localized_by_id[bakery_category["id"]]["name"] == "Bakery"
 
     category_order = client.put(
         f"/api/v1/lists/{list_id}/category-order",
@@ -538,6 +565,8 @@ def test_pwa_assets_are_exposed(client) -> None:
     )
     assert 'rel="manifest" href="/manifest.webmanifest"' in login_page.text
     assert 'name="theme-color" content="#6b4f3b"' in login_page.text
+    assert 'name="apple-itunes-app"' in login_page.text
+    assert 'content="app-id=6762043307, app-argument=http://testserver/"' in login_page.text
     assert 'rel="icon" type="image/png" href="/static/img/Favicon.png"' in login_page.text
     assert 'rel="apple-touch-icon" href="/static/img/apple-touch-icon.png"' in login_page.text
     assert 'rel="stylesheet" href="/static/app.css?v=' in login_page.text
@@ -636,6 +665,12 @@ def test_capabilities_live_demo_page_uses_real_list_ui(client) -> None:
     assert "#1db8d9" in page.text
     assert "#f59e0b" in page.text
     assert 'href="/capabilities"' in page.text
+
+    german_page = client.get("/capabilities/live-demo?lang=de")
+    german_body = unescape(german_page.text)
+    assert "Obst und Gem\\u00fcse" in german_body
+    assert "K\\u00fchlschrank" in german_body
+    assert "Vorrat" in german_body
 
 
 def test_auth_and_access_error_paths(client) -> None:
@@ -970,6 +1005,138 @@ def test_item_window_limits_checked_items_and_pages_older_checked_items(client) 
     assert active_item["id"] in {item["id"] for item in visible_window["items"]}
 
 
+def test_item_sale_schedule_round_trips_and_persists_through_checked_state(client) -> None:
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=headers,
+    ).json()
+    local_timezone = timezone(timedelta(hours=2))
+    sale_starts_at = datetime(2026, 7, 23, 10, 0, tzinfo=local_timezone)
+    sale_ends_at = datetime(2026, 7, 24, 10, 0, tzinfo=local_timezone)
+
+    created = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/items",
+        json={
+            "name": "Sale apples",
+            "sale_starts_at": sale_starts_at.isoformat(),
+            "sale_ends_at": sale_ends_at.isoformat(),
+        },
+        headers=headers,
+    )
+
+    assert created.status_code == 200
+    item = created.json()
+    item_id = item["id"]
+    assert datetime.fromisoformat(item["sale_starts_at"].replace("Z", "+00:00")) == (
+        sale_starts_at.astimezone(UTC)
+    )
+    assert datetime.fromisoformat(item["sale_ends_at"].replace("Z", "+00:00")) == (
+        sale_ends_at.astimezone(UTC)
+    )
+
+    with client.websocket_connect(
+        f"/api/v1/ws/lists/{grocery_list['id']}?token={headers['Authorization'][7:]}"
+    ) as ws:
+        snapshot = ws.receive_json()
+        snapshot_item = next(
+            entry for entry in snapshot["payload"]["items"] if entry["id"] == item_id
+        )
+        assert snapshot_item["sale_starts_at"] == item["sale_starts_at"]
+        assert snapshot_item["sale_ends_at"] == item["sale_ends_at"]
+
+        updated_starts_at = sale_starts_at + timedelta(days=1)
+        updated_ends_at = sale_ends_at + timedelta(days=2)
+        updated = client.patch(
+            f"/api/v1/items/{item_id}",
+            json={
+                "sale_starts_at": updated_starts_at.isoformat(),
+                "sale_ends_at": updated_ends_at.isoformat(),
+            },
+            headers=headers,
+        )
+        assert updated.status_code == 200
+        item = updated.json()
+        update_event = ws.receive_json()
+        assert update_event["type"] == "item_updated"
+        assert update_event["payload"]["item"]["sale_starts_at"] == item["sale_starts_at"]
+        assert update_event["payload"]["item"]["sale_ends_at"] == item["sale_ends_at"]
+
+    checked = client.post(f"/api/v1/items/{item_id}/check", headers=headers).json()
+    assert checked["sale_starts_at"] == item["sale_starts_at"]
+    assert checked["sale_ends_at"] == item["sale_ends_at"]
+    unchecked = client.post(f"/api/v1/items/{item_id}/uncheck", headers=headers).json()
+    assert unchecked["sale_starts_at"] == item["sale_starts_at"]
+    assert unchecked["sale_ends_at"] == item["sale_ends_at"]
+
+    listed_item = next(
+        entry
+        for entry in client.get(f"/api/v1/lists/{grocery_list['id']}/items", headers=headers).json()
+        if entry["id"] == item_id
+    )
+    assert listed_item["sale_starts_at"] == item["sale_starts_at"]
+    assert listed_item["sale_ends_at"] == item["sale_ends_at"]
+
+    cleared = client.patch(
+        f"/api/v1/items/{item_id}",
+        json={"sale_starts_at": None, "sale_ends_at": None},
+        headers=headers,
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["sale_starts_at"] is None
+    assert cleared.json()["sale_ends_at"] is None
+
+
+def test_item_sale_schedule_rejects_incomplete_naive_and_reversed_windows(client) -> None:
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=headers,
+    ).json()
+    starts_at = datetime(2026, 7, 23, 10, 0, tzinfo=UTC)
+    ends_at = starts_at + timedelta(hours=4)
+    invalid_payloads = [
+        {"sale_starts_at": starts_at.isoformat()},
+        {
+            "sale_starts_at": starts_at.replace(tzinfo=None).isoformat(),
+            "sale_ends_at": ends_at.replace(tzinfo=None).isoformat(),
+        },
+        {
+            "sale_starts_at": ends_at.isoformat(),
+            "sale_ends_at": starts_at.isoformat(),
+        },
+        {
+            "sale_starts_at": starts_at.isoformat(),
+            "sale_ends_at": None,
+        },
+    ]
+
+    for index, payload in enumerate(invalid_payloads):
+        response = client.post(
+            f"/api/v1/lists/{grocery_list['id']}/items",
+            json={"name": f"Invalid sale {index}", **payload},
+            headers=headers,
+        )
+        assert response.status_code == 422
+
+    item = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/items",
+        json={"name": "Valid item"},
+        headers=headers,
+    ).json()
+    partial_update = client.patch(
+        f"/api/v1/items/{item['id']}",
+        json={"sale_ends_at": ends_at.isoformat()},
+        headers=headers,
+    )
+    assert partial_update.status_code == 422
+    assert GroceryItemOut.normalize_stored_sale_datetime(starts_at) == starts_at
+
+
 def test_lists_include_open_item_count(client) -> None:
     headers = _auth_headers(client, f"{uuid4()}@example.com")
     household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
@@ -1033,6 +1200,107 @@ def test_lists_include_open_item_count(client) -> None:
         headers=headers,
     )
     assert blank_rename.status_code == 400
+
+
+def test_list_accent_color_defaults_updates_clears_and_validates(client) -> None:
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households",
+        json={"name": "Home"},
+        headers=headers,
+    ).json()
+
+    default_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Default"},
+        headers=headers,
+    )
+    assert default_list.status_code == 200
+    assert default_list.json()["accent_color"] is None
+
+    tinted_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Tinted", "accent_color": "#3b82f6"},
+        headers=headers,
+    )
+    assert tinted_list.status_code == 200
+    tinted = tinted_list.json()
+    assert tinted["accent_color"] == "#3b82f6"
+
+    lists = client.get(
+        f"/api/v1/households/{household['id']}/lists",
+        headers=headers,
+    ).json()
+    assert {grocery_list["name"]: grocery_list["accent_color"] for grocery_list in lists} == {
+        "Default": None,
+        "Tinted": "#3b82f6",
+    }
+    detail = client.get(f"/api/v1/lists/{tinted['id']}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["accent_color"] == "#3b82f6"
+
+    recolored = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={"accent_color": "#A1b2C3"},
+        headers=headers,
+    )
+    assert recolored.status_code == 200
+    assert recolored.json()["name"] == "Tinted"
+    assert recolored.json()["accent_color"] == "#A1b2C3"
+
+    renamed = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={"name": "Renamed"},
+        headers=headers,
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "Renamed"
+    assert renamed.json()["accent_color"] == "#A1b2C3"
+
+    no_op = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={},
+        headers=headers,
+    )
+    assert no_op.status_code == 200
+    assert no_op.json()["name"] == "Renamed"
+    assert no_op.json()["accent_color"] == "#A1b2C3"
+
+    for invalid_name in (None, "   "):
+        invalid_rename = client.patch(
+            f"/api/v1/lists/{tinted['id']}",
+            json={"name": invalid_name},
+            headers=headers,
+        )
+        assert invalid_rename.status_code == 400
+
+    for invalid_color in ("3b82f6", "#3b82f", "#3b82f60", "#zzzzzz"):
+        invalid_recolor = client.patch(
+            f"/api/v1/lists/{tinted['id']}",
+            json={"accent_color": invalid_color},
+            headers=headers,
+        )
+        assert invalid_recolor.status_code == 422
+
+    invalid_create = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Invalid", "accent_color": "blue"},
+        headers=headers,
+    )
+    assert invalid_create.status_code == 422
+
+    unchanged = client.get(f"/api/v1/lists/{tinted['id']}", headers=headers).json()
+    assert unchanged["name"] == "Renamed"
+    assert unchanged["accent_color"] == "#A1b2C3"
+
+    cleared = client.patch(
+        f"/api/v1/lists/{tinted['id']}",
+        json={"accent_color": None},
+        headers=headers,
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["name"] == "Renamed"
+    assert cleared.json()["accent_color"] is None
 
 
 def test_offline_item_sync_replays_changes_idempotently(client) -> None:
@@ -1200,6 +1468,83 @@ def test_offline_item_sync_accepts_create_without_client_item_id(client) -> None
     assert response.json()["items"][0]["name"] == "One-shot"
 
 
+def test_offline_item_sync_round_trips_sale_schedule(client) -> None:
+    headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post("/api/v1/households", json={"name": "Home"}, headers=headers).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=headers,
+    ).json()
+    recorded_at = datetime.now(UTC)
+    initial_starts_at = recorded_at - timedelta(hours=1)
+    initial_ends_at = recorded_at + timedelta(hours=1)
+    updated_starts_at = recorded_at - timedelta(hours=2)
+    updated_ends_at = recorded_at + timedelta(hours=2)
+
+    response = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/items/sync",
+        json={
+            "mutations": [
+                {
+                    "mutation_id": "create-sale",
+                    "type": "create",
+                    "client_item_id": "local-sale",
+                    "recorded_at": recorded_at.isoformat(),
+                    "payload": {
+                        "name": "Offline sale",
+                        "sale_starts_at": initial_starts_at.isoformat(),
+                        "sale_ends_at": initial_ends_at.isoformat(),
+                    },
+                },
+                {
+                    "mutation_id": "update-sale",
+                    "type": "update",
+                    "item_id": "local-sale",
+                    "recorded_at": (recorded_at + timedelta(seconds=1)).isoformat(),
+                    "payload": {
+                        "sale_starts_at": updated_starts_at.isoformat(),
+                        "sale_ends_at": updated_ends_at.isoformat(),
+                    },
+                },
+                {
+                    "mutation_id": "check-sale",
+                    "type": "set_checked",
+                    "item_id": "local-sale",
+                    "recorded_at": (recorded_at + timedelta(seconds=2)).isoformat(),
+                    "checked": True,
+                },
+            ]
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["checked"] is True
+    assert datetime.fromisoformat(item["sale_starts_at"].replace("Z", "+00:00")) == (
+        updated_starts_at
+    )
+    assert datetime.fromisoformat(item["sale_ends_at"].replace("Z", "+00:00")) == updated_ends_at
+
+    invalid_update = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/items/sync",
+        json={
+            "mutations": [
+                {
+                    "mutation_id": "invalid-sale-update",
+                    "type": "update",
+                    "item_id": item["id"],
+                    "recorded_at": (recorded_at + timedelta(seconds=3)).isoformat(),
+                    "payload": {"sale_ends_at": updated_ends_at.isoformat()},
+                }
+            ]
+        },
+        headers=headers,
+    )
+    assert invalid_update.status_code == 422
+
+
 def test_offline_item_sync_rejects_invalid_mutations(client) -> None:
     headers = _auth_headers(client, f"{uuid4()}@example.com")
     admin_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
@@ -1338,6 +1683,381 @@ def test_api_role_boundaries_are_enforced(client) -> None:
     )
 
 
+def test_list_history_tracks_list_item_setting_and_member_changes(client) -> None:
+    aware_now = datetime.now(UTC)
+    assert ListHistoryEntryOut.normalize_created_at(aware_now) == aware_now
+    owner_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    member_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    outsider_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    owner_headers = {"Authorization": f"Bearer {create_access_token(owner_id)}"}
+    member_headers = {"Authorization": f"Bearer {create_access_token(member_id)}"}
+    outsider_headers = {"Authorization": f"Bearer {create_access_token(outsider_id)}"}
+    admin_headers = _auth_headers(client, f"{uuid4()}@example.com", is_admin=True)
+
+    household = client.post(
+        "/api/v1/households",
+        json={"name": "History home"},
+        headers=owner_headers,
+    ).json()
+    first_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=owner_headers,
+    ).json()
+    second_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Hardware"},
+        headers=owner_headers,
+    ).json()
+
+    renamed = client.patch(
+        f"/api/v1/lists/{first_list['id']}",
+        json={"name": "Market", "accent_color": "#A1B2C3"},
+        headers=owner_headers,
+    )
+    assert renamed.status_code == 200
+    assert (
+        client.patch(
+            f"/api/v1/lists/{first_list['id']}",
+            json={"name": "Market", "accent_color": "#A1B2C3"},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+
+    category = client.post(
+        "/api/v1/categories",
+        json={"name": "Produce"},
+        headers=admin_headers,
+    ).json()
+    category_order_url = f"/api/v1/lists/{first_list['id']}/category-order"
+    assert (
+        client.put(
+            category_order_url,
+            json={"category_ids": [category["id"]]},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.put(
+            category_order_url,
+            json={"category_ids": [category["id"]]},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    disabled_url = f"/api/v1/lists/{first_list['id']}/disabled-categories"
+    assert (
+        client.put(
+            disabled_url,
+            json={"category_ids": [category["id"]]},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.put(
+            disabled_url,
+            json={"category_ids": [category["id"]]},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+
+    item = client.post(
+        f"/api/v1/lists/{first_list['id']}/items",
+        json={"name": "Milk"},
+        headers=owner_headers,
+    ).json()
+    assert (
+        client.patch(
+            f"/api/v1/items/{item['id']}",
+            json={"name": "Milk"},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/items/{item['id']}",
+            json={"quantity_text": "2 bottles"},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(f"/api/v1/items/{item['id']}/check", headers=owner_headers).status_code == 200
+    )
+    assert (
+        client.post(f"/api/v1/items/{item['id']}/check", headers=owner_headers).status_code == 200
+    )
+    assert (
+        client.post(f"/api/v1/items/{item['id']}/uncheck", headers=owner_headers).status_code == 200
+    )
+    assert (
+        client.post(f"/api/v1/items/{item['id']}/uncheck", headers=owner_headers).status_code == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/items/{item['id']}",
+            json={"list_id": second_list["id"]},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert client.delete(f"/api/v1/items/{item['id']}", headers=owner_headers).status_code == 200
+
+    invite = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        json={"role": "editor"},
+        headers=owner_headers,
+    ).json()
+    invite_token = invite["invite_url"].rsplit("/", 1)[-1]
+    assert (
+        client.post(
+            f"/api/v1/households/invites/{invite_token}/accept",
+            headers=member_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/households/{household['id']}/members/{member_id}",
+            json={"role": "viewer"},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/v1/households/{household['id']}/members/{member_id}",
+            json={"role": "viewer"},
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+
+    history_url = f"/api/v1/lists/{first_list['id']}/history"
+    member_history = client.get(history_url, headers=member_headers)
+    assert member_history.status_code == 200
+    assert client.get(history_url, headers=outsider_headers).status_code == 403
+
+    assert (
+        client.delete(
+            f"/api/v1/households/{household['id']}/members/{member_id}",
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    history_response = client.get(history_url, headers=owner_headers)
+    assert history_response.status_code == 200
+    history = history_response.json()
+    event_types = [entry["event_type"] for entry in history]
+    assert event_types.count("list_created") == 1
+    assert event_types.count("list_renamed") == 1
+    assert event_types.count("list_accent_changed") == 1
+    assert event_types.count("category_order_changed") == 1
+    assert event_types.count("list_categories_changed") == 1
+    assert event_types.count("item_created") == 1
+    assert event_types.count("item_updated") == 1
+    assert event_types.count("item_checked") == 1
+    assert event_types.count("item_unchecked") == 1
+    assert event_types.count("item_moved_out") == 1
+    assert event_types.count("member_added") == 1
+    assert event_types.count("member_role_changed") == 1
+    assert event_types.count("member_removed") == 1
+    assert "item_moved_in" not in event_types
+    assert "item_deleted" not in event_types
+
+    renamed_entry = next(entry for entry in history if entry["event_type"] == "list_renamed")
+    assert renamed_entry["details"] == {"old_name": "Weekly", "new_name": "Market"}
+    updated_entry = next(entry for entry in history if entry["event_type"] == "item_updated")
+    assert updated_entry["subject_name"] == "Milk"
+    assert updated_entry["details"] == {"fields": "quantity_text"}
+    assert all(entry["actor_display_name"] == "User" for entry in history)
+
+    page = client.get(f"{history_url}?offset=1&limit=2", headers=owner_headers)
+    assert page.status_code == 200
+    assert [entry["id"] for entry in page.json()] == [entry["id"] for entry in history[1:3]]
+    assert client.get(f"{history_url}?limit=201", headers=owner_headers).status_code == 422
+
+    second_history = client.get(
+        f"/api/v1/lists/{second_list['id']}/history", headers=owner_headers
+    ).json()
+    second_event_types = [entry["event_type"] for entry in second_history]
+    assert "item_moved_in" in second_event_types
+    assert "item_deleted" in second_event_types
+    assert "member_added" in second_event_types
+    assert "item_created" not in second_event_types
+
+
+def test_household_roles_enforce_access_and_owner_member_management(client) -> None:
+    owner_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    editor_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    viewer_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    owner_headers = {"Authorization": f"Bearer {create_access_token(owner_id)}"}
+    editor_headers = {"Authorization": f"Bearer {create_access_token(editor_id)}"}
+    viewer_headers = {"Authorization": f"Bearer {create_access_token(viewer_id)}"}
+
+    household = client.post(
+        "/api/v1/households",
+        json={"name": "Role home"},
+        headers=owner_headers,
+    ).json()
+    household_id = UUID(household["id"])
+    assert household["role"] == "owner"
+    asyncio.run(_add_household_member(household_id, editor_id, role="editor"))
+    asyncio.run(_add_household_member(household_id, viewer_id, role="viewer"))
+
+    grocery_list = client.post(
+        f"/api/v1/households/{household_id}/lists",
+        json={"name": "Weekly"},
+        headers=owner_headers,
+    ).json()
+    assert grocery_list["access_role"] == "owner"
+    list_id = grocery_list["id"]
+
+    viewer_households = client.get("/api/v1/households", headers=viewer_headers).json()
+    assert viewer_households == [{"id": str(household_id), "name": "Role home", "role": "viewer"}]
+    assert (
+        client.get(f"/api/v1/lists/{list_id}", headers=viewer_headers).json()["access_role"]
+        == "viewer"
+    )
+    assert client.get(f"/api/v1/lists/{list_id}/items", headers=viewer_headers).status_code == 200
+    assert (
+        client.post(
+            f"/api/v1/lists/{list_id}/items",
+            json={"name": "No write"},
+            headers=viewer_headers,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            f"/api/v1/households/{household_id}/lists",
+            json={"name": "No list"},
+            headers=editor_headers,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/v1/lists/{list_id}",
+            json={"name": "No rename"},
+            headers=editor_headers,
+        ).status_code
+        == 403
+    )
+
+    created_item = client.post(
+        f"/api/v1/lists/{list_id}/items",
+        json={"name": "Editor item"},
+        headers=editor_headers,
+    )
+    assert created_item.status_code == 200
+    assert (
+        client.delete(
+            f"/api/v1/items/{created_item.json()['id']}",
+            headers=editor_headers,
+        ).status_code
+        == 200
+    )
+
+    members = client.get(
+        f"/api/v1/households/{household_id}/members",
+        headers=viewer_headers,
+    )
+    assert members.status_code == 200
+    assert {member["role"] for member in members.json()} == {
+        "owner",
+        "editor",
+        "viewer",
+    }
+    assert (
+        client.patch(
+            f"/api/v1/households/{household_id}/members/{viewer_id}",
+            json={"role": "editor"},
+            headers=editor_headers,
+        ).status_code
+        == 403
+    )
+    updated = client.patch(
+        f"/api/v1/households/{household_id}/members/{viewer_id}",
+        json={"role": "editor"},
+        headers=owner_headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["role"] == "editor"
+    assert (
+        client.patch(
+            f"/api/v1/households/{household_id}/members/{owner_id}",
+            json={"role": "viewer"},
+            headers=owner_headers,
+        ).status_code
+        == 400
+    )
+    missing_user_id = uuid4()
+    assert (
+        client.patch(
+            f"/api/v1/households/{household_id}/members/{missing_user_id}",
+            json={"role": "viewer"},
+            headers=owner_headers,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.delete(
+            f"/api/v1/households/{household_id}/members/{owner_id}",
+            headers=owner_headers,
+        ).status_code
+        == 400
+    )
+    assert (
+        client.delete(
+            f"/api/v1/households/{household_id}/members/{editor_id}",
+            headers=owner_headers,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.delete(
+            f"/api/v1/households/{household_id}/members/{missing_user_id}",
+            headers=owner_headers,
+        ).status_code
+        == 404
+    )
+
+
+def test_household_invites_assign_selected_role(client) -> None:
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    viewer_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households",
+        json={"name": "View only"},
+        headers=owner_headers,
+    ).json()
+    invite = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        json={"role": "viewer"},
+        headers=owner_headers,
+    ).json()
+    assert invite["role"] == "viewer"
+    token = invite["invite_url"].rsplit("/", 1)[-1]
+    preview = client.get(
+        f"/api/v1/households/invites/{token}",
+        headers=viewer_headers,
+    ).json()
+    assert preview["role"] == "viewer"
+    accepted = client.post(
+        f"/api/v1/households/invites/{token}/accept",
+        json={},
+        headers=viewer_headers,
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["role"] == "viewer"
+
+
 def test_household_invite_helpers_and_owner_accept_path(client) -> None:
     aware = datetime(2026, 3, 18, 12, 0, tzinfo=UTC)
     assert _as_utc(aware) == aware
@@ -1421,18 +2141,164 @@ def test_household_invite_flow_allows_joining_and_keeps_access_scoped(client) ->
         == 200
     )
 
+    outsider_accept = client.post(
+        f"/api/v1/households/invites/{token}/accept",
+        headers=outsider_headers,
+        json={},
+    )
+    assert outsider_accept.status_code == 200
+    assert outsider_accept.json()["id"] == household["id"]
+
+
+def test_household_invite_max_uses_limits_distinct_members(client) -> None:
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    first_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    second_headers = _auth_headers(client, f"{uuid4()}@example.com")
+
+    household = client.post(
+        "/api/v1/households", json={"name": "Limited"}, headers=owner_headers
+    ).json()
+    invite_response = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        headers=owner_headers,
+        json={"expires_in_hours": None, "max_uses": 1},
+    )
+    assert invite_response.status_code == 200
+    invite = invite_response.json()
+    assert invite["expires_at"] is None
+    assert invite["max_uses"] == 1
+    token = invite["invite_url"].rsplit("/", 1)[-1]
+
+    preview = client.get(f"/api/v1/households/invites/{token}", headers=first_headers)
+    assert preview.status_code == 200
+    assert preview.json()["max_uses"] == 1
+    assert preview.json()["remaining_uses"] == 1
+
     assert (
-        client.get(f"/api/v1/households/invites/{token}", headers=outsider_headers).status_code
-        == 404
+        client.post(
+            f"/api/v1/households/invites/{token}/accept",
+            headers=first_headers,
+            json={},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(f"/api/v1/households/invites/{token}", headers=second_headers).status_code == 404
+    )
+    first_preview_after_use = client.get(
+        f"/api/v1/households/invites/{token}", headers=first_headers
+    )
+    assert first_preview_after_use.status_code == 200
+    assert first_preview_after_use.json()["already_member"] is True
+    assert first_preview_after_use.json()["remaining_uses"] == 0
+    assert (
+        client.post(
+            f"/api/v1/households/invites/{token}/accept",
+            headers=first_headers,
+            json={},
+        ).status_code
+        == 200
     )
     assert (
         client.post(
             f"/api/v1/households/invites/{token}/accept",
-            headers=outsider_headers,
+            headers=second_headers,
             json={},
         ).status_code
         == 404
     )
+
+
+def test_household_invite_rejects_unbounded_links(client) -> None:
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households", json={"name": "No forever"}, headers=owner_headers
+    ).json()
+
+    response = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        headers=owner_headers,
+        json={"expires_in_hours": None},
+    )
+
+    assert response.status_code == 422
+
+
+def test_household_invite_use_claim_helper_handles_existing_full_and_racing_slots(client) -> None:
+    owner_headers = _auth_headers(client, f"{uuid4()}@example.com")
+    first_user_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    second_user_id = asyncio.run(_create_user(f"{uuid4()}@example.com"))
+    household = client.post(
+        "/api/v1/households", json={"name": "Race"}, headers=owner_headers
+    ).json()
+    invite_response = client.post(
+        f"/api/v1/households/{household['id']}/invites",
+        headers=owner_headers,
+        json={"expires_in_hours": None, "max_uses": 1},
+    )
+    token = invite_response.json()["invite_url"].rsplit("/", 1)[-1]
+
+    async def _exercise_claim_paths() -> None:
+        async with AsyncSessionLocal() as session:
+            invite = (
+                await session.execute(
+                    select(HouseholdInvite).where(
+                        HouseholdInvite.token_hash
+                        == hashlib.sha256(token.encode("utf-8")).hexdigest()
+                    )
+                )
+            ).scalar_one()
+            first_user = await session.get(User, first_user_id)
+            second_user = await session.get(User, second_user_id)
+            assert first_user is not None
+            assert second_user is not None
+
+            await _claim_invite_use(session, invite, first_user)
+            await _claim_invite_use(session, invite, first_user)
+            try:
+                await _claim_invite_use(session, invite, second_user)
+            except Exception as exc:
+                assert getattr(exc, "status_code", None) == 404
+            else:
+                raise AssertionError("Expected a full invite to be rejected")
+
+        class RacingSession:
+            def __init__(self) -> None:
+                self.flushes = 0
+
+            def add(self, value: object) -> None:
+                assert isinstance(value, HouseholdInviteUse)
+
+            async def execute(self, statement: object) -> SimpleNamespace:
+                return SimpleNamespace(
+                    scalar_one_or_none=lambda: None, scalars=lambda: SimpleNamespace(all=lambda: [])
+                )
+
+            def begin_nested(self) -> object:
+                return self
+
+            async def __aenter__(self) -> object:
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+            async def flush(self) -> None:
+                self.flushes += 1
+                raise IntegrityError("statement", {}, Exception("duplicate"))
+
+        racing_invite = SimpleNamespace(id=uuid4(), max_uses=1)
+        racing_user = SimpleNamespace(id=uuid4())
+        try:
+            await _claim_invite_use(
+                RacingSession(), racing_invite, racing_user  # type: ignore[arg-type]
+            )
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 404
+        else:
+            raise AssertionError("Expected a racing slot claim to be rejected")
+
+    asyncio.run(_exercise_claim_paths())
 
 
 def test_household_invites_require_owner_and_reject_expired_tokens(client) -> None:
@@ -1508,9 +2374,16 @@ def test_invite_web_flow_redirects_through_login(client, monkeypatch) -> None:
     assert invite_page.status_code == 303
     assert invite_page.headers["location"] == f"/login?next=/invite/{token}"
 
+    invite_login_page = client.get(invite_page.headers["location"])
+    assert (
+        f'content="app-id=6762043307, app-argument=http://testserver/invite/{token}"'
+        in invite_login_page.text
+    )
+
     login_page = client.get("/login?next=//evil.example")
     assert login_page.status_code == 200
     assert 'data-next-url="/"' in login_page.text
+    assert 'content="app-id=6762043307, app-argument=http://testserver/"' in login_page.text
 
     _register_session_user(client, monkeypatch, f"{uuid4()}@example.com")
 
@@ -1656,7 +2529,10 @@ def test_passkey_settings_replace_error_paths(client, monkeypatch) -> None:
     async def _missing_user(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr("app.api.v1.routes.auth._load_user_with_passkeys", _missing_user)
+    monkeypatch.setattr(
+        "app.services.passkey_repository.PlaniniPasskeyRepository.user_by_id",
+        _missing_user,
+    )
     missing_user_options = client.post("/api/v1/auth/settings/passkey/options", json={})
     assert missing_user_options.status_code == 404
     missing_user_verify = client.post(
@@ -1796,20 +2672,6 @@ def test_passkey_flow_uses_configured_app_base_url(client, monkeypatch) -> None:
         "https://planini.malaber.de",
         "https://planini.malaber.de",
     ]
-
-
-def test_expected_origins_handles_missing_values() -> None:
-    assert _expected_origins({}) == []
-    assert _expected_origins({"origin": "", "rp_id": ""}) == []
-
-
-def test_expected_origins_deduplicates_matching_rp_origin() -> None:
-    assert _expected_origins(
-        {
-            "origin": "https://pr.planini.malaber.de",
-            "rp_id": "pr.planini.malaber.de",
-        }
-    ) == ["https://pr.planini.malaber.de"]
 
 
 def test_login_verification_accepts_shared_rp_origin_for_native_apps(client, monkeypatch) -> None:
@@ -2076,7 +2938,7 @@ def test_passkey_auth_error_paths(client, monkeypatch) -> None:
 def test_passkey_registration_surfaces_generic_error_when_commit_conflicts(
     client, monkeypatch
 ) -> None:
-    from app.api.v1.routes import auth as auth_routes
+    from app.services import passkey_repository
 
     monkeypatch.setattr(
         "app.api.v1.routes.auth.verify_registration_response",
@@ -2089,7 +2951,11 @@ def test_passkey_registration_surfaces_generic_error_when_commit_conflicts(
     async def _raise_integrity_error(*args, **kwargs):
         raise IntegrityError("insert", {}, ValueError("duplicate"))
 
-    monkeypatch.setattr(auth_routes.AsyncSession, "commit", _raise_integrity_error)
+    monkeypatch.setattr(
+        passkey_repository.AsyncSession,
+        "commit",
+        _raise_integrity_error,
+    )
 
     verify = client.post(
         "/api/v1/auth/register/verify",
@@ -2104,7 +2970,7 @@ def test_passkey_registration_surfaces_generic_error_when_commit_conflicts(
 
 
 def test_passkey_login_reports_missing_user_for_registered_credential(client) -> None:
-    from app.api.v1.routes import auth as auth_routes
+    from app.services.passkey_repository import PlaniniPasskeyRepository
 
     client.post("/api/v1/auth/login/options", json={})
 
@@ -2116,16 +2982,16 @@ def test_passkey_login_reports_missing_user_for_registered_credential(client) ->
             user=None,
         )
 
-    auth_loader = auth_routes._load_passkey_with_user_by_credential_id
+    auth_loader = PlaniniPasskeyRepository.passkey_by_credential_id
 
     try:
-        auth_routes._load_passkey_with_user_by_credential_id = _missing_user_passkey
+        PlaniniPasskeyRepository.passkey_by_credential_id = _missing_user_passkey
         verify = client.post(
             "/api/v1/auth/login/verify",
             json=_passkey_finish_payload(),
         )
     finally:
-        auth_routes._load_passkey_with_user_by_credential_id = auth_loader
+        PlaniniPasskeyRepository.passkey_by_credential_id = auth_loader
 
     assert verify.status_code == 404
     assert verify.json()["detail"] == "No user found for that passkey"
@@ -2247,7 +3113,7 @@ def test_passkey_schema_serializes_aware_timestamps_as_utc() -> None:
 
 
 def test_passkey_management_error_paths(client, monkeypatch) -> None:
-    from app.api.v1.routes import auth as auth_routes
+    from app.services.passkey_repository import PlaniniPasskeyRepository
 
     first_credential_id = bytes_to_base64url(b"first-passkey")
     second_credential_id = bytes_to_base64url(b"second-passkey")
@@ -2277,7 +3143,7 @@ def test_passkey_management_error_paths(client, monkeypatch) -> None:
     )
     assert wrong_credential.status_code == 404
 
-    original_loader = auth_routes._load_user_with_passkeys
+    original_loader = PlaniniPasskeyRepository.user_by_id
 
     async def _missing_user(*args, **kwargs):
         return None
@@ -2289,7 +3155,7 @@ def test_passkey_management_error_paths(client, monkeypatch) -> None:
             await session.delete(passkey)
             await session.commit()
 
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", _missing_user)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", _missing_user)
     assert client.get("/api/v1/auth/passkeys", headers=headers).status_code == 404
     assert (
         client.post(
@@ -2307,7 +3173,7 @@ def test_passkey_management_error_paths(client, monkeypatch) -> None:
         ).status_code
         == 404
     )
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", original_loader)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", original_loader)
 
     blank_name = client.post(
         "/api/v1/auth/passkeys/register/options",
@@ -2424,22 +3290,22 @@ def test_passkey_management_error_paths(client, monkeypatch) -> None:
     )
     assert wrong_rename_credential.status_code == 400
 
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", _missing_user)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", _missing_user)
     missing_user_delete = client.post(
         f"/api/v1/auth/passkeys/{first_passkey_id}/delete/options",
         headers=headers,
     )
     assert missing_user_delete.status_code == 404
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", original_loader)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", original_loader)
 
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", _missing_user)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", _missing_user)
     missing_user_rename = client.post(
         f"/api/v1/auth/passkeys/{first_passkey_id}/rename/verify",
         headers=headers,
         json=_passkey_finish_payload(first_credential_id),
     )
     assert missing_user_rename.status_code == 404
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", original_loader)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", original_loader)
 
     replacement_user_id = asyncio.run(
         _create_user(
@@ -2503,14 +3369,14 @@ def test_passkey_management_error_paths(client, monkeypatch) -> None:
         ).status_code
         == 200
     )
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", _missing_user)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", _missing_user)
     missing_user_during_delete = client.post(
         f"/api/v1/auth/passkeys/{first_passkey_id}/delete/verify",
         headers=headers,
         json=_passkey_finish_payload(second_credential_id),
     )
     assert missing_user_during_delete.status_code == 404
-    monkeypatch.setattr(auth_routes, "_load_user_with_passkeys", original_loader)
+    monkeypatch.setattr(PlaniniPasskeyRepository, "user_by_id", original_loader)
 
 
 def test_passkey_delete_verification_guards_and_duplicate_registration(client, monkeypatch) -> None:
@@ -2664,9 +3530,18 @@ def test_web_pages_require_login(client) -> None:
     assert "Logout" not in response.text
     assert client.get("/", follow_redirects=False).status_code == 303
     assert client.get("/settings", follow_redirects=False).status_code == 303
-    assert client.get("/lists/abc", follow_redirects=False).status_code == 303
+    list_id = "11111111-2222-3333-4444-555555555555"
+    list_page = client.get(f"/lists/{list_id}", follow_redirects=False)
+    assert list_page.status_code == 303
+    assert list_page.headers["location"] == f"/login?next=/lists/{list_id}"
 
-    script = client.get("/static/app.js")
+    list_login_page = client.get(list_page.headers["location"])
+    assert (
+        f'content="app-id=6762043307, app-argument=http://testserver/lists/{list_id}"'
+        in list_login_page.text
+    )
+
+    script = client.get("/api/v1/auth/assets/fastpasskey.js")
     assert "navigator.credentials.create" in script.text
     assert "navigator.credentials.get" in script.text
     assert "data-auth-tab-trigger" in script.text
@@ -2732,7 +3607,13 @@ def test_web_pages_render_for_logged_in_user(client, monkeypatch) -> None:
     assert "danger-button" in list_detail.text
     assert "data-list-sync-status" in list_detail.text
     assert "data-list-switcher" in list_detail.text
+    assert "data-list-history" in list_detail.text
+    assert "History" in list_detail.text
     assert "All lists" in list_detail.text
+    assert 'name="apple-itunes-app"' in list_detail.text
+    assert (
+        'content="app-id=6762043307, app-argument=http://testserver/lists/abc"' in list_detail.text
+    )
 
     settings = client.get("/settings")
     assert settings.status_code == 200
@@ -3385,6 +4266,65 @@ def test_admin_list_sorts_and_carries_page_size_between_models(client, monkeypat
     assert "sortBy=aliases_text&sort=asc&page=1" in category_body
 
 
+def test_admin_category_form_edits_all_available_translations(client, monkeypatch) -> None:
+    _register_admin_session(client, monkeypatch)
+
+    create_page = client.get("/admin/category/create")
+    assert create_page.status_code == 200
+    assert 'name="name"' in create_page.text
+    assert "English (en)" in create_page.text
+    assert 'name="translation_de"' in create_page.text
+    assert "German (de)" in create_page.text
+    assert "Used when a requested translation is empty." in create_page.text
+
+    invalid = client.post(
+        "/admin/category/create",
+        data={"name": "", "translation_de": "Saison", "color": "#8b5cf6"},
+    )
+    assert invalid.status_code == 400
+    assert "This field is required." in invalid.text
+
+    created = client.post(
+        "/admin/category/create",
+        data={
+            "name": "Seasonal",
+            "translation_de": "Saison",
+            "color": "#8b5cf6",
+            "aliases_text": "Limited\nSpecial",
+            "save": "Save",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 302
+    categories = client.get("/api/v1/categories").json()
+    category = next(entry for entry in categories if entry["name"] == "Seasonal")
+    assert category["translations"] == {"de": "Saison"}
+    assert category["aliases"] == ["Limited", "Special"]
+
+    edit_page = client.get(f"/admin/category/edit/{category['id']}")
+    assert edit_page.status_code == 200
+    assert 'name="translation_de"' in edit_page.text
+    assert 'value="Saison"' in edit_page.text
+
+    updated = client.post(
+        f"/admin/category/edit/{category['id']}",
+        data={
+            "name": "Seasonal",
+            "translation_de": "",
+            "color": "#8b5cf6",
+            "aliases_text": "",
+            "save": "Save",
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 302
+    category = next(
+        entry for entry in client.get("/api/v1/categories").json() if entry["name"] == "Seasonal"
+    )
+    assert category["translations"] == {}
+    assert category["aliases"] == []
+
+
 def test_passkey_add_link_adds_passkey_and_clears_token(client, monkeypatch) -> None:
     monkeypatch.setattr(
         "app.api.v1.routes.auth.verify_registration_response",
@@ -3787,7 +4727,7 @@ def test_stale_web_session_redirects_to_login(client, monkeypatch) -> None:
 
     list_detail = client.get("/lists/abc", follow_redirects=False)
     assert list_detail.status_code == 303
-    assert list_detail.headers["location"] == "/login"
+    assert list_detail.headers["location"] == "/login?next=/lists/abc"
 
 
 def test_browser_session_slides_on_use(client, monkeypatch) -> None:
@@ -3835,3 +4775,231 @@ def test_absolute_browser_session_redirects_to_login(client, monkeypatch) -> Non
 
 def test_preview_route_is_removed(client) -> None:
     assert client.get("/preview").status_code == 404
+
+
+def test_public_list_link_allows_anonymous_editing_without_household_membership(client) -> None:
+    owner_headers = _auth_headers(client, f"owner-{uuid4()}@example.com")
+    outsider_headers = _auth_headers(client, f"outsider-{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households", json={"name": "Home"}, headers=owner_headers
+    ).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=owner_headers,
+    ).json()
+    list_id = grocery_list["id"]
+
+    assert (
+        client.post(
+            f"/api/v1/lists/{list_id}/public-links",
+            json={"expires_in_days": 3},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            f"/api/v1/lists/{list_id}/public-links",
+            json={"expires_in_days": 3},
+            headers=outsider_headers,
+        ).status_code
+        == 403
+    )
+    for invalid_days in (0, 31):
+        assert (
+            client.post(
+                f"/api/v1/lists/{list_id}/public-links",
+                json={"expires_in_days": invalid_days},
+                headers=owner_headers,
+            ).status_code
+            == 422
+        )
+
+    link_response = client.post(
+        f"/api/v1/lists/{list_id}/public-links",
+        json={"expires_in_days": 3},
+        headers={**owner_headers, "host": "example.com"},
+    )
+    assert link_response.status_code == 200
+    public_url = link_response.json()["public_url"]
+    assert public_url.startswith("http://example.com/public/lists/")
+    token = public_url.rstrip("/").rsplit("/", 1)[-1]
+
+    async def assert_token_is_hashed() -> None:
+        from app.api.v1.routes.public_list_links import hash_public_list_token
+        from app.models import PublicListLink
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(PublicListLink).where(
+                    PublicListLink.token_hash == hash_public_list_token(token)
+                )
+            )
+            public_link = result.scalar_one()
+            assert public_link.token_hash != token
+            assert public_link.expires_at > datetime.now()
+
+    asyncio.run(assert_token_is_hashed())
+
+    assert client.get(f"/api/v1/lists/{list_id}", headers=outsider_headers).status_code == 403
+    public_page = client.get(
+        f"/public/lists/{token}",
+        headers={"accept-language": "de"},
+    )
+    assert public_page.status_code == 200
+    assert "Geteilte Liste" in public_page.text
+    assert "data-public-list-token" in public_page.text
+    assert "data-list-settings-toggle" not in public_page.text
+    public_list_payload = client.get(f"/api/v1/public/lists/{token}").json()
+    assert public_list_payload["name"] == "Weekly"
+    assert public_list_payload["access_role"] == "editor"
+    assert datetime.fromisoformat(public_list_payload["expires_at"]) > datetime.now(UTC)
+
+    admin_headers = _auth_headers(client, f"admin-{uuid4()}@example.com", is_admin=True)
+    category = client.post(
+        "/api/v1/categories",
+        json={"name": "Produce"},
+        headers=admin_headers,
+    ).json()
+    categories = client.get(f"/api/v1/public/lists/{token}/categories")
+    assert categories.status_code == 200
+    assert category["id"] in {entry["id"] for entry in categories.json()}
+    assert client.get(f"/api/v1/public/lists/{token}/category-order").json() == []
+    assert client.get(f"/api/v1/public/lists/{token}/disabled-categories").json() == {
+        "category_ids": []
+    }
+
+    item = client.post(
+        f"/api/v1/public/lists/{token}/items",
+        json={"name": "Anonymous apples", "category_id": category["id"]},
+    )
+    assert item.status_code == 200
+    item_id = item.json()["id"]
+    assert item.json()["category_id"] == category["id"]
+
+    patched = client.patch(
+        f"/api/v1/public/lists/{token}/items/{item_id}",
+        json={"quantity_text": "2 kg"},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["quantity_text"] == "2 kg"
+
+    target_list_id = str(uuid4())
+    move_rejected = client.patch(
+        f"/api/v1/public/lists/{token}/items/{item_id}",
+        json={"list_id": target_list_id},
+    )
+    assert target_list_id
+    assert move_rejected.status_code == 400
+
+    other_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Other"},
+        headers=owner_headers,
+    ).json()
+    other_item = client.post(
+        f"/api/v1/lists/{other_list['id']}/items",
+        json={"name": "Private item"},
+        headers=owner_headers,
+    ).json()
+    assert (
+        client.patch(
+            f"/api/v1/public/lists/{token}/items/{other_item['id']}",
+            json={"name": "Unauthorized edit"},
+        ).status_code
+        == 404
+    )
+
+    checked = client.post(f"/api/v1/public/lists/{token}/items/{item_id}/check")
+    assert checked.status_code == 200
+    assert checked.json()["checked"] is True
+    assert client.get(f"/api/v1/public/lists/{token}/items/window").status_code == 200
+    assert client.get(f"/api/v1/public/lists/{token}/items/checked").status_code == 200
+
+    unchecked = client.post(f"/api/v1/public/lists/{token}/items/{item_id}/uncheck")
+    assert unchecked.status_code == 200
+    assert unchecked.json()["checked"] is False
+    assert (
+        client.patch(
+            f"/api/v1/public/lists/{token}/items/{uuid4()}", json={"name": "Missing"}
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/api/v1/public/lists/{token}/items/{item_id}").status_code == 200
+
+
+def test_public_list_link_rejects_expired_tokens(client) -> None:
+    owner_headers = _auth_headers(client, f"owner-{uuid4()}@example.com")
+    household = client.post(
+        "/api/v1/households", json={"name": "Home"}, headers=owner_headers
+    ).json()
+    grocery_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Weekly"},
+        headers=owner_headers,
+    ).json()
+    link_response = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/public-links",
+        json={"expires_in_days": 1},
+        headers={**owner_headers, "host": "example.com"},
+    )
+    token = link_response.json()["public_url"].rstrip("/").rsplit("/", 1)[-1]
+    revoked_link_response = client.post(
+        f"/api/v1/lists/{grocery_list['id']}/public-links",
+        json={"expires_in_days": 1},
+        headers={**owner_headers, "host": "example.com"},
+    )
+    revoked_token = revoked_link_response.json()["public_url"].rstrip("/").rsplit("/", 1)[-1]
+
+    from app.api.v1.routes.public_list_links import _as_utc
+
+    assert _as_utc(datetime.now(timezone.utc)).tzinfo is timezone.utc
+
+    deleted_list = client.post(
+        f"/api/v1/households/{household['id']}/lists",
+        json={"name": "Temporary"},
+        headers=owner_headers,
+    ).json()
+    deleted_link_response = client.post(
+        f"/api/v1/lists/{deleted_list['id']}/public-links",
+        json={"expires_in_days": 1},
+        headers={**owner_headers, "host": "example.com"},
+    )
+    deleted_token = deleted_link_response.json()["public_url"].rstrip("/").rsplit("/", 1)[-1]
+    assert (
+        client.delete(f"/api/v1/lists/{deleted_list['id']}", headers=owner_headers).status_code
+        == 200
+    )
+    assert client.get(f"/api/v1/public/lists/{deleted_token}").status_code == 404
+
+    async def expire_link() -> None:
+        from app.api.v1.routes.public_list_links import hash_public_list_token
+        from app.models import PublicListLink
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(PublicListLink).where(
+                    PublicListLink.token_hash == hash_public_list_token(token)
+                )
+            )
+            public_link = result.scalar_one()
+            public_link.expires_at = datetime.now(UTC) - timedelta(days=1)
+            revoked_result = await session.execute(
+                select(PublicListLink).where(
+                    PublicListLink.token_hash == hash_public_list_token(revoked_token)
+                )
+            )
+            revoked_result.scalar_one().revoked_at = datetime.now(UTC)
+            await session.commit()
+
+    asyncio.run(expire_link())
+
+    assert client.get(f"/api/v1/public/lists/{token}").status_code == 404
+    assert client.get(f"/public/lists/{token}").status_code == 404
+    assert client.get(f"/api/v1/public/lists/{revoked_token}").status_code == 404
+    assert client.get(f"/public/lists/{revoked_token}").status_code == 404
+    assert client.get("/api/v1/public/lists/not-a-valid-token").status_code == 404
+    assert client.get("/public/lists/not-a-valid-token").status_code == 404
+    assert (
+        client.post(f"/api/v1/public/lists/{token}/items", json={"name": "Nope"}).status_code == 404
+    )

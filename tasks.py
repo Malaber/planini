@@ -7,6 +7,7 @@ import shlex
 import shutil
 import signal
 import sqlite3
+import struct
 import subprocess
 import sys
 import time
@@ -48,6 +49,9 @@ DEFAULT_PRIVACY_EMAIL = "privacy@example.com"
 DEFAULT_SUPPORT_EMAIL = "support@example.com"
 DEFAULT_APP_LOG_PATH = "ui-e2e-server.log"
 DEFAULT_APP_PID_PATH = "ui-e2e-server.pid"
+DEFAULT_CONTAINER_SMOKE_ARTIFACT_DIR = "e2e-artifacts/container-smoke"
+DEFAULT_CONTAINER_SMOKE_LEGACY_REVISION = "0018_add_household_member_roles"
+DEFAULT_CONTAINER_SMOKE_PORT = 8020
 DEFAULT_IOS_E2E_PORT = 8017
 DEFAULT_IOS_E2E_BASE_URL = f"http://localhost:{DEFAULT_IOS_E2E_PORT}"
 DEFAULT_IOS_E2E_DATABASE_URL = "sqlite+aiosqlite:///./tmp-ios-e2e.db"
@@ -63,6 +67,26 @@ DEFAULT_IOS_UI_E2E_ARTIFACT_DIR = "e2e-artifacts/ios-ui-e2e"
 DEFAULT_IOS_UI_E2E_RESULT_BUNDLE = "PlaniniUITests.xcresult"
 DEFAULT_IOS_UI_E2E_DEVICE = "iPhone 17 Pro"
 DEFAULT_IOS_UI_E2E_INITIAL_LIST = "Browser Test Shop"
+DEFAULT_IOS_MARKETING_SCREENSHOT_PORT = 8019
+DEFAULT_IOS_MARKETING_SCREENSHOT_DATABASE_URL = (
+    "sqlite+aiosqlite:///./tmp-ios-marketing-screenshots.db"
+)
+DEFAULT_IOS_MARKETING_SCREENSHOT_LOG_PATH = "ios-marketing-screenshots-server.log"
+DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH = "ios-marketing-screenshots-server.pid"
+DEFAULT_IOS_MARKETING_SCREENSHOT_ARTIFACT_DIR = "e2e-artifacts/ios-marketing-screenshots"
+DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH = "ios/PlaniniIOS/.derived-marketing-screenshots"
+DEFAULT_IOS_MARKETING_SCREENSHOT_SEED_PATH = "app/fixtures/ios_marketing_seed.json"
+DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE = "iPhone 14 Plus"
+DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_DEVICE = "iPad Pro 13-inch (M5)"
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_PHONE_DEVICE = "iPhone 17 Pro"
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_DEVICE = "Apple Watch Ultra 3 (49mm)"
+DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST = "Weekly groceries"
+DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_USER_EMAIL = "planini-de@schaedler.rocks"
+DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_INITIAL_LIST = "Wocheneinkauf"
+DEFAULT_IOS_MARKETING_SCREENSHOT_TEST = "PlaniniUITests/PlaniniUITests/testMarketingScreenshots"
+DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE = (1284, 2778)
+DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_SIZE = (2064, 2752)
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_SIZE = (422, 514)
 DEFAULT_IOS_SIMULATOR_DESTINATION = "generic/platform=iOS Simulator"
 DEFAULT_IOS_APP_BACKEND_URL = "https://planini.malaber.de"
 DEFAULT_IOS_APP_BUNDLE_IDENTIFIER = "de.malaber.planini"
@@ -75,51 +99,29 @@ IOS_ENTITLEMENTS_PATH = ROOT / "ios" / "PlaniniIOS" / "App" / "Planini.entitleme
 IOS_GENERATED_CONFIG_PATH = (
     ROOT / "ios" / "PlaniniIOS" / "App" / "BuildConfiguration.generated.swift"
 )
+IOS_APP_SHORTCUTS_LOCALIZATION_PATH = ROOT / "ios" / "PlaniniIOS" / "AppShortcutsLocalization"
+LOCALES_PATH = ROOT / "app" / "locales"
+IOS_APP_SHORTCUT_PHRASE_KEYS = (
+    ("Add Item in ${applicationName}", ("ios", "siri", "add_item_phrase")),
+    (
+        "Add Item to ${list} in ${applicationName}",
+        ("ios", "siri", "add_item_to_list_phrase"),
+    ),
+)
+IOS_APP_SHORTCUT_PLACEHOLDER_PATTERN = re.compile(r"\$\{[A-Za-z][A-Za-z0-9]*\}")
 STABLE_TAG_PATTERN = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
-IOS_APP_ICON_BACKGROUND_PATTERN = re.compile(
-    r"(\.cls-1\s*\{\s*fill:\s*)#[0-9a-fA-F]{6}(\s*;)",
+IOS_APP_ICON_BACKGROUND_RECT_PATTERN = re.compile(
+    r'^\s*<rect id="Rechteck_1"[^>]+/>\s*$',
     re.MULTILINE,
+)
+IOS_APP_ICON_CANVAS_PATTERN = re.compile(
+    r'(<svg[^>]*\swidth=")4267("\sheight=")4267(")',
 )
 IOS_DEFAULT_APP_ICON_BACKGROUND_COLOR = "#ddddc1"
 
 IOS_APP_ICON_SOURCE_PATH = ROOT / "app" / "web" / "static" / "img" / "planini.svg"
-IOS_APP_ICONSET_PATH = ROOT / "ios" / "PlaniniIOS" / "Assets.xcassets" / "AppIcon.appiconset"
-IOS_WATCH_APP_ICONSET_PATH = (
-    ROOT / "ios" / "PlaniniIOS" / "Assets.xcassets" / "WatchAppIcon.appiconset"
-)
-IOS_APP_ICON_FILES = {
-    "Icon-20@2x.png": 40,
-    "Icon-20@3x.png": 60,
-    "Icon-29@2x.png": 58,
-    "Icon-29@3x.png": 87,
-    "Icon-40@2x.png": 80,
-    "Icon-40@3x.png": 120,
-    "Icon-60@2x.png": 120,
-    "Icon-60@3x.png": 180,
-    "Icon-iPad-20.png": 20,
-    "Icon-iPad-20@2x.png": 40,
-    "Icon-iPad-29.png": 29,
-    "Icon-iPad-29@2x.png": 58,
-    "Icon-iPad-40.png": 40,
-    "Icon-iPad-40@2x.png": 80,
-    "Icon-iPad-76.png": 76,
-    "Icon-iPad-76@2x.png": 152,
-    "Icon-iPad-83.5@2x.png": 167,
-    "Icon-1024.png": 1024,
-}
-IOS_WATCH_APP_ICON_FILES = {
-    "Icon-24@2x.png": 48,
-    "Icon-27.5@2x.png": 55,
-    "Icon-29@2x.png": 58,
-    "Icon-29@3x.png": 87,
-    "Icon-40@2x.png": 80,
-    "Icon-44@2x.png": 88,
-    "Icon-50x50@2x.png": 100,
-    "Icon-86@2x.png": 172,
-    "Icon-98@2x.png": 196,
-    "Icon-108@2x.png": 216,
-    "Icon-1024.png": 1024,
-}
+IOS_APP_ICON_DOCUMENT_PATH = ROOT / "ios" / "PlaniniIOS" / "AppIcon.icon" / "icon.json"
+IOS_APP_ICON_ARTWORK_PATH = ROOT / "ios" / "PlaniniIOS" / "AppIcon.icon" / "Assets" / "Planini.svg"
 
 
 def _tool_path(name: str) -> str:
@@ -250,7 +252,9 @@ def _ios_ui_test_env(
 
 def _write_ios_ui_e2e_summary(artifact_dir: str) -> None:
     artifact_path = ROOT / artifact_dir
-    screenshots = sorted(path.name for path in artifact_path.glob("*.png"))
+    screenshots = sorted(
+        str(path.relative_to(artifact_path)) for path in artifact_path.rglob("*.png")
+    )
     result_bundle_path = artifact_path / DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
     failure_summaries = _ios_ui_e2e_failure_summaries(result_bundle_path)
     summary_lines = [
@@ -665,6 +669,125 @@ def _ios_simulator_destination(device_name: str) -> str:
     return ",".join(destination_parts)
 
 
+def _ensure_ios_simulator_device(device_name: str) -> None:
+    env = _ios_toolchain_env()
+    existing_udid = next(
+        (
+            udid
+            for udid, device in _list_available_simulators(env).items()
+            if device.get("name") == device_name
+        ),
+        None,
+    )
+    if existing_udid is not None:
+        _boot_simulator(env, existing_udid)
+        return
+
+    device_types_payload = _simctl_json(env, "list", "devicetypes", "-j")
+    device_types = device_types_payload.get("devicetypes", [])
+    device_type_id = next(
+        (
+            device_type.get("identifier")
+            for device_type in device_types
+            if isinstance(device_type, dict) and device_type.get("name") == device_name
+        ),
+        None,
+    )
+    if not isinstance(device_type_id, str):
+        raise Exit(f"iOS simulator device type is unavailable: {device_name}")
+
+    _run_command(
+        ["xcrun", "simctl", "create", device_name, device_type_id],
+        env=env,
+    )
+    _boot_simulator(env, _find_simulator_udid(env, device_name))
+
+
+def _png_dimensions(path: Path) -> tuple[int, int]:
+    header = path.read_bytes()[:24]
+    if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        raise Exit(f"Invalid PNG screenshot: {path}")
+    return struct.unpack(">II", header[16:24])
+
+
+def _validate_ios_screenshot_sizes(
+    artifact_dir: str,
+    expected_size: tuple[int, int],
+) -> None:
+    screenshots = sorted((ROOT / artifact_dir).glob("*.png"))
+    if not screenshots:
+        raise Exit(f"No iOS screenshots found in {ROOT / artifact_dir}")
+
+    invalid_sizes = [
+        f"{path.name}: {width}x{height}"
+        for path in screenshots
+        for width, height in [_png_dimensions(path)]
+        if (width, height) != expected_size
+    ]
+    if invalid_sizes:
+        expected_width, expected_height = expected_size
+        raise Exit(
+            f"Expected iOS screenshots sized {expected_width}x{expected_height}; "
+            f"found {', '.join(invalid_sizes)}"
+        )
+
+
+def _capture_watch_marketing_screenshot(
+    c,
+    *,
+    base_url: str,
+    bootstrap_email: str,
+    initial_list_name: str,
+    language: str,
+    locale: str,
+    artifact_dir: str,
+    phone_device: str,
+    watch_device: str,
+    derived_data_path: str,
+) -> None:
+    _ensure_ios_simulator_device(watch_device)
+    run_ios_simulators_fresh.body(
+        c,
+        phone_device=phone_device,
+        watch_device=watch_device,
+        derived_data_path=derived_data_path,
+        rebuild=False,
+        backend_url_override=base_url,
+        bootstrap_email=bootstrap_email,
+        initial_list_name=initial_list_name,
+    )
+    env = _ios_toolchain_env()
+    watch_udid = _find_simulator_udid(env, watch_device)
+    time.sleep(4)
+    _terminate_if_running(env, watch_udid, DEFAULT_IOS_WATCH_APP_BUNDLE_IDENTIFIER)
+    _run_command(
+        [
+            "xcrun",
+            "simctl",
+            "launch",
+            watch_udid,
+            DEFAULT_IOS_WATCH_APP_BUNDLE_IDENTIFIER,
+            "-AppleLanguages",
+            f"({language})",
+            "-AppleLocale",
+            locale.replace("-", "_"),
+        ],
+        env=env,
+    )
+    time.sleep(4)
+    screenshot_dir = ROOT / artifact_dir
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    screenshot_path = screenshot_dir / "app-store-watch-01-lists.png"
+    _run_command(
+        ["xcrun", "simctl", "io", watch_udid, "screenshot", str(screenshot_path)],
+        env=env,
+    )
+    _validate_ios_screenshot_sizes(
+        artifact_dir,
+        DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_SIZE,
+    )
+
+
 def _bootstrap_ios_ui_test_session(*, base_url: str, user_email: str) -> dict[str, str]:
     request = Request(
         url=f"{base_url.rstrip('/')}/api/v1/auth/ui-test-bootstrap",
@@ -698,7 +821,7 @@ def _wait_for_healthcheck(url: str, attempts: int, sleep_seconds: float) -> None
                 if 200 <= response.status < 400:
                     return
                 last_error = f"unexpected status {response.status}"
-        except URLError as exc:
+        except OSError as exc:
             last_error = str(exc)
         time.sleep(sleep_seconds)
     raise Exit(f"App never became healthy at {url}: {last_error}")
@@ -979,6 +1102,16 @@ def _boot_simulator(env: dict[str, str], udid: str) -> None:
     _run_command(["xcrun", "simctl", "bootstatus", udid, "-b"], env=env)
 
 
+def _shutdown_ios_simulators() -> None:
+    subprocess.run(
+        ["xcrun", "simctl", "shutdown", "all"],
+        env=_ios_toolchain_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def _terminate_if_running(env: dict[str, str], udid: str, bundle_id: str) -> None:
     subprocess.run(
         ["xcrun", "simctl", "terminate", udid, bundle_id],
@@ -997,6 +1130,13 @@ def _uninstall_if_present(env: dict[str, str], udid: str, bundle_id: str) -> Non
         text=True,
         check=False,
     )
+
+
+def _reset_ios_ui_test_app(device_name: str) -> None:
+    env = _ios_toolchain_env()
+    udid = _find_simulator_udid(env, device_name)
+    _terminate_if_running(env, udid, DEFAULT_IOS_APP_BUNDLE_IDENTIFIER)
+    _uninstall_if_present(env, udid, DEFAULT_IOS_APP_BUNDLE_IDENTIFIER)
 
 
 def _build_ios_product_paths(derived_data_path: Path, configuration: str) -> tuple[Path, Path]:
@@ -1140,72 +1280,152 @@ def _normalize_ios_app_icon_background_color(background_color: str) -> str:
     return color
 
 
-def _ios_app_icon_svg_with_background_color(background_color: str) -> str:
-    color = _normalize_ios_app_icon_background_color(background_color)
+def _ios_app_icon_foreground_svg() -> str:
     svg = IOS_APP_ICON_SOURCE_PATH.read_text(encoding="utf-8")
-    svg, replacements = IOS_APP_ICON_BACKGROUND_PATTERN.subn(rf"\g<1>{color}\g<2>", svg, count=1)
+    svg, replacements = IOS_APP_ICON_BACKGROUND_RECT_PATTERN.subn("", svg, count=1)
     if replacements != 1:
-        raise Exit("Could not find .cls-1 fill color in iOS app icon source SVG.")
+        raise Exit("Could not find iOS app icon background rectangle in source SVG.")
+    svg, replacements = IOS_APP_ICON_CANVAS_PATTERN.subn(r"\g<1>1024\g<2>1024\g<3>", svg, count=1)
+    if replacements != 1:
+        raise Exit("Could not normalize iOS Icon Composer SVG canvas to 1024x1024.")
     return svg
+
+
+def _ios_icon_composer_color(background_color: str, brightness: float) -> str:
+    color = _normalize_ios_app_icon_background_color(background_color)
+    channels = [int(color[index : index + 2], 16) for index in (1, 3, 5)]
+    components = [channel / 255 * brightness for channel in channels]
+    return "display-p3:" + ",".join(f"{component:.5f}" for component in components) + ",1.00000"
+
+
+def _ios_icon_composer_document(background_color: str) -> dict[str, object]:
+    return {
+        "fill-specializations": [
+            {
+                "value": {
+                    "linear-gradient": [
+                        _ios_icon_composer_color(background_color, 1.0),
+                        _ios_icon_composer_color(background_color, 0.86),
+                    ]
+                }
+            },
+            {
+                "appearance": "dark",
+                "value": {
+                    "linear-gradient": [
+                        _ios_icon_composer_color(background_color, 0.42),
+                        _ios_icon_composer_color(background_color, 0.26),
+                    ]
+                },
+            },
+        ],
+        "groups": [
+            {
+                "layers": [{"image-name": "Planini.svg", "name": "Planini"}],
+                "shadow": {"kind": "neutral", "opacity": 0.4},
+                "translucency": {"enabled": True, "value": 0.2},
+            }
+        ],
+        "supported-platforms": {"circles": ["watchOS"], "squares": "shared"},
+    }
+
+
+def _ios_app_shortcuts_catalog_value(
+    catalog: dict,
+    locale: str,
+    key_path: tuple[str, ...],
+) -> str:
+    value: object = catalog
+    for key in key_path:
+        if not isinstance(value, dict) or key not in value:
+            raise Exit(f"Missing {'.'.join(key_path)} in app/locales/{locale}.json")
+        value = value[key]
+    if not isinstance(value, str) or not value.strip():
+        raise Exit(f"Expected {'.'.join(key_path)} to be a string in app/locales/{locale}.json")
+    return value
+
+
+def _escape_apple_strings_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _ios_app_shortcuts_strings_content(catalog: dict, locale: str) -> str:
+    lines = []
+    for source_phrase, key_path in IOS_APP_SHORTCUT_PHRASE_KEYS:
+        localized_phrase = _ios_app_shortcuts_catalog_value(catalog, locale, key_path)
+        expected_placeholders = set(IOS_APP_SHORTCUT_PLACEHOLDER_PATTERN.findall(source_phrase))
+        actual_placeholders = set(IOS_APP_SHORTCUT_PLACEHOLDER_PATTERN.findall(localized_phrase))
+        if actual_placeholders != expected_placeholders:
+            raise Exit(
+                f"App Shortcut placeholders for {'.'.join(key_path)} in "
+                f"app/locales/{locale}.json must be {sorted(expected_placeholders)}"
+            )
+        lines.append(
+            f'"{_escape_apple_strings_value(source_phrase)}" = '
+            f'"{_escape_apple_strings_value(localized_phrase)}";'
+        )
+    return "\n".join(lines) + "\n"
+
+
+@task
+def generate_ios_app_shortcuts_localizations(c) -> None:
+    """Generate Apple App Shortcut phrase resources from shared locale catalogs."""
+
+    locale_paths = sorted(LOCALES_PATH.glob("*.json"))
+    if not locale_paths:
+        raise Exit("No locale catalogs found in app/locales")
+
+    for locale_path in locale_paths:
+        locale = locale_path.stem
+        catalog = json.loads(locale_path.read_text(encoding="utf-8"))
+        output_path = (
+            IOS_APP_SHORTCUTS_LOCALIZATION_PATH / f"{locale}.lproj" / "AppShortcuts.strings"
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            _ios_app_shortcuts_strings_content(catalog, locale),
+            encoding="utf-8",
+        )
+        print(f"Generated {output_path.relative_to(ROOT)}")
 
 
 @task(
     help={
         "background_color": (
-            "Hex color for the SVG .cls-1 app icon background fill. Defaults to "
-            "the release-candidate icon color."
+            "Hex color for the Icon Composer light background. Defaults to the "
+            "release-candidate icon color."
         ),
     }
 )
 def generate_ios_app_icons(c, background_color=IOS_DEFAULT_APP_ICON_BACKGROUND_COLOR) -> None:
-    """Generate ignored iOS AppIcon PNGs from the tracked Planini SVG."""
-
-    try:
-        import cairosvg
-    except ModuleNotFoundError as exc:
-        raise Exit("Missing cairosvg. Run `.venv/bin/inv install-deps` first.") from exc
+    """Generate the tracked Icon Composer document from the Planini SVG."""
 
     if not IOS_APP_ICON_SOURCE_PATH.exists():
         raise Exit(f"Missing app icon source SVG: {IOS_APP_ICON_SOURCE_PATH}")
 
-    svg = _ios_app_icon_svg_with_background_color(background_color)
-    iconsets = {
-        IOS_APP_ICONSET_PATH: IOS_APP_ICON_FILES,
-        IOS_WATCH_APP_ICONSET_PATH: IOS_WATCH_APP_ICON_FILES,
-    }
-
-    for iconset_path, icon_files in iconsets.items():
-        iconset_path.mkdir(parents=True, exist_ok=True)
-        for filename, size in icon_files.items():
-            output_path = iconset_path / filename
-            cairosvg.svg2png(
-                bytestring=svg.encode("utf-8"),
-                write_to=str(output_path),
-                output_width=size,
-                output_height=size,
-            )
-            print(f"Generated {output_path.relative_to(ROOT)} ({size}x{size})")
+    IOS_APP_ICON_ARTWORK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    IOS_APP_ICON_ARTWORK_PATH.write_text(_ios_app_icon_foreground_svg(), encoding="utf-8")
+    IOS_APP_ICON_DOCUMENT_PATH.write_text(
+        json.dumps(_ios_icon_composer_document(background_color), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(f"Generated {IOS_APP_ICON_DOCUMENT_PATH.parent.relative_to(ROOT)}")
 
 
 @task
 def check_ios_app_icons(c) -> None:
-    """Fail if generated iOS AppIcon PNGs are missing locally."""
+    """Fail if generated Icon Composer files are missing locally."""
 
-    iconsets = {
-        IOS_APP_ICONSET_PATH: IOS_APP_ICON_FILES,
-        IOS_WATCH_APP_ICONSET_PATH: IOS_WATCH_APP_ICON_FILES,
-    }
     missing = [
-        iconset_path / filename
-        for iconset_path, icon_files in iconsets.items()
-        for filename in icon_files
-        if not (iconset_path / filename).exists()
+        path
+        for path in (IOS_APP_ICON_DOCUMENT_PATH, IOS_APP_ICON_ARTWORK_PATH)
+        if not path.exists()
     ]
 
     if missing:
         missing_lines = "\n".join(f"- {path.relative_to(ROOT)}" for path in missing)
         raise Exit(
-            "Missing generated iOS app icon PNGs:\n"
+            "Missing generated iOS Icon Composer files:\n"
             f"{missing_lines}\n\n"
             "Run:\n"
             ".venv/bin/inv generate-ios-app-icons"
@@ -1451,6 +1671,162 @@ def wait_for_app(c, url=DEFAULT_HEALTH_URL, attempts=30, sleep_seconds=1.0) -> N
     _wait_for_healthcheck(url=url, attempts=int(attempts), sleep_seconds=float(sleep_seconds))
 
 
+def _wait_for_container_health_endpoint(
+    c,
+    container_name: str,
+    attempts: int = 150,
+    sleep_seconds: float = 2.0,
+) -> None:
+    healthcheck_code = (
+        "import json; from urllib.request import urlopen; "
+        "response = urlopen('http://127.0.0.1:8000/health', timeout=2); "
+        "assert response.status == 200; "
+        "assert json.load(response) == {'status': 'ok'}"
+    )
+    command = " ".join(
+        [
+            "docker exec",
+            shlex.quote(container_name),
+            "python -c",
+            shlex.quote(healthcheck_code),
+        ]
+    )
+    max_attempts = max(1, int(attempts))
+    last_result = None
+    for attempt in range(max_attempts):
+        last_result = c.run(
+            command,
+            warn=True,
+            hide=True,
+            pty=False,
+            shell="/bin/bash",
+        )
+        if last_result.exited == 0:
+            return
+        if attempt < max_attempts - 1:
+            time.sleep(float(sleep_seconds))
+
+    assert last_result is not None
+    _print_hidden_output(last_result)
+    raise Exit(
+        f"Container health endpoint did not become ready after {max_attempts} attempt(s): "
+        f"{command}"
+    )
+
+
+def _check_container_migrations(c, container_name: str) -> None:
+    migration_check_code = (
+        "from alembic import command; "
+        "from app.core.database import _build_alembic_config; "
+        "command.current(_build_alembic_config(), check_heads=True)"
+    )
+    command = " ".join(
+        [
+            "docker exec",
+            shlex.quote(container_name),
+            "python -c",
+            shlex.quote(migration_check_code),
+        ]
+    )
+    result = c.run(
+        command,
+        warn=True,
+        hide=True,
+        pty=False,
+        shell="/bin/bash",
+    )
+    if result.exited == 0:
+        return
+
+    _print_hidden_output(result)
+    raise Exit(f"Container migrations did not reach all heads: {command}")
+
+
+@task(
+    help={
+        "image": "Published container image and tag to smoke test.",
+        "legacy_revision": "Previously deployed migration revision used to seed the database.",
+        "artifact_dir": "Host directory mounted as persistent container data.",
+        "port": "Host port used for the container healthcheck.",
+    }
+)
+def check_container_smoke(
+    c,
+    image,
+    legacy_revision=DEFAULT_CONTAINER_SMOKE_LEGACY_REVISION,
+    artifact_dir=DEFAULT_CONTAINER_SMOKE_ARTIFACT_DIR,
+    port=DEFAULT_CONTAINER_SMOKE_PORT,
+) -> None:
+    """Start the published image against a previously deployed persistent database."""
+    data_path = ROOT / artifact_dir
+    shutil.rmtree(data_path, ignore_errors=True)
+    data_path.mkdir(parents=True)
+    data_path.chmod(0o777)
+
+    container_name = f"planini-container-smoke-{os.getpid()}"
+    database_url = "sqlite+aiosqlite:////data/planini.db"
+    mount = f"{data_path.resolve()}:/data"
+    migration_code = (
+        "from alembic import command; "
+        "from app.core.database import _build_alembic_config; "
+        f"command.upgrade(_build_alembic_config(), {legacy_revision!r})"
+    )
+    prepare_command = " ".join(
+        [
+            "docker run --rm",
+            f"--volume {shlex.quote(mount)}",
+            f"--env DATABASE_URL={shlex.quote(database_url)}",
+            "--entrypoint python",
+            shlex.quote(image),
+            f"-c {shlex.quote(migration_code)}",
+        ]
+    )
+    start_command = " ".join(
+        [
+            "docker run --detach",
+            f"--name {shlex.quote(container_name)}",
+            f"--publish 127.0.0.1:{int(port)}:8000",
+            f"--volume {shlex.quote(mount)}",
+            f"--env DATABASE_URL={shlex.quote(database_url)}",
+            "--env SECRET_KEY=container-smoke-secret",
+            "--env PRIVACY_EMAIL=privacy@example.com",
+            "--env SUPPORT_EMAIL=support@example.com",
+            shlex.quote(image),
+        ]
+    )
+    try:
+        c.run(prepare_command, pty=False, shell="/bin/bash")
+        c.run(start_command, pty=False, shell="/bin/bash")
+        _wait_for_container_health_endpoint(
+            c,
+            container_name,
+            attempts=150,
+            sleep_seconds=2.0,
+        )
+        _wait_for_healthcheck(
+            url=f"http://127.0.0.1:{int(port)}/health",
+            attempts=30,
+            sleep_seconds=2.0,
+        )
+        _check_container_migrations(c, container_name)
+    except Exception:
+        c.run(
+            f"docker logs {shlex.quote(container_name)}",
+            warn=True,
+            pty=False,
+            shell="/bin/bash",
+        )
+        raise
+    finally:
+        c.run(
+            f"docker rm --force {shlex.quote(container_name)}",
+            warn=True,
+            hide=True,
+            pty=False,
+            shell="/bin/bash",
+        )
+
+
 @task(
     help={
         "preview_base_url": "Browser-facing base URL used by the Playwright flow.",
@@ -1571,7 +1947,7 @@ def configure_ios_app(
     help={
         "project_dir": "Directory that contains the iOS XcodeGen project spec.",
     },
-    pre=[generate_ios_app_icons],
+    pre=[generate_ios_app_icons, generate_ios_app_shortcuts_localizations],
 )
 def generate_ios_project(c, project_dir="ios/PlaniniIOS") -> None:
     c.run(
@@ -1627,6 +2003,7 @@ def build_ios_simulator(
         "phone_udid": "Exact iPhone simulator UDID to use instead of name-based resolution.",
         "watch_udid": "Exact Apple Watch simulator UDID to use instead of name-based resolution.",
         "derived_data_path": "Derived data folder used for the clean rebuild.",
+        "rebuild": "Build from scratch before installing; disable to reuse existing products.",
         "backend_url_override": "Runtime backend URL override passed to the iPhone app at launch.",
         "bootstrap_email": "Seeded email used for simulator bootstrap login at launch.",
         "initial_list_name": "Optional seeded list name the simulator app should open first.",
@@ -1642,6 +2019,7 @@ def run_ios_simulators_fresh(
     phone_udid="",
     watch_udid="",
     derived_data_path="ios/PlaniniIOS/.derived-run-fresh",
+    rebuild=True,
     backend_url_override="http://localhost:8000",
     bootstrap_email=DEFAULT_IOS_E2E_USER_EMAIL,
     initial_list_name=DEFAULT_IOS_UI_E2E_INITIAL_LIST,
@@ -1683,31 +2061,34 @@ def run_ios_simulators_fresh(
     _uninstall_if_present(env, watch_udid, watch_bundle_id)
 
     derived_data = ROOT / derived_data_path
-    print(f"[run-ios-simulators-fresh] Clearing derived data at {derived_data}")
-    shutil.rmtree(derived_data, ignore_errors=True)
+    if rebuild:
+        print(f"[run-ios-simulators-fresh] Clearing derived data at {derived_data}")
+        shutil.rmtree(derived_data, ignore_errors=True)
 
-    print("[run-ios-simulators-fresh] Building iPhone and Watch apps from scratch...")
-    command = " ".join(
-        [
-            f"cd {shlex.quote(project_dir)} &&",
-            "xcodebuild",
-            "-project PlaniniApp.xcodeproj",
-            f"-scheme {shlex.quote(scheme)}",
-            f"-configuration {shlex.quote(configuration)}",
-            f"-derivedDataPath {shlex.quote(str(derived_data.resolve()))}",
-            f"-destination {shlex.quote(DEFAULT_IOS_SIMULATOR_DESTINATION)}",
-            "-quiet",
-            "CODE_SIGNING_ALLOWED=NO",
-            "clean",
-            "build",
-        ]
-    )
-    c.run(
-        command,
-        env=env,
-        pty=False,
-        shell="/bin/bash",
-    )
+        print("[run-ios-simulators-fresh] Building iPhone and Watch apps from scratch...")
+        command = " ".join(
+            [
+                f"cd {shlex.quote(project_dir)} &&",
+                "xcodebuild",
+                "-project PlaniniApp.xcodeproj",
+                f"-scheme {shlex.quote(scheme)}",
+                f"-configuration {shlex.quote(configuration)}",
+                f"-derivedDataPath {shlex.quote(str(derived_data.resolve()))}",
+                f"-destination {shlex.quote(DEFAULT_IOS_SIMULATOR_DESTINATION)}",
+                "-quiet",
+                "CODE_SIGNING_ALLOWED=NO",
+                "clean",
+                "build",
+            ]
+        )
+        c.run(
+            command,
+            env=env,
+            pty=False,
+            shell="/bin/bash",
+        )
+    else:
+        print(f"[run-ios-simulators-fresh] Reusing products from {derived_data}")
 
     ios_app_path, watch_app_path = _build_ios_product_paths(derived_data, configuration)
     if ios_app_path.exists() is False:
@@ -1846,6 +2227,8 @@ def stream_ios_simulator_logs(
             "the base_url origin, but can be set to a shared native passkey host such "
             "as https://pr.planini.malaber.de."
         ),
+        "test_filter": "Swift test regular expression selecting native backend e2e tests.",
+        "skip_filter": "Optional Swift test regular expression excluded from the run.",
     }
 )
 def run_ios_e2e(
@@ -1855,6 +2238,8 @@ def run_ios_e2e(
     webauthn_rp_id="localhost",
     user_email=DEFAULT_IOS_E2E_USER_EMAIL,
     origin="",
+    test_filter="LiveBackendE2ETests",
+    skip_filter="",
 ) -> None:
     env = _ios_e2e_env(
         base_url=base_url,
@@ -1863,8 +2248,11 @@ def run_ios_e2e(
         user_email=user_email,
         origin=origin,
     )
+    command = f"swift test --package-path ios/PlaniniIOS --filter {shlex.quote(test_filter)}"
+    if skip_filter:
+        command += f" --skip {shlex.quote(skip_filter)}"
     c.run(
-        "xcrun swift test --package-path ios/PlaniniIOS --filter LiveBackendE2ETests",
+        command,
         env=env,
         pty=False,
         shell="/bin/bash",
@@ -1955,6 +2343,139 @@ def run_ios_ui_e2e(
             for summary in failure_summaries:
                 print(f"- {summary}")
         raise Exit(f"Command failed with exit code {result.exited}: xcodebuild iOS UI e2e")
+
+
+def _run_ios_marketing_ui_test(
+    c,
+    *,
+    base_url: str,
+    artifact_dir: str,
+    device_name: str,
+    ipad_device_name: str,
+    initial_list_name: str,
+    german_initial_list_name: str,
+    english_session: dict[str, str],
+    german_session: dict[str, str],
+    derived_data_path: str,
+    clean_derived_data: bool = True,
+    attempts: int = 2,
+) -> None:
+    artifact_path = ROOT / artifact_dir
+    artifact_path.mkdir(parents=True, exist_ok=True)
+    result_bundle_path = artifact_path / DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
+
+    derived_data = ROOT / derived_data_path
+    if clean_derived_data:
+        shutil.rmtree(derived_data, ignore_errors=True)
+
+    env = _ios_ui_test_env(
+        base_url=base_url,
+        bootstrap_base_url=base_url,
+        user_email=DEFAULT_IOS_E2E_USER_EMAIL,
+        artifact_dir=artifact_dir,
+        initial_list_name=initial_list_name,
+        access_token=english_session["access_token"],
+        display_name=english_session["display_name"],
+    )
+    env.update(
+        {
+            "PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN": german_session["access_token"],
+            "PLANINI_UI_TEST_MARKETING_GERMAN_DISPLAY_NAME": german_session["display_name"],
+            "PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME": german_initial_list_name,
+        }
+    )
+    build_command = " ".join(
+        [
+            "cd ios/PlaniniIOS &&",
+            "xcodebuild",
+            "-project PlaniniApp.xcodeproj",
+            "-scheme Planini",
+            f"-derivedDataPath {shlex.quote(str(derived_data.resolve()))}",
+            f"-destination {shlex.quote(DEFAULT_IOS_SIMULATOR_DESTINATION)}",
+            "-destination-timeout 120",
+            "-quiet",
+            f"-only-testing:{shlex.quote(DEFAULT_IOS_MARKETING_SCREENSHOT_TEST)}",
+            "build-for-testing",
+        ]
+    )
+    build_result = c.run(
+        build_command,
+        env=env,
+        pty=False,
+        shell="/bin/bash",
+        warn=True,
+    )
+    if build_result.exited != 0:
+        raise Exit(
+            "Command failed with exit code "
+            f"{build_result.exited}: xcodebuild iOS marketing screenshot build"
+        )
+
+    max_attempts = max(1, int(attempts))
+    for simulator_name in (device_name, ipad_device_name):
+        test_command = " ".join(
+            [
+                "cd ios/PlaniniIOS &&",
+                "xcodebuild",
+                "-project PlaniniApp.xcodeproj",
+                "-scheme Planini",
+                f"-derivedDataPath {shlex.quote(str(derived_data.resolve()))}",
+                f"-destination {shlex.quote(_ios_simulator_destination(simulator_name))}",
+                "-destination-timeout 120",
+                f"-resultBundlePath {shlex.quote(str(result_bundle_path.resolve()))}",
+                "-quiet",
+                "-parallel-testing-enabled NO",
+                "-maximum-parallel-testing-workers 1",
+                f"-only-testing:{shlex.quote(DEFAULT_IOS_MARKETING_SCREENSHOT_TEST)}",
+                "test-without-building",
+            ]
+        )
+        result = None
+        for attempt in range(max_attempts):
+            _shutdown_ios_simulators()
+            _ensure_ios_simulator_device(simulator_name)
+            _reset_ios_ui_test_app(simulator_name)
+            shutil.rmtree(result_bundle_path, ignore_errors=True)
+            result = c.run(
+                test_command,
+                env=env,
+                pty=False,
+                shell="/bin/bash",
+                warn=True,
+            )
+            if result.exited == 0:
+                break
+            if attempt < max_attempts - 1:
+                print(
+                    "Retrying iOS marketing screenshots on "
+                    f"{simulator_name} (attempt {attempt + 1}/{max_attempts})..."
+                )
+
+        assert result is not None
+        if result.exited != 0:
+            _write_ios_ui_e2e_summary(artifact_dir)
+            failure_summaries = _ios_ui_e2e_failure_summaries(result_bundle_path)
+            if failure_summaries:
+                print("iOS marketing screenshot failure summary:")
+                for summary in failure_summaries:
+                    print(f"- {summary}")
+            raise Exit(
+                "Command failed with exit code "
+                f"{result.exited}: xcodebuild iOS marketing screenshots on {simulator_name}"
+            )
+
+    shutil.rmtree(result_bundle_path, ignore_errors=True)
+
+    for platform_dir, locale_dir, expected_size in [
+        ("iphone", "en-US", DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE),
+        ("iphone", "de-DE", DEFAULT_IOS_MARKETING_SCREENSHOT_SIZE),
+        ("ipad", "en-US", DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_SIZE),
+        ("ipad", "de-DE", DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_SIZE),
+    ]:
+        _validate_ios_screenshot_sizes(
+            f"{artifact_dir}/{platform_dir}/{locale_dir}",
+            expected_size,
+        )
 
 
 @task(
@@ -2052,6 +2573,8 @@ def start_ios_backend(
             "http://localhost:<port>, but can be overridden to model shared native "
             "passkey hosts."
         ),
+        "test_filter": "Swift test regular expression selecting native backend e2e tests.",
+        "skip_filter": "Optional Swift test regular expression excluded from the run.",
         "host": "Host to bind the local app server to.",
         "port": "Port to bind the local app server to.",
         "log_path": "File used for uvicorn logs.",
@@ -2066,6 +2589,8 @@ def check_ios_e2e(
     webauthn_rp_id="localhost",
     user_email=DEFAULT_IOS_E2E_USER_EMAIL,
     origin="",
+    test_filter="LiveBackendE2ETests",
+    skip_filter="",
     host=DEFAULT_HOST,
     port=DEFAULT_IOS_E2E_PORT,
     log_path=DEFAULT_IOS_E2E_LOG_PATH,
@@ -2091,6 +2616,8 @@ def check_ios_e2e(
             webauthn_rp_id=webauthn_rp_id,
             user_email=user_email,
             origin=origin,
+            test_filter=test_filter,
+            skip_filter=skip_filter,
         )
     finally:
         stop_app(c, pid_path=pid_path)
@@ -2129,6 +2656,78 @@ def check_ios_ui_e2e(
     attempts=2,
     only_testing="PlaniniUITests",
 ) -> None:
+    max_attempts = max(1, int(attempts))
+    for attempt in range(max_attempts):
+        _reset_sqlite_database_file(database_url)
+        start_app(
+            c,
+            seed_path=seed_path,
+            database_url=database_url,
+            webauthn_rp_id=webauthn_rp_id,
+            host=host,
+            port=port,
+            log_path=log_path,
+            pid_path=pid_path,
+            ui_test_bootstrap_enabled=True,
+        )
+        try:
+            wait_for_app(c, url=f"http://{host}:{port}/health")
+            session = _bootstrap_ios_ui_test_session(
+                base_url=f"http://localhost:{port}",
+                user_email=user_email,
+            )
+            if attempt == 0:
+                generate_ios_app_icons.body(c)
+                generate_ios_project.body(c)
+            _reset_ios_ui_test_app(device_name)
+            run_ios_ui_e2e(
+                c,
+                base_url=f"http://localhost:{port}",
+                bootstrap_base_url=f"http://localhost:{port}",
+                user_email=user_email,
+                artifact_dir=artifact_dir,
+                device_name=device_name,
+                initial_list_name=initial_list_name,
+                access_token=session["access_token"],
+                display_name=session["display_name"],
+                attempts=1,
+                only_testing=only_testing,
+            )
+            return
+        except Exit:
+            if attempt >= max_attempts - 1:
+                raise
+            print(
+                "Retrying iOS UI e2e with a fresh backend "
+                f"(attempt {attempt + 1}/{max_attempts})..."
+            )
+        finally:
+            stop_app(c, pid_path=pid_path)
+
+
+@task
+def check_ios_marketing_screenshots(
+    c,
+    seed_path=DEFAULT_IOS_MARKETING_SCREENSHOT_SEED_PATH,
+    database_url=DEFAULT_IOS_MARKETING_SCREENSHOT_DATABASE_URL,
+    webauthn_rp_id="localhost",
+    user_email=DEFAULT_IOS_E2E_USER_EMAIL,
+    german_user_email=DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_USER_EMAIL,
+    artifact_dir=DEFAULT_IOS_MARKETING_SCREENSHOT_ARTIFACT_DIR,
+    device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE,
+    ipad_device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_DEVICE,
+    watch_phone_device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_PHONE_DEVICE,
+    watch_device_name=DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_DEVICE,
+    initial_list_name=DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST,
+    german_initial_list_name=DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_INITIAL_LIST,
+    host=DEFAULT_HOST,
+    port=DEFAULT_IOS_MARKETING_SCREENSHOT_PORT,
+    log_path=DEFAULT_IOS_MARKETING_SCREENSHOT_LOG_PATH,
+    pid_path=DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH,
+    preserve_derived_data=False,
+) -> None:
+    """Capture App Store-sized iPhone, iPad, and watchOS screenshots."""
+    shutil.rmtree(ROOT / artifact_dir, ignore_errors=True)
     _reset_sqlite_database_file(database_url)
     start_app(
         c,
@@ -2143,26 +2742,63 @@ def check_ios_ui_e2e(
     )
     try:
         wait_for_app(c, url=f"http://{host}:{port}/health")
-        session = _bootstrap_ios_ui_test_session(
-            base_url=f"http://localhost:{port}",
-            user_email=user_email,
-        )
         generate_ios_app_icons.body(c)
         generate_ios_project.body(c)
-        run_ios_ui_e2e(
-            c,
-            base_url=f"http://localhost:{port}",
-            bootstrap_base_url=f"http://localhost:{port}",
-            user_email=user_email,
-            artifact_dir=artifact_dir,
-            device_name=device_name,
-            initial_list_name=initial_list_name,
-            access_token=session["access_token"],
-            display_name=session["display_name"],
-            attempts=attempts,
-            only_testing=only_testing,
-        )
+        locale_variants = [
+            ("en-US", "en", user_email, initial_list_name),
+            ("de-DE", "de", german_user_email, german_initial_list_name),
+        ]
+        sessions = [
+            _bootstrap_ios_ui_test_session(
+                base_url=f"http://localhost:{port}",
+                user_email=locale_user_email,
+            )
+            for _, _, locale_user_email, _ in locale_variants
+        ]
+        try:
+            _run_ios_marketing_ui_test(
+                c,
+                base_url=f"http://localhost:{port}",
+                artifact_dir=artifact_dir,
+                device_name=device_name,
+                ipad_device_name=ipad_device_name,
+                initial_list_name=initial_list_name,
+                german_initial_list_name=german_initial_list_name,
+                english_session=sessions[0],
+                german_session=sessions[1],
+                derived_data_path=DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH,
+                clean_derived_data=not preserve_derived_data,
+            )
+        finally:
+            _shutdown_ios_simulators()
+        try:
+            for (
+                locale_dir,
+                language,
+                locale_user_email,
+                locale_initial_list_name,
+            ) in locale_variants:
+                _capture_watch_marketing_screenshot(
+                    c,
+                    base_url=f"http://localhost:{port}",
+                    bootstrap_email=locale_user_email,
+                    initial_list_name=locale_initial_list_name,
+                    language=language,
+                    locale=locale_dir,
+                    artifact_dir=f"{artifact_dir}/watchos/{locale_dir}",
+                    phone_device=watch_phone_device_name,
+                    watch_device=watch_device_name,
+                    derived_data_path=DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH,
+                )
+        finally:
+            _shutdown_ios_simulators()
+        _write_ios_ui_e2e_summary(artifact_dir)
     finally:
+        if not preserve_derived_data:
+            shutil.rmtree(
+                ROOT / DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH,
+                ignore_errors=True,
+            )
         stop_app(c, pid_path=pid_path)
 
 

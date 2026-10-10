@@ -22,8 +22,8 @@ jobs:
   python_black:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install invoke
@@ -33,8 +33,8 @@ jobs:
   python_flake8:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install invoke
@@ -44,8 +44,8 @@ jobs:
   python_pytest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install invoke
@@ -55,11 +55,11 @@ jobs:
   javascript_test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: python -m pip install invoke
@@ -79,11 +79,11 @@ jobs:
       E2E_BROWSER_CHANNEL: chrome
       E2E_RECORD_VIDEO: 'false'
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: python -m pip install invoke
@@ -99,7 +99,7 @@ jobs:
           --artifact-root=e2e-artifacts
       - name: Upload browser artifacts
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: browser-ui-e2e
           retention-days: 2
@@ -124,31 +124,30 @@ jobs:
     container:
       image: swift:6.2
     steps:
-      - uses: actions/checkout@v4
-      - name: Run Swift package tests with coverage gate
-        run: cd ios/PlaniniIOS && ./Scripts/check_coverage.sh
-
-  ios_native_backend_e2e:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - name: Restore Swift build cache
+        uses: actions/cache@v6
+        with:
+          path: ios/PlaniniIOS/.build
+          key: swift-${{ runner.os }}-${{ runner.arch }}-6.2-${{ hashFiles('ios/PlaniniIOS/Package.resolved') }}
+          restore-keys: swift-${{ runner.os }}-${{ runner.arch }}-6.2-
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install Invoke
         run: python -m pip install invoke
-      - name: Install native image dependencies
-        run: brew install cairo
-      - name: Expose native image library path
-        run: echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix cairo)/lib:/opt/homebrew/lib:/usr/local/lib" >> "$GITHUB_ENV"
       - name: Bootstrap backend dependencies
         run: python -m invoke bootstrap-ci
-      - name: Run native iOS backend e2e
-        run: python -m invoke check-ios-e2e
+      - name: Run Swift package tests with coverage gate
+        run: cd ios/PlaniniIOS && ./Scripts/check_coverage.sh
+      - name: Run portable native iOS backend e2e
+        run: >-
+          python -m invoke check-ios-e2e
+          --skip-filter=listWebsocketEmitsItemLifecycleEvents
 
   ios_native_ui_e2e:
     name: Native ${{ matrix.platform }} UI e2e
-    runs-on: macos-latest
+    runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
@@ -172,8 +171,8 @@ jobs:
             pid_path: ios-ipad-ui-e2e-server.pid
             only_testing: PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install Invoke
@@ -184,6 +183,11 @@ jobs:
         run: echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix cairo)/lib:/opt/homebrew/lib:/usr/local/lib" >> "$GITHUB_ENV"
       - name: Bootstrap backend dependencies
         run: python -m invoke bootstrap-ci
+      - name: Run native Foundation WebSocket backend e2e
+        if: matrix.platform == 'iPhone'
+        run: >-
+          python -m invoke check-ios-e2e
+          --test-filter=listWebsocketEmitsItemLifecycleEvents
       - name: Install XcodeGen
         run: python -m invoke install-xcodegen
       - name: Run native ${{ matrix.platform }} UI e2e
@@ -198,7 +202,7 @@ jobs:
           --only-testing="${{ matrix.only_testing }}"
       - name: Upload native iOS UI artifacts
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           retention-days: 2
@@ -213,17 +217,22 @@ jobs:
             cat "${{ matrix.artifact_dir }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  ios_marketing_screenshots:
+    if: github.ref != 'refs/heads/main'
+    uses: ./.github/workflows/app-store-screenshots.yml
+
   version:
+    if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       base_version: ${{ steps.version.outputs.base_version }}
       release_version: ${{ steps.version.outputs.release_version }}
       git_tag: ${{ steps.version.outputs.git_tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install invoke
@@ -236,6 +245,7 @@ jobs:
         run: python -m invoke compute-version
 
   docker_build_platform:
+    if: github.ref != 'refs/heads/main'
     runs-on: ${{ matrix.runs_on }}
     needs:
       - version
@@ -250,21 +260,21 @@ jobs:
             artifact_suffix: linux-arm64
             runs_on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Compute image name
         id: image
         env:
           REPOSITORY: ${{ github.repository }}
         run: echo "image=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish platform image
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -281,7 +291,7 @@ jobs:
           mkdir -p /tmp/docker-digests
           touch "/tmp/docker-digests/${IMAGE_DIGEST#sha256:}"
       - name: Upload image digest artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: docker-digest-${{ matrix.artifact_suffix }}
           path: /tmp/docker-digests/*
@@ -328,14 +338,14 @@ jobs:
             echo "$IMAGE:$PRIMARY_TAG"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Download image digest artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: docker-digest-*
           path: /tmp/docker-digests
@@ -391,3 +401,33 @@ jobs:
             cat docker-image-inspect.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  docker_smoke:
+    runs-on: ubuntu-latest
+    needs:
+      - docker_build
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Invoke
+        run: python -m pip install invoke
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Smoke test published container with oldest persistent database
+        env:
+          IMAGE: ${{ needs.docker_build.outputs.image }}
+          IMAGE_TAG: ${{ needs.docker_build.outputs.primary_tag }}
+        run: python -m invoke check-container-smoke --image="$IMAGE:$IMAGE_TAG"
+      - name: Smoke test published container with deployed list-history database
+        env:
+          IMAGE: ${{ needs.docker_build.outputs.image }}
+          IMAGE_TAG: ${{ needs.docker_build.outputs.primary_tag }}
+        run: >-
+          python -m invoke check-container-smoke
+          --image="$IMAGE:$IMAGE_TAG"
+          --legacy-revision=0021_add_list_history

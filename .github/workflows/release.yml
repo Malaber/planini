@@ -17,6 +17,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
+  ios_marketing_screenshots:
+    uses: ./.github/workflows/app-store-screenshots.yml
+
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -24,10 +27,10 @@ jobs:
       release_version: ${{ steps.version.outputs.release_version }}
       git_tag: ${{ steps.version.outputs.git_tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: python -m pip install invoke
@@ -54,21 +57,21 @@ jobs:
             artifact_suffix: linux-arm64
             runs_on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Compute image name
         id: image
         env:
           REPOSITORY: ${{ github.repository }}
         run: echo "image=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish platform image
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -85,7 +88,7 @@ jobs:
           mkdir -p /tmp/docker-digests
           touch "/tmp/docker-digests/${IMAGE_DIGEST#sha256:}"
       - name: Upload image digest artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: docker-digest-${{ matrix.artifact_suffix }}
           path: /tmp/docker-digests/*
@@ -132,14 +135,14 @@ jobs:
             echo "$IMAGE:$PRIMARY_TAG"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Download image digest artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: docker-digest-*
           path: /tmp/docker-digests
@@ -202,12 +205,29 @@ jobs:
       - version
       - docker_build_platform
       - docker_build
+      - ios_marketing_screenshots
     outputs:
       release_title: ${{ steps.release_meta.outputs.release_title }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Download App Store screenshots
+        uses: actions/download-artifact@v8
+        with:
+          name: ios-marketing-screenshots
+          path: app-store-screenshots
+      - name: Package App Store screenshots
+        id: screenshot_archive
+        env:
+          GIT_TAG: ${{ needs.version.outputs.git_tag }}
+        run: |
+          archive="planini-app-store-screenshots-${GIT_TAG}.zip"
+          (
+            cd app-store-screenshots
+            zip -qr "$GITHUB_WORKSPACE/$archive" .
+          )
+          echo "name=$archive" >> "$GITHUB_OUTPUT"
       - name: Create or update git tag
         env:
           GIT_TAG: ${{ needs.version.outputs.git_tag }}
@@ -220,12 +240,12 @@ jobs:
             git tag "$GIT_TAG" "$GITHUB_SHA"
             git push origin "$GIT_TAG"
           fi
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Promote tested image to release tag
         env:
           IMAGE: ${{ needs.docker_build.outputs.image }}
@@ -284,6 +304,7 @@ jobs:
           IMAGE: ${{ needs.docker_build.outputs.image }}
           IMAGE_DIGEST: ${{ needs.docker_build.outputs.digest }}
           RELEASE_VERSION: ${{ needs.version.outputs.release_version }}
+          SCREENSHOT_ARCHIVE: ${{ steps.screenshot_archive.outputs.name }}
         run: |
           gh api \
             --method POST \
@@ -303,9 +324,21 @@ jobs:
           image = os.environ["IMAGE"]
           release_version = os.environ["RELEASE_VERSION"]
           image_digest = os.environ["IMAGE_DIGEST"]
+          repository = os.environ["REPOSITORY"]
+          git_tag = os.environ["GIT_TAG"]
+          screenshot_archive = os.environ["SCREENSHOT_ARCHIVE"]
+          screenshot_url = (
+              f"https://github.com/{repository}/releases/download/"
+              f"{git_tag}/{screenshot_archive}"
+          )
           notes = "\n\n".join(
               [
                   generated_notes,
+                  "## App Store screenshots\n"
+                  f"\n- [Download ready-to-upload ZIP]({screenshot_url})"
+                  "\n- Includes iPhone, iPad, and Apple Watch PNGs in English and German."
+                  f"\n- [Upload guide](https://github.com/{repository}/blob/"
+                  f"{git_tag}/docs/app-store-screenshots.md)",
                   "## Container image\n"
                   f"\n- `{image}:{release_version}`"
                   f"\n- `{image}@{image_digest}`",
@@ -331,6 +364,25 @@ jobs:
               --title "$RELEASE_TITLE" \
               --notes-file release-notes.md
           fi
+      - name: Attach App Store screenshots to GitHub release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_TAG: ${{ needs.version.outputs.git_tag }}
+          SCREENSHOT_ARCHIVE: ${{ steps.screenshot_archive.outputs.name }}
+        run: gh release upload "$GIT_TAG" "$SCREENSHOT_ARCHIVE" --clobber
+      - name: Add App Store screenshot summary
+        if: github.ref == 'refs/heads/main'
+        env:
+          GIT_TAG: ${{ needs.version.outputs.git_tag }}
+          REPOSITORY: ${{ github.repository }}
+          SCREENSHOT_ARCHIVE: ${{ steps.screenshot_archive.outputs.name }}
+        run: |
+          {
+            echo "## App Store screenshots"
+            echo
+            echo "[Download ready-to-upload ZIP](https://github.com/$REPOSITORY/releases/download/$GIT_TAG/$SCREENSHOT_ARCHIVE)"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Add release image summary
         env:
           IMAGE: ${{ needs.docker_build.outputs.image }}

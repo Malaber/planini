@@ -1,11 +1,17 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ensure_household_member, get_current_user, get_list_for_user
+from app.api.deps import (
+    ensure_household_member,
+    ensure_household_owner,
+    get_current_user,
+    get_list_for_owner,
+    get_list_for_user,
+)
 from app.core.database import get_db
 from app.models import (
     Category,
@@ -13,26 +19,33 @@ from app.models import (
     GroceryList,
     ListCategoryOrder,
     ListDisabledCategory,
+    ListHistoryEntry,
     User,
 )
 from app.schemas.domain import (
     CategoryOut,
     GroceryListCreate,
     GroceryListOut,
+    GroceryListUpdate,
     ListCategoryOrderOut,
     ListCategoryOrderUpdate,
     ListDisabledCategoriesOut,
     ListDisabledCategoriesUpdate,
+    ListHistoryEntryOut,
     GroceryItemOut,
 )
+from app.services.category_localization import localized_category
+from app.services.list_history import record_list_history
 from app.services.websocket_hub import hub
 
 router = APIRouter(tags=["lists"])
 
 
-def _serialize_list(grocery_list: GroceryList, open_item_count: int) -> GroceryListOut:
+def _serialize_list(
+    grocery_list: GroceryList, open_item_count: int, access_role: str
+) -> GroceryListOut:
     return GroceryListOut.model_validate(grocery_list).model_copy(
-        update={"open_item_count": open_item_count}
+        update={"open_item_count": open_item_count, "access_role": access_role}
     )
 
 
@@ -129,12 +142,27 @@ async def create_list(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GroceryListOut:
-    await ensure_household_member(db, household_id, user.id)
-    grocery_list = GroceryList(household_id=household_id, name=payload.name, created_by=user.id)
+    await ensure_household_owner(db, household_id, user.id)
+    grocery_list = GroceryList(
+        household_id=household_id,
+        name=payload.name,
+        accent_color=payload.accent_color,
+        created_by=user.id,
+    )
     db.add(grocery_list)
+    await db.flush()
+    record_list_history(
+        db,
+        household_id=household_id,
+        list_id=grocery_list.id,
+        actor=user,
+        event_type="list_created",
+        subject_id=grocery_list.id,
+        subject_name=grocery_list.name,
+    )
     await db.commit()
     await db.refresh(grocery_list)
-    return _serialize_list(grocery_list, 0)
+    return _serialize_list(grocery_list, 0, "owner")
 
 
 @router.get("/households/{household_id}/lists", response_model=list[GroceryListOut])
@@ -143,12 +171,12 @@ async def list_lists(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[GroceryListOut]:
-    await ensure_household_member(db, household_id, user.id)
+    membership = await ensure_household_member(db, household_id, user.id)
     result = await db.execute(select(GroceryList).where(GroceryList.household_id == household_id))
     grocery_lists = list(result.scalars().all())
     counts = await _open_item_counts(db, [grocery_list.id for grocery_list in grocery_lists])
     return [
-        _serialize_list(grocery_list, counts.get(grocery_list.id, 0))
+        _serialize_list(grocery_list, counts.get(grocery_list.id, 0), membership.role)
         for grocery_list in grocery_lists
     ]
 
@@ -158,13 +186,48 @@ async def get_list(
     list_id: UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> GroceryListOut:
     grocery_list = await get_list_for_user(db, list_id, user.id)
-    return _serialize_list(grocery_list, await _open_item_count(db, list_id))
+    membership = await ensure_household_member(db, grocery_list.household_id, user.id)
+    return _serialize_list(
+        grocery_list,
+        await _open_item_count(db, list_id),
+        membership.role,
+    )
+
+
+@router.get("/lists/{list_id}/history", response_model=list[ListHistoryEntryOut])
+async def get_list_history(
+    list_id: UUID,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[ListHistoryEntry]:
+    grocery_list = await get_list_for_user(db, list_id, user.id)
+    result = await db.execute(
+        select(ListHistoryEntry)
+        .where(
+            or_(
+                ListHistoryEntry.list_id == list_id,
+                and_(
+                    ListHistoryEntry.list_id.is_(None),
+                    ListHistoryEntry.household_id == grocery_list.household_id,
+                ),
+            )
+        )
+        .order_by(ListHistoryEntry.created_at.desc(), ListHistoryEntry.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
 
 
 @router.get("/lists/{list_id}/categories", response_model=list[CategoryOut])
 async def get_list_categories(
-    list_id: UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
-) -> list[Category]:
+    request: Request,
+    list_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[CategoryOut]:
     grocery_list = await get_list_for_user(db, list_id, user.id)
     result = await db.execute(
         select(Category)
@@ -173,7 +236,9 @@ async def get_list_categories(
         )
         .order_by(Category.name.asc())
     )
-    return list(result.scalars().all())
+    locale = getattr(request.state, "locale", "en")
+    categories = [localized_category(category, locale) for category in result.scalars().all()]
+    return sorted(categories, key=lambda category: category.name.casefold())
 
 
 @router.get("/lists/{list_id}/category-order", response_model=list[ListCategoryOrderOut])
@@ -196,7 +261,7 @@ async def update_list_category_order(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[ListCategoryOrder]:
-    grocery_list = await get_list_for_user(db, list_id, user.id)
+    grocery_list = await get_list_for_owner(db, list_id, user.id)
 
     category_ids = payload.category_ids
     if len(category_ids) != len(set(category_ids)):
@@ -213,12 +278,29 @@ async def update_list_category_order(
                 detail="Category order references an unknown category.",
             )
 
+    previous_result = await db.execute(
+        select(ListCategoryOrder.category_id)
+        .where(ListCategoryOrder.list_id == list_id)
+        .order_by(ListCategoryOrder.sort_order.asc(), ListCategoryOrder.category_id.asc())
+    )
+    previous_category_ids = list(previous_result.scalars().all())
     await db.execute(delete(ListCategoryOrder).where(ListCategoryOrder.list_id == list_id))
     orders: list[ListCategoryOrder] = []
     for index, category_id in enumerate(category_ids):
         order = ListCategoryOrder(list_id=list_id, category_id=category_id, sort_order=index)
         db.add(order)
         orders.append(order)
+
+    if previous_category_ids != category_ids:
+        record_list_history(
+            db,
+            household_id=grocery_list.household_id,
+            list_id=list_id,
+            actor=user,
+            event_type="category_order_changed",
+            subject_id=list_id,
+            subject_name=grocery_list.name,
+        )
 
     await db.commit()
     for order in orders:
@@ -249,7 +331,7 @@ async def update_list_disabled_categories(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ListDisabledCategoriesOut:
-    grocery_list = await get_list_for_user(db, list_id, user.id)
+    grocery_list = await get_list_for_owner(db, list_id, user.id)
 
     category_ids = payload.category_ids
     category_id_set = set(category_ids)
@@ -266,6 +348,11 @@ async def update_list_disabled_categories(
             detail="Disabled categories reference an unknown category.",
         )
 
+    previous_result = await db.execute(
+        select(ListDisabledCategory.category_id).where(ListDisabledCategory.list_id == list_id)
+    )
+    previous_category_ids = set(previous_result.scalars().all())
+
     await db.execute(delete(ListDisabledCategory).where(ListDisabledCategory.list_id == list_id))
     ordered_category_ids = [
         category.id
@@ -273,6 +360,17 @@ async def update_list_disabled_categories(
     ]
     for category_id in ordered_category_ids:
         db.add(ListDisabledCategory(list_id=list_id, category_id=category_id))
+
+    if previous_category_ids != category_id_set:
+        record_list_history(
+            db,
+            household_id=grocery_list.household_id,
+            list_id=list_id,
+            actor=user,
+            event_type="list_categories_changed",
+            subject_id=list_id,
+            subject_name=grocery_list.name,
+        )
 
     affected_items: list[GroceryItem] = []
     if category_id_set:
@@ -301,7 +399,7 @@ async def update_list_disabled_categories(
 async def delete_list(
     list_id: UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> dict[str, str]:
-    grocery_list = await get_list_for_user(db, list_id, user.id)
+    grocery_list = await get_list_for_owner(db, list_id, user.id)
     await db.execute(delete(ListDisabledCategory).where(ListDisabledCategory.list_id == list_id))
     await db.execute(delete(ListCategoryOrder).where(ListCategoryOrder.list_id == list_id))
     await db.delete(grocery_list)
@@ -312,15 +410,51 @@ async def delete_list(
 @router.patch("/lists/{list_id}", response_model=GroceryListOut)
 async def patch_list(
     list_id: UUID,
-    payload: GroceryListCreate,
+    payload: GroceryListUpdate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GroceryListOut:
-    grocery_list = await get_list_for_user(db, list_id, user.id)
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST)
-    grocery_list.name = name
+    grocery_list = await get_list_for_owner(db, list_id, user.id)
+    previous_name = grocery_list.name
+    previous_accent_color = grocery_list.accent_color
+    if "name" in payload.model_fields_set:
+        if payload.name is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST)
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST)
+        grocery_list.name = name
+    if "accent_color" in payload.model_fields_set:
+        grocery_list.accent_color = payload.accent_color
+    if grocery_list.name != previous_name:
+        record_list_history(
+            db,
+            household_id=grocery_list.household_id,
+            list_id=list_id,
+            actor=user,
+            event_type="list_renamed",
+            subject_id=list_id,
+            subject_name=grocery_list.name,
+            details={"old_name": previous_name, "new_name": grocery_list.name},
+        )
+    if grocery_list.accent_color != previous_accent_color:
+        record_list_history(
+            db,
+            household_id=grocery_list.household_id,
+            list_id=list_id,
+            actor=user,
+            event_type="list_accent_changed",
+            subject_id=list_id,
+            subject_name=grocery_list.name,
+            details={
+                "old_color": previous_accent_color,
+                "new_color": grocery_list.accent_color,
+            },
+        )
     await db.commit()
     await db.refresh(grocery_list)
-    return _serialize_list(grocery_list, await _open_item_count(db, list_id))
+    return _serialize_list(
+        grocery_list,
+        await _open_item_count(db, list_id),
+        "owner",
+    )

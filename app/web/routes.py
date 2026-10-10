@@ -14,19 +14,22 @@ from fastapi.responses import (
     Response as FastAPIResponse,
 )
 from fastapi.templating import Jinja2Templates
+from fastpasskey import install_fastpasskey_templates
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_list_for_user
+from app.api.v1.routes.public_list_links import get_valid_public_list_link
 from app.core.config import settings
 from app.core.database import get_db
 from app.i18n import encode_catalog, translator_for
 from app.models import User
 from app.services.auth_sessions import create_auth_session, get_session_user, revoke_auth_session
 from app.services.passkey_reset import get_user_for_passkey_reset_token
-from app.api.v1.routes.auth import _load_user_with_passkeys_by_email
+from app.services.passkey_repository import load_user_with_passkeys_by_email
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="app/web/templates")
+install_fastpasskey_templates(templates.env)
 static_root = Path("app/web/static")
 MUTABLE_STATIC_ASSETS = ("app.css", "app.js")
 LINK_PREVIEW_IMAGE_PATH = "/static/img/link-preview.png"
@@ -54,6 +57,7 @@ def _template_context(request: Request, user: User | None, **extra: object) -> d
         **_template_auth_context(user),
         "locale": locale,
         "canonical_url": canonical_url,
+        "smart_app_banner_url": canonical_url,
         "link_preview_image_url": _absolute_url(request, LINK_PREVIEW_IMAGE_PATH),
         "i18n_catalog_b64": encode_catalog(locale),
         "static_asset_version": _static_asset_version(),
@@ -66,16 +70,32 @@ def _absolute_url(request: Request, path: str) -> str:
     return str(request.url.replace(path=path, query="", fragment=""))
 
 
-def _capabilities_demo_payload() -> dict[str, object]:
+def _capabilities_demo_payload(locale: str = "en") -> dict[str, object]:
+    english_category_names = {
+        "produce": "Produce",
+        "fridge": "Fridge",
+        "pantry": "Pantry",
+    }
+    translated_category_names = {
+        "de": {
+            "produce": "Obst und Gemüse",
+            "fridge": "Kühlschrank",
+            "pantry": "Vorrat",
+        }
+    }
+    category_names = {
+        category_id: translated_category_names.get(locale, {}).get(category_id, english_name)
+        for category_id, english_name in english_category_names.items()
+    }
     return {
         "list": {
             "id": "capabilities-demo",
             "name": "Saturday Groceries",
         },
         "categories": [
-            {"id": "produce", "name": "Produce", "color": "#6bbf59"},
-            {"id": "fridge", "name": "Fridge", "color": "#1db8d9"},
-            {"id": "pantry", "name": "Pantry", "color": "#f59e0b"},
+            {"id": "produce", "name": category_names["produce"], "color": "#6bbf59"},
+            {"id": "fridge", "name": category_names["fridge"], "color": "#1db8d9"},
+            {"id": "pantry", "name": category_names["pantry"], "color": "#f59e0b"},
         ],
         "category_order": [
             {"category_id": "produce", "sort_order": 0},
@@ -179,7 +199,7 @@ async def _last_list_redirect(
     try:
         parsed_list_id = UUID(last_list_id)
         await get_list_for_user(db, parsed_list_id, user.id)
-    except (ValueError, HTTPException):
+    except ValueError, HTTPException:
         request.session.pop("last_list_id", None)
         return None
 
@@ -341,8 +361,9 @@ async def capabilities_live_demo_page(
     request: Request, db: AsyncSession = Depends(get_db)
 ) -> Response:
     user = await _get_session_user(request, db)
-    t = translator_for(getattr(request.state, "locale", "en"))
-    demo_payload = _capabilities_demo_payload()
+    locale = getattr(request.state, "locale", "en")
+    t = translator_for(locale)
+    demo_payload = _capabilities_demo_payload(locale)
     return templates.TemplateResponse(
         request,
         "list_detail.html",
@@ -374,6 +395,7 @@ async def login_page(request: Request, db: AsyncSession = Depends(get_db)) -> Re
             request,
             None,
             next_url=next_path,
+            smart_app_banner_url=_absolute_url(request, next_path),
         ),
     )
 
@@ -395,6 +417,7 @@ async def local_login_page(request: Request, db: AsyncSession = Depends(get_db))
             request,
             None,
             next_url=next_path,
+            smart_app_banner_url=_absolute_url(request, next_path),
         ),
     )
 
@@ -419,7 +442,7 @@ async def local_login_submit(
             status_code=303,
         )
 
-    user = await _load_user_with_passkeys_by_email(db, normalized_email)
+    user = await load_user_with_passkeys_by_email(db, normalized_email)
     if user is None:
         return templates.TemplateResponse(
             request,
@@ -484,7 +507,7 @@ async def list_detail(
 ) -> Response:
     user = await _get_session_user(request, db)
     if user is None:
-        return RedirectResponse(url="/login", status_code=303)
+        return RedirectResponse(url=f"/login?next=/lists/{list_id}", status_code=303)
     if user.is_admin:
         return RedirectResponse(url="/admin", status_code=303)
     try:
@@ -498,6 +521,33 @@ async def list_detail(
             request,
             user,
             list_id=list_id,
+        ),
+    )
+
+
+@router.get("/public/lists/{token}", response_class=HTMLResponse, response_model=None)
+async def public_list_detail(
+    request: Request, token: str, db: AsyncSession = Depends(get_db)
+) -> Response:
+    await get_valid_public_list_link(db, token)
+    return templates.TemplateResponse(
+        request,
+        "list_detail.html",
+        _template_context(
+            request,
+            None,
+            list_id=token,
+            public_list_token=token,
+            list_kicker=translator_for(getattr(request.state, "locale", "en"))(
+                "list_detail.public_kicker"
+            ),
+            list_back_href="/login",
+            list_back_label=translator_for(getattr(request.state, "locale", "en"))(
+                "list_detail.sign_in"
+            ),
+            list_page_note=translator_for(getattr(request.state, "locale", "en"))(
+                "list_detail.public_note"
+            ),
         ),
     )
 

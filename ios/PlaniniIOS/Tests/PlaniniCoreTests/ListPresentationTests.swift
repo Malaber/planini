@@ -10,10 +10,14 @@ struct ListPresentationTests {
             json: [
                 "id": householdID.uuidString,
                 "name": "Home",
+                "role": "owner",
             ]
         )
 
-        #expect(household == HouseholdSummary(id: householdID, name: "Home"))
+        #expect(household == HouseholdSummary(id: householdID, name: "Home", role: .owner))
+        #expect(household?.role.canEditItems == true)
+        #expect(household?.role.canManageHousehold == true)
+        #expect(HouseholdRole.viewer.canEditItems == false)
     }
 
     @Test func householdSummaryRejectsInvalidJSON() {
@@ -33,11 +37,15 @@ struct ListPresentationTests {
             json: [
                 "invite_url": "https://planini.top/invite/token",
                 "expires_at": "2026-05-18T12:00:00.123Z",
+                "max_uses": 5,
+                "role": "viewer",
             ]
         )
 
         #expect(invite?.inviteURL == "https://planini.top/invite/token")
         #expect(invite?.expiresAt != nil)
+        #expect(invite?.maxUses == 5)
+        #expect(invite?.role == .viewer)
     }
 
     @Test func householdInviteLinkParsesJSONWithoutValidExpiration() {
@@ -53,6 +61,205 @@ struct ListPresentationTests {
         #expect(HouseholdInviteLink(json: [:]) == nil)
     }
 
+    @Test func householdMemberSummaryParsesJSON() {
+        let userID = UUID()
+        let member = HouseholdMemberSummary(
+            json: [
+                "user_id": userID.uuidString,
+                "display_name": "Alex",
+                "email": "alex@example.com",
+                "role": "editor",
+            ]
+        )
+
+        #expect(
+            member
+                == HouseholdMemberSummary(
+                    userID: userID,
+                    displayName: "Alex",
+                    email: "alex@example.com",
+                    role: .editor
+                )
+        )
+        #expect(HouseholdMemberSummary(json: [:]) == nil)
+    }
+
+    @Test func listHistoryEntryParsesJSON() throws {
+        let entryID = UUID()
+        let listID = UUID()
+        let actorID = UUID()
+        let subjectID = UUID()
+        let entry = try #require(
+            ListHistoryEntrySummary(
+                json: [
+                    "id": entryID.uuidString,
+                    "list_id": listID.uuidString,
+                    "actor_user_id": actorID.uuidString,
+                    "actor_display_name": "Alex",
+                    "event_type": "item_updated",
+                    "subject_id": subjectID.uuidString,
+                    "subject_name": "Milk",
+                    "details": ["fields": "name, note", "removed": NSNull()],
+                    "created_at": "2026-08-13T12:34:56.123Z",
+                ]
+            )
+        )
+
+        #expect(entry.id == entryID)
+        #expect(entry.listID == listID)
+        #expect(entry.actorUserID == actorID)
+        #expect(entry.actorDisplayName == "Alex")
+        #expect(entry.eventType == "item_updated")
+        #expect(entry.subjectID == subjectID)
+        #expect(entry.subjectName == "Milk")
+        #expect(entry.details == ["fields": "name, note"])
+        #expect(entry.createdAt.timeIntervalSince1970 > 0)
+
+        let householdEntry = ListHistoryEntrySummary(
+            json: [
+                "id": UUID().uuidString,
+                "list_id": NSNull(),
+                "actor_user_id": actorID.uuidString,
+                "actor_display_name": "Alex",
+                "event_type": "member_added",
+                "subject_id": NSNull(),
+                "subject_name": NSNull(),
+                "details": [:],
+                "created_at": "2026-08-13T12:34:56",
+            ]
+        )
+        #expect(householdEntry?.listID == nil)
+        #expect(householdEntry?.subjectID == nil)
+        #expect(householdEntry?.subjectName == nil)
+        let sqliteEntry = ListHistoryEntrySummary(
+            json: [
+                "id": UUID().uuidString,
+                "actor_user_id": actorID.uuidString,
+                "actor_display_name": "Alex",
+                "event_type": "list_created",
+                "created_at": "2026-08-13T12:34:56.123456",
+            ]
+        )
+        #expect(sqliteEntry?.createdAt.timeIntervalSince1970 ?? 0 > 0)
+        #expect(ListHistoryEntrySummary(json: [:]) == nil)
+        #expect(
+            ListHistoryEntrySummary(
+                json: [
+                    "id": UUID().uuidString,
+                    "actor_user_id": actorID.uuidString,
+                    "actor_display_name": "Alex",
+                    "event_type": "item_created",
+                    "created_at": "not-a-date",
+                ]
+            ) == nil
+        )
+    }
+
+    @Test func publicListEditLinkParsesJSON() {
+        let link = PublicListEditLink(
+            json: [
+                "public_url": "https://planini.top/public/lists/token",
+                "expires_at": "2026-05-18T12:00:00.123Z",
+            ]
+        )
+
+        #expect(link?.publicURL.absoluteString == "https://planini.top/public/lists/token")
+        #expect(link?.expiresAt != nil)
+
+        let noFractions = PublicListEditLink(
+            json: [
+                "public_url": "https://planini.top/public/lists/token",
+                "expires_at": "2026-05-18T12:00:00Z",
+            ]
+        )
+        #expect(noFractions != nil)
+    }
+
+    @Test func publicListEditLinkRejectsInvalidJSON() {
+        #expect(PublicListEditLink(json: [:]) == nil)
+        #expect(
+            PublicListEditLink(
+                json: [
+                    "public_url": "https://planini.top/public/lists/token",
+                    "expires_at": "not-a-date",
+                ]
+            ) == nil
+        )
+    }
+
+    @Test func listHistoryPresentationDescribesEveryEvent() {
+        let actorID = UUID()
+        func entry(
+            _ eventType: String,
+            subject: String? = "Milk",
+            details: [String: String] = [:]
+        ) -> ListHistoryEntrySummary {
+            ListHistoryEntrySummary(
+                id: UUID(),
+                listID: UUID(),
+                actorUserID: actorID,
+                actorDisplayName: "Alex",
+                eventType: eventType,
+                subjectID: UUID(),
+                subjectName: subject,
+                details: details,
+                createdAt: Date(timeIntervalSince1970: 1)
+            )
+        }
+
+        let messages = [
+            ListHistoryPresentation.message(for: entry("list_created")),
+            ListHistoryPresentation.message(
+                for: entry(
+                    "list_renamed",
+                    subject: "Market",
+                    details: ["old_name": "Weekly", "new_name": "Market"]
+                )
+            ),
+            ListHistoryPresentation.message(for: entry("list_accent_changed")),
+            ListHistoryPresentation.message(for: entry("category_order_changed")),
+            ListHistoryPresentation.message(for: entry("list_categories_changed")),
+            ListHistoryPresentation.message(for: entry("item_created")),
+            ListHistoryPresentation.message(for: entry("item_updated")),
+            ListHistoryPresentation.message(for: entry("item_checked")),
+            ListHistoryPresentation.message(for: entry("item_unchecked")),
+            ListHistoryPresentation.message(for: entry("item_deleted")),
+            ListHistoryPresentation.message(
+                for: entry("item_moved_out", details: ["other_list": "Hardware"])
+            ),
+            ListHistoryPresentation.message(
+                for: entry("item_moved_in", details: ["other_list": "Weekly"])
+            ),
+            ListHistoryPresentation.message(for: entry("member_added", subject: "Sam")),
+            ListHistoryPresentation.message(
+                for: entry("member_role_changed", subject: "Sam", details: ["new_role": "viewer"])
+            ),
+            ListHistoryPresentation.message(for: entry("member_removed", subject: "Sam")),
+            ListHistoryPresentation.message(for: entry("unknown", subject: nil)),
+        ]
+
+        #expect(
+            messages == [
+                "Alex created this list.",
+                "Alex renamed Weekly to Market.",
+                "Alex changed the list color.",
+                "Alex changed the category order.",
+                "Alex changed enabled categories.",
+                "Alex added Milk.",
+                "Alex edited Milk.",
+                "Alex checked off Milk.",
+                "Alex restored Milk.",
+                "Alex removed Milk.",
+                "Alex moved Milk to Hardware.",
+                "Alex moved Milk here from Weekly.",
+                "Alex added Sam to the household.",
+                "Alex changed Sam's role to viewer.",
+                "Alex removed Sam from the household.",
+                "Alex updated this list.",
+            ]
+        )
+    }
+
     @Test func groceryListSummaryStoresInitializerArguments() {
         let listID = UUID()
         let householdID = UUID()
@@ -62,7 +269,9 @@ struct ListPresentationTests {
             householdID: householdID,
             householdName: "Home",
             name: "Weekly shop",
-            archived: true
+            archived: true,
+            accentColorHex: "#007aff",
+            accessRole: .viewer
         )
 
         #expect(summary.id == listID)
@@ -70,6 +279,27 @@ struct ListPresentationTests {
         #expect(summary.householdName == "Home")
         #expect(summary.name == "Weekly shop")
         #expect(summary.archived == true)
+        #expect(summary.accentColorHex == "#007aff")
+        #expect(summary.accessRole == .viewer)
+    }
+
+    @Test func groceryListSummaryDecodesLegacyPayloadWithoutAccentColor() throws {
+        let listID = UUID()
+        let householdID = UUID()
+        let payload = """
+        {
+          "id": "\(listID.uuidString)",
+          "householdID": "\(householdID.uuidString)",
+          "householdName": "Home",
+          "name": "Weekly shop",
+          "archived": false
+        }
+        """
+
+        let summary = try JSONDecoder().decode(GroceryListSummary.self, from: Data(payload.utf8))
+
+        #expect(summary.accentColorHex == nil)
+        #expect(summary.accessRole == .editor)
     }
 
     @Test func groceryCategorySummaryParsesJSON() {
@@ -266,6 +496,8 @@ struct ListPresentationTests {
                 "checked": true,
                 "checked_at": "2026-04-09T10:00:00.123Z",
                 "hidden_until": "2026-04-09T14:00:00",
+                "sale_starts_at": "2026-04-09T09:00:00.123Z",
+                "sale_ends_at": "2026-04-09T18:00:00Z",
                 "sort_order": 7,
             ]
         )
@@ -280,6 +512,8 @@ struct ListPresentationTests {
         #expect(item?.sortOrder == 7)
         #expect(item?.checkedAt != nil)
         #expect(item?.hiddenUntil != nil)
+        #expect(item?.saleStartsAt != nil)
+        #expect(item?.saleEndsAt != nil)
     }
 
     @Test func groceryItemRecordParsesJSONWithoutFractionalCheckedAtAndDefaults() {
@@ -301,6 +535,8 @@ struct ListPresentationTests {
         #expect(item?.sortOrder == 0)
         #expect(item?.checkedAt != nil)
         #expect(item?.hiddenUntil == nil)
+        #expect(item?.saleStartsAt == nil)
+        #expect(item?.saleEndsAt == nil)
     }
 
     @Test func groceryItemRecordLeavesCheckedAtNilWhenMissing() {
@@ -331,12 +567,96 @@ struct ListPresentationTests {
                 "category_id": "not-a-uuid",
                 "checked_at": "not-a-date",
                 "hidden_until": "not-a-date",
+                "sale_starts_at": "not-a-date",
+                "sale_ends_at": "not-a-date",
             ]
         )
 
         #expect(item?.categoryID == nil)
         #expect(item?.checkedAt == nil)
         #expect(item?.hiddenUntil == nil)
+        #expect(item?.saleStartsAt == nil)
+        #expect(item?.saleEndsAt == nil)
+    }
+
+    @Test func groceryItemSaleScheduleUsesInclusiveStartAndExclusiveEnd() throws {
+        let startsAt = Date(timeIntervalSince1970: 100)
+        let endsAt = Date(timeIntervalSince1970: 200)
+        let item = GroceryItemRecord(
+            id: UUID(),
+            listID: UUID(),
+            name: "Milk",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            checked: true,
+            checkedAt: nil,
+            hiddenUntil: Date(timeIntervalSince1970: 500),
+            saleStartsAt: startsAt,
+            saleEndsAt: endsAt,
+            sortOrder: 0
+        )
+        let missingEnd = GroceryItemRecord(
+            id: UUID(),
+            listID: UUID(),
+            name: "Bread",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            checked: false,
+            checkedAt: nil,
+            saleStartsAt: startsAt,
+            sortOrder: 0
+        )
+        let reversed = GroceryItemRecord(
+            id: UUID(),
+            listID: UUID(),
+            name: "Eggs",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            checked: false,
+            checkedAt: nil,
+            saleStartsAt: endsAt,
+            saleEndsAt: startsAt,
+            sortOrder: 0
+        )
+
+        #expect(item.saleStartsAt == startsAt)
+        #expect(item.saleEndsAt == endsAt)
+        #expect(item.isOnSale(at: Date(timeIntervalSince1970: 99)) == false)
+        #expect(item.isOnSale(at: startsAt))
+        #expect(item.isOnSale(at: Date(timeIntervalSince1970: 199.999)))
+        #expect(item.isOnSale(at: endsAt) == false)
+        #expect(missingEnd.isOnSale(at: startsAt) == false)
+        #expect(reversed.isOnSale(at: Date(timeIntervalSince1970: 150)) == false)
+
+        let decoded = try JSONDecoder().decode(
+            GroceryItemRecord.self,
+            from: JSONEncoder().encode(item)
+        )
+        #expect(decoded == item)
+    }
+
+    @Test func groceryItemRecordDecodesLegacyCachedStateWithoutSaleSchedule() throws {
+        let itemID = UUID()
+        let listID = UUID()
+        let payload = """
+        {
+          "id": "\(itemID.uuidString)",
+          "listID": "\(listID.uuidString)",
+          "name": "Milk",
+          "checked": false,
+          "sortOrder": 0
+        }
+        """
+
+        let item = try JSONDecoder().decode(GroceryItemRecord.self, from: Data(payload.utf8))
+
+        #expect(item.id == itemID)
+        #expect(item.listID == listID)
+        #expect(item.saleStartsAt == nil)
+        #expect(item.saleEndsAt == nil)
     }
 
     @Test func itemSuggestionMatcherFindsExactPrefixSubstringAndFuzzyMatches() {
@@ -436,6 +756,15 @@ struct ListPresentationTests {
 
         #expect(
             GroceryItemSection(
+                kind: .onSale,
+                title: "On sale",
+                itemCount: 0,
+                colorHex: nil,
+                items: []
+            ).id == "on-sale"
+        )
+        #expect(
+            GroceryItemSection(
                 kind: .uncategorized,
                 title: "Uncategorized",
                 itemCount: 0,
@@ -470,6 +799,81 @@ struct ListPresentationTests {
                 items: []
             ).id == "checked"
         )
+    }
+
+    @Test func activeSaleSectionIsFirstAndKeepsItemsInTheirNormalSections() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let listID = UUID()
+        let category = GroceryCategorySummary(id: UUID(), name: "Dairy", colorHex: "#ffffff")
+        let active = makeItem(
+            name: "Milk",
+            listID: listID,
+            categoryID: category.id,
+            checked: false,
+            sortOrder: 0,
+            saleStartsAt: Date(timeIntervalSince1970: 900),
+            saleEndsAt: Date(timeIntervalSince1970: 1_100)
+        )
+        let checked = makeItem(
+            name: "Cheese",
+            listID: listID,
+            categoryID: category.id,
+            checked: true,
+            sortOrder: 1,
+            saleStartsAt: Date(timeIntervalSince1970: 900),
+            saleEndsAt: Date(timeIntervalSince1970: 1_100)
+        )
+        let hidden = makeItem(
+            name: "Yogurt",
+            listID: listID,
+            categoryID: category.id,
+            checked: false,
+            sortOrder: 2,
+            hiddenUntil: Date(timeIntervalSince1970: 1_200),
+            saleStartsAt: Date(timeIntervalSince1970: 900),
+            saleEndsAt: Date(timeIntervalSince1970: 1_100)
+        )
+        let upcoming = makeItem(
+            name: "Butter",
+            listID: listID,
+            categoryID: category.id,
+            checked: false,
+            sortOrder: 3,
+            saleStartsAt: Date(timeIntervalSince1970: 1_001),
+            saleEndsAt: Date(timeIntervalSince1970: 1_100)
+        )
+        let ended = makeItem(
+            name: "Cream",
+            listID: listID,
+            categoryID: category.id,
+            checked: false,
+            sortOrder: 4,
+            saleStartsAt: Date(timeIntervalSince1970: 800),
+            saleEndsAt: now
+        )
+
+        let sections = GroceryItemSectionBuilder.build(
+            items: [ended, hidden, checked, upcoming, active],
+            categories: [category],
+            categoryOrder: [ListCategoryOrderEntry(categoryID: category.id, sortOrder: 0)],
+            now: now
+        )
+
+        let onSale = try! #require(sections.first)
+        let categorySection = try! #require(sections.first { $0.kind == .category(category.id) })
+        let hiddenSection = try! #require(sections.first { $0.kind == .hidden })
+        let checkedSection = try! #require(sections.first { $0.kind == .checked })
+
+        #expect(onSale.kind == .onSale)
+        #expect(onSale.title == "On sale")
+        #expect(onSale.colorHex == "#f59e0b")
+        #expect(onSale.items.map(\.id) == [active.id, checked.id, hidden.id])
+        #expect(categorySection.items.map(\.id) == [active.id, upcoming.id, ended.id])
+        #expect(hiddenSection.items.map(\.id) == [hidden.id])
+        #expect(checkedSection.items.map(\.id) == [checked.id])
+        #expect(sections.flatMap(\.items).filter { $0.id == active.id }.count == 2)
+        #expect(sections.flatMap(\.items).filter { $0.id == checked.id }.count == 2)
+        #expect(sections.flatMap(\.items).filter { $0.id == hidden.id }.count == 2)
     }
 
     @Test func buildsSectionsInWebParityOrder() {
@@ -881,13 +1285,61 @@ struct ListPresentationTests {
         #expect(checkedSection.items.map(\.name) == ["Newer", "Older", "Alphabetical", "Zulu"])
     }
 
+    @Test func publicListReferenceParsesAndReportsExpiry() throws {
+        let listID = UUID()
+        let householdID = UUID()
+        let reference = try #require(
+            PublicListReference(
+                json: [
+                    "id": listID.uuidString,
+                    "household_id": householdID.uuidString,
+                    "name": "Shared weekly",
+                    "expires_at": "2026-08-09T12:00:00.123Z",
+                    "accent_color": "#112233",
+                ],
+                token: "public-token"
+            )
+        )
+
+        #expect(reference.id == listID)
+        #expect(reference.householdID == householdID)
+        #expect(reference.token == "public-token")
+        #expect(reference.name == "Shared weekly")
+        #expect(reference.accentColorHex == "#112233")
+        #expect(reference.isExpired(at: Date(timeIntervalSince1970: 0)) == false)
+        #expect(reference.isExpired(at: Date.distantFuture))
+
+        let noFractions = PublicListReference(
+            json: [
+                "id": listID.uuidString,
+                "household_id": householdID.uuidString,
+                "name": "Shared weekly",
+                "expires_at": "2026-08-09T12:00:00Z",
+            ],
+            token: "public-token"
+        )
+        #expect(noFractions != nil)
+    }
+
+    @Test func publicListReferenceRejectsIncompleteJSON() {
+        #expect(PublicListReference(json: [:], token: "public-token") == nil)
+        #expect(
+            PublicListReference(
+                json: ["id": UUID().uuidString, "name": "Shared", "expires_at": "invalid"],
+                token: ""
+            ) == nil
+        )
+    }
+
     private func makeItem(
         name: String,
         listID: UUID,
         categoryID: UUID? = nil,
         checked: Bool,
         sortOrder: Int = 0,
-        hiddenUntil: Date? = nil
+        hiddenUntil: Date? = nil,
+        saleStartsAt: Date? = nil,
+        saleEndsAt: Date? = nil
     ) -> GroceryItemRecord {
         GroceryItemRecord(
             id: UUID(),
@@ -899,6 +1351,8 @@ struct ListPresentationTests {
             checked: checked,
             checkedAt: checked ? Date() : nil,
             hiddenUntil: hiddenUntil,
+            saleStartsAt: saleStartsAt,
+            saleEndsAt: saleEndsAt,
             sortOrder: sortOrder
         )
     }

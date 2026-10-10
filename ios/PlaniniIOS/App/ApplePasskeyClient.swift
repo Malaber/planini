@@ -1,4 +1,47 @@
 import Foundation
+import PlaniniCore
+
+struct AppPasskeyManagementTransport: PasskeyManagementTransport {
+    let backendURL: URL
+
+    func send(request: PasskeyAPIRequest) async throws -> Data {
+        var urlRequest = URLRequest(url: backendURL.appending(path: request.path))
+        urlRequest.httpMethod = request.method.rawValue
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("Bearer \(request.accessToken)", forHTTPHeaderField: "Authorization")
+        if let body = request.body {
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            urlRequest.httpBody = body
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+        guard let http = response as? HTTPURLResponse else {
+            throw AppError.invalidResponse
+        }
+        guard (200 ... 299).contains(http.statusCode) else {
+            let detail: String? = if
+                let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let detail = payload["detail"] as? String,
+                detail.isEmpty == false
+            {
+                detail
+            } else {
+                nil
+            }
+            if http.statusCode == 401 {
+                if let detail, detail.hasPrefix("Could not verify") {
+                    throw AppError.server(detail)
+                }
+                throw AppError.sessionExpired
+            }
+            if let detail {
+                throw AppError.server(detail)
+            }
+            throw AppError.server("Request failed (\(http.statusCode)).")
+        }
+        return data
+    }
+}
 
 #if canImport(AuthenticationServices)
 import AuthenticationServices
@@ -7,7 +50,25 @@ import UIKit
 
 private let passkeyLog = Logger(subsystem: "de.malaber.planini.ios", category: "passkey")
 
-struct ApplePasskeyClient {
+struct ApplePasskeyClient: PasskeyCredentialProvider {
+    func register(optionsJSON: Data, rpID: String) async throws -> Data {
+        let optionsPayload = try decodedOptions(from: optionsJSON)
+        let credential = try await register(
+            optionsPayload: optionsPayload,
+            relyingPartyIdentifier: rpID
+        )
+        return try JSONSerialization.data(withJSONObject: credential)
+    }
+
+    func authenticate(optionsJSON: Data, rpID: String) async throws -> Data {
+        let optionsPayload = try decodedOptions(from: optionsJSON)
+        let credential = try await authenticate(
+            optionsPayload: optionsPayload,
+            relyingPartyIdentifier: rpID
+        )
+        return try JSONSerialization.data(withJSONObject: credential)
+    }
+
     func register(optionsPayload: [String: Any], relyingPartyIdentifier: String) async throws -> [String: Any] {
         let publicKey = (optionsPayload["publicKey"] as? [String: Any]) ?? optionsPayload
         guard
@@ -35,6 +96,16 @@ struct ApplePasskeyClient {
             name: userName,
             userID: userID
         )
+        if let preference = userVerificationPreference(
+            from: publicKey["userVerification"] as? String
+        ) {
+            request.userVerificationPreference = preference
+        }
+        if #available(iOS 17.4, *),
+           let excludeCredentials = publicKey["excludeCredentials"] as? [[String: Any]]
+        {
+            request.excludedCredentials = credentialDescriptors(from: excludeCredentials)
+        }
 
         let authorization = try await PasskeyCoordinator().perform(request: request)
         guard
@@ -54,6 +125,37 @@ struct ApplePasskeyClient {
             ],
             "clientExtensionResults": [:],
         ]
+    }
+
+    private func credentialDescriptors(
+        from credentials: [[String: Any]]
+    ) -> [ASAuthorizationPlatformPublicKeyCredentialDescriptor] {
+        credentials.compactMap { credential in
+            guard
+                let id = credential["id"] as? String,
+                let credentialID = Data(base64URLEncoded: id)
+            else {
+                return nil
+            }
+            return ASAuthorizationPlatformPublicKeyCredentialDescriptor(
+                credentialID: credentialID
+            )
+        }
+    }
+
+    private func userVerificationPreference(
+        from value: String?
+    ) -> ASAuthorizationPublicKeyCredentialUserVerificationPreference? {
+        switch value {
+        case "required":
+            return .required
+        case "preferred":
+            return .preferred
+        case "discouraged":
+            return .discouraged
+        default:
+            return nil
+        }
     }
 
     func authenticate(optionsPayload: [String: Any], relyingPartyIdentifier: String) async throws -> [String: Any] {
@@ -76,16 +178,14 @@ struct ApplePasskeyClient {
         #endif
         let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: relyingPartyIdentifier)
         let request = provider.createCredentialAssertionRequest(challenge: challenge)
+        if let preference = userVerificationPreference(
+            from: publicKey["userVerification"] as? String
+        ) {
+            request.userVerificationPreference = preference
+        }
 
         if let allowCredentials, allowCredentials.isEmpty == false {
-            var descriptors: [ASAuthorizationPlatformPublicKeyCredentialDescriptor] = []
-            for item in allowCredentials {
-                guard let id = item["id"] as? String,
-                      let credentialID = Data(base64URLEncoded: id) else { continue }
-                let descriptor = ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: credentialID)
-                descriptors.append(descriptor)
-            }
-            request.allowedCredentials = descriptors
+            request.allowedCredentials = credentialDescriptors(from: allowCredentials)
         }
 
         let authorization = try await PasskeyCoordinator().perform(request: request)
@@ -105,6 +205,15 @@ struct ApplePasskeyClient {
             ],
             "clientExtensionResults": [:],
         ]
+    }
+
+    private func decodedOptions(from data: Data) throws -> [String: Any] {
+        guard
+            let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            throw AppError.invalidResponse
+        }
+        return payload
     }
 }
 
@@ -170,7 +279,19 @@ private final class PasskeyCoordinator: NSObject, ASAuthorizationControllerDeleg
     }
 }
 #else
-struct ApplePasskeyClient {
+struct ApplePasskeyClient: PasskeyCredentialProvider {
+    func register(optionsJSON: Data, rpID: String) async throws -> Data {
+        _ = optionsJSON
+        _ = rpID
+        throw AppError.server("Passkeys are unavailable on this platform.")
+    }
+
+    func authenticate(optionsJSON: Data, rpID: String) async throws -> Data {
+        _ = optionsJSON
+        _ = rpID
+        throw AppError.server("Passkeys are unavailable on this platform.")
+    }
+
     func register(optionsPayload: [String: Any], relyingPartyIdentifier: String) async throws -> [String: Any] {
         _ = optionsPayload
         _ = relyingPartyIdentifier

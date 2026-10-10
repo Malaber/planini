@@ -1,12 +1,28 @@
 import Foundation
 
+public enum HouseholdRole: String, Codable, CaseIterable, Sendable {
+    case owner
+    case editor
+    case viewer
+
+    public var canEditItems: Bool {
+        self != .viewer
+    }
+
+    public var canManageHousehold: Bool {
+        self == .owner
+    }
+}
+
 public struct HouseholdSummary: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
     public let name: String
+    public let role: HouseholdRole
 
-    public init(id: UUID, name: String) {
+    public init(id: UUID, name: String, role: HouseholdRole = .editor) {
         self.id = id
         self.name = name
+        self.role = role
     }
 
     public init?(json: [String: Any]) {
@@ -18,17 +34,75 @@ public struct HouseholdSummary: Identifiable, Equatable, Codable, Sendable {
             return nil
         }
 
-        self.init(id: id, name: name)
+        self.init(
+            id: id,
+            name: name,
+            role: (json["role"] as? String).flatMap(HouseholdRole.init(rawValue:)) ?? .editor
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case role
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        role = try container.decodeIfPresent(HouseholdRole.self, forKey: .role) ?? .editor
+    }
+}
+
+public struct HouseholdMemberSummary: Identifiable, Equatable, Sendable {
+    public let userID: UUID
+    public let displayName: String
+    public let email: String
+    public let role: HouseholdRole
+
+    public var id: UUID {
+        userID
+    }
+
+    public init(userID: UUID, displayName: String, email: String, role: HouseholdRole) {
+        self.userID = userID
+        self.displayName = displayName
+        self.email = email
+        self.role = role
+    }
+
+    public init?(json: [String: Any]) {
+        guard
+            let userIDText = json["user_id"] as? String,
+            let userID = UUID(uuidString: userIDText),
+            let displayName = json["display_name"] as? String,
+            let email = json["email"] as? String,
+            let roleText = json["role"] as? String,
+            let role = HouseholdRole(rawValue: roleText)
+        else {
+            return nil
+        }
+        self.init(userID: userID, displayName: displayName, email: email, role: role)
     }
 }
 
 public struct HouseholdInviteLink: Equatable, Sendable {
     public let inviteURL: String
     public let expiresAt: Date?
+    public let maxUses: Int?
+    public let role: HouseholdRole
 
-    public init(inviteURL: String, expiresAt: Date?) {
+    public init(
+        inviteURL: String,
+        expiresAt: Date?,
+        maxUses: Int? = nil,
+        role: HouseholdRole = .editor
+    ) {
         self.inviteURL = inviteURL
         self.expiresAt = expiresAt
+        self.maxUses = maxUses
+        self.role = role
     }
 
     public init?(json: [String: Any]) {
@@ -37,7 +111,190 @@ public struct HouseholdInviteLink: Equatable, Sendable {
         }
 
         let expiresAt = (json["expires_at"] as? String).flatMap(Self.parseDate)
-        self.init(inviteURL: inviteURL, expiresAt: expiresAt)
+        let maxUses = json["max_uses"] as? Int
+        let role = (json["role"] as? String).flatMap(HouseholdRole.init(rawValue:)) ?? .editor
+        self.init(inviteURL: inviteURL, expiresAt: expiresAt, maxUses: maxUses, role: role)
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let formatterWithFractions = ISO8601DateFormatter()
+        formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatterWithFractions.date(from: value) {
+            return parsed
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        if let parsed = formatter.date(from: value) {
+            return parsed
+        }
+
+        let sqliteFormatter = DateFormatter()
+        sqliteFormatter.locale = Locale(identifier: "en_US_POSIX")
+        sqliteFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss"] {
+            sqliteFormatter.dateFormat = format
+            if let parsed = sqliteFormatter.date(from: value) {
+                return parsed
+            }
+        }
+        return nil
+    }
+}
+
+public struct ListHistoryEntrySummary: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let listID: UUID?
+    public let actorUserID: UUID
+    public let actorDisplayName: String
+    public let eventType: String
+    public let subjectID: UUID?
+    public let subjectName: String?
+    public let details: [String: String]
+    public let createdAt: Date
+
+    public init(
+        id: UUID,
+        listID: UUID?,
+        actorUserID: UUID,
+        actorDisplayName: String,
+        eventType: String,
+        subjectID: UUID?,
+        subjectName: String?,
+        details: [String: String],
+        createdAt: Date
+    ) {
+        self.id = id
+        self.listID = listID
+        self.actorUserID = actorUserID
+        self.actorDisplayName = actorDisplayName
+        self.eventType = eventType
+        self.subjectID = subjectID
+        self.subjectName = subjectName
+        self.details = details
+        self.createdAt = createdAt
+    }
+
+    public init?(json: [String: Any]) {
+        guard
+            let idText = json["id"] as? String,
+            let id = UUID(uuidString: idText),
+            let actorUserIDText = json["actor_user_id"] as? String,
+            let actorUserID = UUID(uuidString: actorUserIDText),
+            let actorDisplayName = json["actor_display_name"] as? String,
+            let eventType = json["event_type"] as? String,
+            let createdAtText = json["created_at"] as? String,
+            let createdAt = Self.parseDate(createdAtText)
+        else {
+            return nil
+        }
+
+        let rawDetails = json["details"] as? [String: Any] ?? [:]
+        self.init(
+            id: id,
+            listID: (json["list_id"] as? String).flatMap(UUID.init(uuidString:)),
+            actorUserID: actorUserID,
+            actorDisplayName: actorDisplayName,
+            eventType: eventType,
+            subjectID: (json["subject_id"] as? String).flatMap(UUID.init(uuidString:)),
+            subjectName: json["subject_name"] as? String,
+            details: rawDetails.compactMapValues { $0 as? String },
+            createdAt: createdAt
+        )
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let formatterWithFractions = ISO8601DateFormatter()
+        formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatterWithFractions.date(from: value) {
+            return parsed
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        if let parsed = formatter.date(from: value) {
+            return parsed
+        }
+
+        let sqliteFormatter = DateFormatter()
+        sqliteFormatter.locale = Locale(identifier: "en_US_POSIX")
+        sqliteFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss"] {
+            sqliteFormatter.dateFormat = format
+            if let parsed = sqliteFormatter.date(from: value) {
+                return parsed
+            }
+        }
+        return nil
+    }
+}
+
+public enum ListHistoryPresentation {
+    public static func message(for entry: ListHistoryEntrySummary) -> String {
+        let actor = entry.actorDisplayName
+        let subject = entry.subjectName ?? "this list"
+        switch entry.eventType {
+        case "list_created":
+            return "\(actor) created this list."
+        case "list_renamed":
+            let oldName = entry.details["old_name"] ?? "this list"
+            let newName = entry.details["new_name"] ?? subject
+            return "\(actor) renamed \(oldName) to \(newName)."
+        case "list_accent_changed":
+            return "\(actor) changed the list color."
+        case "category_order_changed":
+            return "\(actor) changed the category order."
+        case "list_categories_changed":
+            return "\(actor) changed enabled categories."
+        case "item_created":
+            return "\(actor) added \(subject)."
+        case "item_updated":
+            return "\(actor) edited \(subject)."
+        case "item_checked":
+            return "\(actor) checked off \(subject)."
+        case "item_unchecked":
+            return "\(actor) restored \(subject)."
+        case "item_deleted":
+            return "\(actor) removed \(subject)."
+        case "item_moved_out":
+            let target = entry.details["other_list"] ?? "another list"
+            return "\(actor) moved \(subject) to \(target)."
+        case "item_moved_in":
+            let source = entry.details["other_list"] ?? "another list"
+            return "\(actor) moved \(subject) here from \(source)."
+        case "member_added":
+            return "\(actor) added \(subject) to the household."
+        case "member_role_changed":
+            let role = entry.details["new_role"] ?? "a new role"
+            return "\(actor) changed \(subject)'s role to \(role)."
+        case "member_removed":
+            return "\(actor) removed \(subject) from the household."
+        default:
+            return "\(actor) updated this list."
+        }
+    }
+}
+
+public struct PublicListEditLink: Equatable, Sendable {
+    public let publicURL: URL
+    public let expiresAt: Date
+
+    public init(publicURL: URL, expiresAt: Date) {
+        self.publicURL = publicURL
+        self.expiresAt = expiresAt
+    }
+
+    public init?(json: [String: Any]) {
+        guard
+            let publicURLText = json["public_url"] as? String,
+            let publicURL = URL(string: publicURLText),
+            let expiresAtText = json["expires_at"] as? String,
+            let expiresAt = Self.parseDate(expiresAtText)
+        else {
+            return nil
+        }
+
+        self.init(publicURL: publicURL, expiresAt: expiresAt)
     }
 
     private static func parseDate(_ value: String) -> Date? {
@@ -59,13 +316,110 @@ public struct GroceryListSummary: Identifiable, Equatable, Codable, Sendable {
     public let householdName: String
     public let name: String
     public let archived: Bool
+    public let accentColorHex: String?
+    public let accessRole: HouseholdRole
 
-    public init(id: UUID, householdID: UUID, householdName: String, name: String, archived: Bool) {
+    public init(
+        id: UUID,
+        householdID: UUID,
+        householdName: String,
+        name: String,
+        archived: Bool,
+        accentColorHex: String? = nil,
+        accessRole: HouseholdRole = .editor
+    ) {
         self.id = id
         self.householdID = householdID
         self.householdName = householdName
         self.name = name
         self.archived = archived
+        self.accentColorHex = accentColorHex
+        self.accessRole = accessRole
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case householdID
+        case householdName
+        case name
+        case archived
+        case accentColorHex
+        case accessRole
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        householdID = try container.decode(UUID.self, forKey: .householdID)
+        householdName = try container.decode(String.self, forKey: .householdName)
+        name = try container.decode(String.self, forKey: .name)
+        archived = try container.decode(Bool.self, forKey: .archived)
+        accentColorHex = try container.decodeIfPresent(String.self, forKey: .accentColorHex)
+        accessRole = try container.decodeIfPresent(HouseholdRole.self, forKey: .accessRole) ?? .editor
+    }
+}
+
+public struct PublicListReference: Identifiable, Equatable, Hashable, Codable, Sendable {
+    public let token: String
+    public let id: UUID
+    public let householdID: UUID
+    public let name: String
+    public let expiresAt: Date
+    public let accentColorHex: String?
+
+    public init(
+        token: String,
+        id: UUID,
+        householdID: UUID,
+        name: String,
+        expiresAt: Date,
+        accentColorHex: String? = nil
+    ) {
+        self.token = token
+        self.id = id
+        self.householdID = householdID
+        self.name = name
+        self.expiresAt = expiresAt
+        self.accentColorHex = accentColorHex
+    }
+
+    public init?(json: [String: Any], token: String) {
+        guard
+            token.isEmpty == false,
+            let idText = json["id"] as? String,
+            let id = UUID(uuidString: idText),
+            let householdIDText = json["household_id"] as? String,
+            let householdID = UUID(uuidString: householdIDText),
+            let name = json["name"] as? String,
+            name.isEmpty == false,
+            let expiresAtText = json["expires_at"] as? String,
+            let expiresAt = Self.parseDate(expiresAtText)
+        else {
+            return nil
+        }
+        self.init(
+            token: token,
+            id: id,
+            householdID: householdID,
+            name: name,
+            expiresAt: expiresAt,
+            accentColorHex: json["accent_color"] as? String
+        )
+    }
+
+    public func isExpired(at date: Date = Date()) -> Bool {
+        expiresAt <= date
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        let formatterWithFractions = ISO8601DateFormatter()
+        formatterWithFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = formatterWithFractions.date(from: value) {
+            return parsed
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
     }
 }
 
@@ -215,6 +569,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
     public let checked: Bool
     public let checkedAt: Date?
     public let hiddenUntil: Date?
+    public let saleStartsAt: Date?
+    public let saleEndsAt: Date?
     public let sortOrder: Int
 
     public init(
@@ -227,6 +583,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
         checked: Bool,
         checkedAt: Date?,
         hiddenUntil: Date? = nil,
+        saleStartsAt: Date? = nil,
+        saleEndsAt: Date? = nil,
         sortOrder: Int
     ) {
         self.id = id
@@ -238,6 +596,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
         self.checked = checked
         self.checkedAt = checkedAt
         self.hiddenUntil = hiddenUntil
+        self.saleStartsAt = saleStartsAt
+        self.saleEndsAt = saleEndsAt
         self.sortOrder = sortOrder
     }
 
@@ -254,6 +614,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
 
         let checkedAt = Self.parseDate(json["checked_at"] as? String)
         let hiddenUntil = Self.parseDate(json["hidden_until"] as? String)
+        let saleStartsAt = Self.parseDate(json["sale_starts_at"] as? String)
+        let saleEndsAt = Self.parseDate(json["sale_ends_at"] as? String)
 
         self.init(
             id: id,
@@ -265,6 +627,8 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
             checked: (json["checked"] as? Bool) ?? false,
             checkedAt: checkedAt,
             hiddenUntil: hiddenUntil,
+            saleStartsAt: saleStartsAt,
+            saleEndsAt: saleEndsAt,
             sortOrder: (json["sort_order"] as? Int) ?? 0
         )
     }
@@ -272,6 +636,11 @@ public struct GroceryItemRecord: Identifiable, Equatable, Codable, Sendable {
     public func isHiddenForLater(at now: Date = Date()) -> Bool {
         guard checked == false, let hiddenUntil else { return false }
         return hiddenUntil > now
+    }
+
+    public func isOnSale(at now: Date = Date()) -> Bool {
+        guard let saleStartsAt, let saleEndsAt else { return false }
+        return saleStartsAt <= now && now < saleEndsAt
     }
 
     private static func parseDate(_ value: String?) -> Date? {
@@ -443,6 +812,7 @@ public enum GroceryItemSuggestionMatcher {
 }
 
 public enum GroceryItemSectionKind: Hashable, Sendable {
+    case onSale
     case uncategorized
     case category(UUID)
     case hidden
@@ -472,6 +842,8 @@ public struct GroceryItemSection: Identifiable, Equatable, Sendable {
 
     public var id: String {
         switch kind {
+        case .onSale:
+            return "on-sale"
         case .uncategorized:
             return "uncategorized"
         case let .category(categoryID):
@@ -517,8 +889,30 @@ public enum GroceryItemSectionBuilder {
         let checkedItems = items
             .filter(\.checked)
             .sorted(by: compareCheckedItems)
+        let onSaleItems = items
+            .filter { $0.isOnSale(at: now) }
+            .sorted { left, right in
+                compareActiveItems(
+                    left,
+                    right,
+                    categoryLookup: categoryLookup,
+                    explicitOrder: explicitOrder
+                )
+            }
 
         var sections: [GroceryItemSection] = []
+
+        if onSaleItems.isEmpty == false {
+            sections.append(
+                GroceryItemSection(
+                    kind: .onSale,
+                    title: "On sale",
+                    itemCount: onSaleItems.count,
+                    colorHex: "#f59e0b",
+                    items: onSaleItems
+                )
+            )
+        }
 
         let groupedActiveItems = Dictionary(grouping: activeItems) { item in
             item.categoryID.map(GroceryItemSectionKind.category) ?? .uncategorized

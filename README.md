@@ -33,10 +33,18 @@ using `.venv/bin/...` commands rather than stopping.
 - [Documentation index](docs/README.md)
 - [Getting started](docs/getting-started.md)
 - [Testing and browser e2e](docs/testing.md)
+- [App Store screenshot download and upload guide](docs/app-store-screenshots.md)
 - [Deployment overview](docs/deployment/README.md)
 - [Docker Compose deployment](docs/deployment/docker-compose.md)
 - [Webhooker deployment](docs/deployment/webhooker.md)
 - [iOS starter app](ios/PlaniniIOS/README.md)
+
+## App Store screenshots
+
+Every release from `main` attaches a ready-to-upload iPhone, iPad, and Apple Watch screenshot ZIP
+for English and German. Download it from the
+[latest GitHub Release](https://github.com/Malaber/planini/releases/latest), then follow the
+[App Store screenshot guide](docs/app-store-screenshots.md).
 
 ## Native iOS passkey deployments
 

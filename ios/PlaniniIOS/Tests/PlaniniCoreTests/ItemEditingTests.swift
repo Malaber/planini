@@ -47,6 +47,84 @@ struct ItemEditingTests {
         #expect(payload.jsonBody["quantity_text"] is NSNull)
         #expect(payload.jsonBody["note"] is NSNull)
         #expect(payload.jsonBody["category_id"] is NSNull)
+        #expect(payload.jsonBody["sale_starts_at"] is NSNull)
+        #expect(payload.jsonBody["sale_ends_at"] is NSNull)
+    }
+
+    @Test func editPayloadValidatesAndEncodesSaleSchedule() {
+        let startsAt = Date(timeIntervalSince1970: 1_000)
+        let endsAt = Date(timeIntervalSince1970: 2_000)
+        let valid = GroceryItemEditPayload(
+            name: "Milk",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            saleStartsAt: startsAt,
+            saleEndsAt: endsAt
+        )
+        let missingEnd = GroceryItemEditPayload(
+            name: "Milk",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            saleStartsAt: startsAt
+        )
+        let missingStart = GroceryItemEditPayload(
+            name: "Milk",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            saleEndsAt: endsAt
+        )
+        let equalBounds = GroceryItemEditPayload(
+            name: "Milk",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            saleStartsAt: startsAt,
+            saleEndsAt: startsAt
+        )
+        let reversedBounds = GroceryItemEditPayload(
+            name: "Milk",
+            quantityText: nil,
+            note: nil,
+            categoryID: nil,
+            saleStartsAt: endsAt,
+            saleEndsAt: startsAt
+        )
+
+        #expect(valid.hasValidSaleSchedule)
+        #expect(valid.isValid)
+        #expect(valid.jsonBody["sale_starts_at"] as? String == "1970-01-01T00:16:40.000Z")
+        #expect(valid.jsonBody["sale_ends_at"] as? String == "1970-01-01T00:33:20.000Z")
+        #expect(missingEnd.hasValidSaleSchedule == false)
+        #expect(missingEnd.isValid == false)
+        #expect(missingStart.hasValidSaleSchedule == false)
+        #expect(missingStart.isValid == false)
+        #expect(equalBounds.hasValidSaleSchedule == false)
+        #expect(equalBounds.isValid == false)
+        #expect(reversedBounds.hasValidSaleSchedule == false)
+        #expect(reversedBounds.isValid == false)
+    }
+
+    @Test func editPayloadDecodesLegacyStateWithoutSaleSchedule() throws {
+        let payload = """
+        {
+          "name": "Milk",
+          "quantityText": "2",
+          "note": "cold"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(GroceryItemEditPayload.self, from: Data(payload.utf8))
+
+        #expect(decoded.name == "Milk")
+        #expect(decoded.quantityText == "2")
+        #expect(decoded.note == "cold")
+        #expect(decoded.categoryID == nil)
+        #expect(decoded.saleStartsAt == nil)
+        #expect(decoded.saleEndsAt == nil)
+        #expect(decoded.isValid)
     }
 
     @Test func editPayloadCanApplyToExistingItemWithoutChangingStateFields() {
@@ -54,6 +132,9 @@ struct ItemEditingTests {
         let listID = UUID()
         let movedListID = UUID()
         let checkedAt = Date(timeIntervalSince1970: 100)
+        let hiddenUntil = Date(timeIntervalSince1970: 200)
+        let originalSaleStartsAt = Date(timeIntervalSince1970: 300)
+        let originalSaleEndsAt = Date(timeIntervalSince1970: 400)
         let item = GroceryItemRecord(
             id: itemID,
             listID: listID,
@@ -63,16 +144,23 @@ struct ItemEditingTests {
             categoryID: nil,
             checked: true,
             checkedAt: checkedAt,
+            hiddenUntil: hiddenUntil,
+            saleStartsAt: originalSaleStartsAt,
+            saleEndsAt: originalSaleEndsAt,
             sortOrder: 7
         )
         let categoryID = UUID()
+        let editedSaleStartsAt = Date(timeIntervalSince1970: 500)
+        let editedSaleEndsAt = Date(timeIntervalSince1970: 600)
 
         let edited = item.applyingEditPayload(
             GroceryItemEditPayload(
                 name: "New",
                 quantityText: "3",
                 note: "fresh",
-                categoryID: categoryID
+                categoryID: categoryID,
+                saleStartsAt: editedSaleStartsAt,
+                saleEndsAt: editedSaleEndsAt
             )
         )
 
@@ -84,6 +172,9 @@ struct ItemEditingTests {
         #expect(edited.categoryID == categoryID)
         #expect(edited.checked == true)
         #expect(edited.checkedAt == checkedAt)
+        #expect(edited.hiddenUntil == hiddenUntil)
+        #expect(edited.saleStartsAt == editedSaleStartsAt)
+        #expect(edited.saleEndsAt == editedSaleEndsAt)
         #expect(edited.sortOrder == 7)
 
         let moved = edited.moving(to: movedListID)
@@ -95,6 +186,9 @@ struct ItemEditingTests {
         #expect(moved.categoryID == categoryID)
         #expect(moved.checked == true)
         #expect(moved.checkedAt == checkedAt)
+        #expect(moved.hiddenUntil == hiddenUntil)
+        #expect(moved.saleStartsAt == editedSaleStartsAt)
+        #expect(moved.saleEndsAt == editedSaleEndsAt)
         #expect(moved.sortOrder == 7)
     }
 
@@ -102,6 +196,9 @@ struct ItemEditingTests {
         let itemID = UUID()
         let listID = UUID()
         let categoryID = UUID()
+        let hiddenUntil = Date(timeIntervalSince1970: 100)
+        let saleStartsAt = Date(timeIntervalSince1970: 200)
+        let saleEndsAt = Date(timeIntervalSince1970: 300)
         let item = GroceryItemRecord(
             id: itemID,
             listID: listID,
@@ -111,6 +208,9 @@ struct ItemEditingTests {
             categoryID: categoryID,
             checked: false,
             checkedAt: nil,
+            hiddenUntil: hiddenUntil,
+            saleStartsAt: saleStartsAt,
+            saleEndsAt: saleEndsAt,
             sortOrder: 7
         )
         let recordedAt = Date(timeIntervalSince1970: 200)
@@ -126,13 +226,21 @@ struct ItemEditingTests {
         #expect(checked.categoryID == categoryID)
         #expect(checked.checked == true)
         #expect(checked.checkedAt == recordedAt)
+        #expect(checked.hiddenUntil == hiddenUntil)
+        #expect(checked.saleStartsAt == saleStartsAt)
+        #expect(checked.saleEndsAt == saleEndsAt)
         #expect(checked.sortOrder == 7)
         #expect(unchecked.checked == false)
         #expect(unchecked.checkedAt == nil)
+        #expect(unchecked.hiddenUntil == hiddenUntil)
+        #expect(unchecked.saleStartsAt == saleStartsAt)
+        #expect(unchecked.saleEndsAt == saleEndsAt)
     }
 
     @Test func editPayloadInitializesFromExistingItem() {
         let categoryID = UUID()
+        let saleStartsAt = Date(timeIntervalSince1970: 100)
+        let saleEndsAt = Date(timeIntervalSince1970: 200)
         let item = GroceryItemRecord(
             id: UUID(),
             listID: UUID(),
@@ -142,6 +250,8 @@ struct ItemEditingTests {
             categoryID: categoryID,
             checked: false,
             checkedAt: nil,
+            saleStartsAt: saleStartsAt,
+            saleEndsAt: saleEndsAt,
             sortOrder: 0
         )
 
@@ -151,6 +261,8 @@ struct ItemEditingTests {
         #expect(payload.quantityText == "4")
         #expect(payload.note == "green")
         #expect(payload.categoryID == categoryID)
+        #expect(payload.saleStartsAt == saleStartsAt)
+        #expect(payload.saleEndsAt == saleEndsAt)
     }
 
     @Test func editHistorySupportsUndoRedoAndClearsRedoOnNewEdit() {

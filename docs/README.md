@@ -15,4 +15,6 @@ Use these guides depending on what you need to do next.
 
 ## Other app docs
 
+- [App Store screenshots](app-store-screenshots.md): download release assets and upload each
+  platform and locale to App Store Connect
 - [iOS starter app](../ios/PlaniniIOS/README.md)

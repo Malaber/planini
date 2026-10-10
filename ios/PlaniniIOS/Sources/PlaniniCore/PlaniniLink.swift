@@ -4,6 +4,7 @@ public enum PlaniniLink: Equatable, Sendable {
     case passkeyAdd(token: String)
     case invite(token: String)
     case list(id: UUID)
+    case publicList(token: String)
 }
 
 public enum PlaniniLinkParser {
@@ -85,6 +86,9 @@ public enum PlaniniLinkParser {
 
     private static func parse(segments: [String]) -> PlaniniLink? {
         guard segments.count >= 2 else { return nil }
+        if segments.count >= 3, segments[0] == "public", segments[1] == "lists" {
+            return normalizedToken(segments[2]).map { .publicList(token: $0) }
+        }
         switch segments[0] {
         case "passkey-add":
             return normalizedToken(segments[1]).map { .passkeyAdd(token: $0) }

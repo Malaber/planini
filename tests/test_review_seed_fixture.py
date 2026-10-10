@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
-from app.models import Passkey, User
+from app.models import GroceryList, Passkey, User
 from app.services.fixture_seed import ensure_seed_data
 from db_utils import dispose_db, reset_db
 
@@ -15,6 +15,16 @@ def test_review_seed_fixture_has_unique_passkey_credentials_and_seeds() -> None:
     payload = json.loads(fixture_path.read_text(encoding="utf-8"))
     users = payload["users"]
     emails = {user["email"] for user in users}
+    primary_household = next(
+        household
+        for household in payload["households"]
+        if household["name"] == payload["e2e"]["primary_household"]
+    )
+    primary_list = next(
+        grocery_list
+        for grocery_list in primary_household["lists"]
+        if grocery_list["name"] == payload["e2e"]["primary_list"]
+    )
 
     credential_ids = [
         user["passkey"]["credential_id"] for user in users if isinstance(user.get("passkey"), dict)
@@ -22,6 +32,9 @@ def test_review_seed_fixture_has_unique_passkey_credentials_and_seeds() -> None:
     assert len(credential_ids) == len(set(credential_ids))
     assert "planini_admin@schaedler.rocks" in emails
     assert "planini@schaedler.rocks" in emails
+    assert primary_list["accent_color"] == "#3b82f6"
+    assert all(category["name"] for category in payload["categories"])
+    assert all(category["translations"]["de"] for category in payload["categories"])
     for user in users:
         passkey = user.get("passkey")
         if isinstance(passkey, dict):
@@ -60,6 +73,12 @@ def test_review_seed_fixture_has_unique_passkey_credentials_and_seeds() -> None:
                 .all()
             )
             assert len(passkeys) >= 3
+            seeded_primary_list = (
+                await session.execute(
+                    select(GroceryList).where(GroceryList.name == payload["e2e"]["primary_list"])
+                )
+            ).scalar_one()
+            assert seeded_primary_list.accent_color == "#3b82f6"
 
     try:
         asyncio.run(_assert_seeded())
@@ -76,19 +95,66 @@ def test_review_e2e_seed_fixture_contains_private_passkey_material() -> None:
         for household in payload["households"]
         if household["name"] == payload["e2e"]["primary_household"]
     )
+    primary_list = next(
+        grocery_list
+        for grocery_list in primary_household["lists"]
+        if grocery_list["name"] == payload["e2e"]["primary_list"]
+    )
     checked_stress_list = next(
         grocery_list
         for grocery_list in primary_household["lists"]
         if grocery_list["name"] == payload["e2e"]["checked_stress_list"]
     )
+    primary_list = next(
+        grocery_list
+        for grocery_list in primary_household["lists"]
+        if grocery_list["name"] == payload["e2e"]["primary_list"]
+    )
+    sale_item = next(item for item in primary_list["items"] if item["name"] == "Sale apples")
 
     assert payload["e2e"]["owner_email"] == "planini@schaedler.rocks"
     assert payload["e2e"]["invitee_email"] == "preview-invitee@example.com"
     assert payload["e2e"]["checked_stress_list"] == "Checked History Stress Test"
+    assert primary_list["accent_color"] == "#3b82f6"
+    assert all(category["name"] for category in payload["categories"])
+    assert all(category["translations"]["de"] for category in payload["categories"])
     assert sum(1 for item in checked_stress_list["items"] if item["checked"]) == 258
+    assert sale_item["sale_starts_at"] == "2020-01-01T00:00:00+00:00"
+    assert sale_item["sale_ends_at"] == "2099-01-01T00:00:00+00:00"
     assert users["planini@schaedler.rocks"]["passkey"]["private_key_pkcs8_b64"]
     assert users["planini@schaedler.rocks"]["passkey"]["user_handle_b64"]
     assert users["preview-invitee@example.com"]["passkey"]["private_key_pkcs8_b64"]
     assert users["preview-invitee@example.com"]["passkey"]["user_handle_b64"]
     assert users["ios-empty@example.com"]["is_admin"] is False
     assert "passkey" not in users["ios-empty@example.com"]
+
+
+def test_ios_marketing_seed_fixture_contains_only_polished_screenshot_data() -> None:
+    fixture_path = Path("app/fixtures/ios_marketing_seed.json")
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    households = payload["households"]
+    grocery_lists = [
+        grocery_list for household in households for grocery_list in household["lists"]
+    ]
+    visible_names = [
+        *(user["display_name"] for user in payload["users"]),
+        *(household["name"] for household in households),
+        *(grocery_list["name"] for grocery_list in grocery_lists),
+        *(item["name"] for grocery_list in grocery_lists for item in grocery_list["items"]),
+    ]
+
+    assert [user["email"] for user in payload["users"]] == [
+        "planini@schaedler.rocks",
+        "planini-de@schaedler.rocks",
+    ]
+    assert [grocery_list["name"] for grocery_list in grocery_lists] == [
+        "Weekly groceries",
+        "Dinner with friends",
+        "Weekend brunch",
+        "Wocheneinkauf",
+        "Abendessen mit Freunden",
+        "Wochenendbrunch",
+    ]
+    assert {"Dark chocolate", "Dunkle Schokolade"}.isdisjoint(visible_names)
+    assert all("test" not in name.lower() for name in visible_names)
+    assert all("updated" not in name.lower() for name in visible_names)

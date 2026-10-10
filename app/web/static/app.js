@@ -1,5 +1,6 @@
 const LANGUAGE_COOKIE_NAME = "planini_locale";
 const OFFLINE_LIST_STORAGE_PREFIX = "planini:list-offline:";
+const PUBLIC_LIST_STORAGE_KEY = "planini:public-lists";
 const OFFLINE_ITEM_ID_PREFIX = "local-item-";
 const OFFLINE_MUTATION_ID_PREFIX = "local-mutation-";
 const ITEM_HIDE_DURATION_MS = 4 * 60 * 60 * 1000;
@@ -33,22 +34,6 @@ function formatHiddenUntilLabel(item, nowMs = Date.now()) {
     return `${Math.ceil(remainingMinutes / 60)}h`;
   }
   return `${remainingMinutes}m`;
-}
-
-function base64UrlToBytes(value) {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  const decoded = atob(padded);
-  return Uint8Array.from(decoded, (char) => char.charCodeAt(0));
-}
-
-function bytesToBase64Url(value) {
-  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
-  let binary = "";
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function normalizeLanguagePreference(value) {
@@ -150,54 +135,6 @@ function setLanguageSettingsOpen(root, isOpen) {
     syncLanguageSettings(root);
     root.querySelector("[data-language-settings-select]")?.focus();
   }
-}
-
-function publicKeyFromJSON(publicKey) {
-  const parsed = { ...publicKey, challenge: base64UrlToBytes(publicKey.challenge) };
-
-  if (parsed.user?.id) {
-    parsed.user = { ...parsed.user, id: base64UrlToBytes(parsed.user.id) };
-  }
-
-  if (Array.isArray(parsed.excludeCredentials)) {
-    parsed.excludeCredentials = parsed.excludeCredentials.map((credential) => ({
-      ...credential,
-      id: base64UrlToBytes(credential.id),
-    }));
-  }
-
-  if (Array.isArray(parsed.allowCredentials)) {
-    parsed.allowCredentials = parsed.allowCredentials.map((credential) => ({
-      ...credential,
-      id: base64UrlToBytes(credential.id),
-    }));
-  }
-
-  return parsed;
-}
-
-function credentialToJSON(value) {
-  if (value instanceof ArrayBuffer) {
-    return bytesToBase64Url(value);
-  }
-
-  if (ArrayBuffer.isView(value)) {
-    return bytesToBase64Url(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(credentialToJSON);
-  }
-
-  if (value && typeof value.toJSON === "function") {
-    return credentialToJSON(value.toJSON());
-  }
-
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, credentialToJSON(inner)]));
-  }
-
-  return value;
 }
 
 function getI18nState() {
@@ -348,33 +285,6 @@ function toggleButtons(root, disabled) {
   });
 }
 
-function setPasskeyManagementMessage(root, type, message) {
-  const errorNode = root.querySelector("[data-passkey-error]");
-  const successNode = root.querySelector("[data-passkey-success]");
-
-  if (!errorNode || !successNode) {
-    return;
-  }
-
-  errorNode.hidden = true;
-  successNode.hidden = true;
-  errorNode.textContent = "";
-  successNode.textContent = "";
-
-  if (!message) {
-    return;
-  }
-
-  if (type === "error") {
-    errorNode.hidden = false;
-    errorNode.textContent = message;
-    return;
-  }
-
-  successNode.hidden = false;
-  successNode.textContent = message;
-}
-
 function setDashboardMessage(root, type, message) {
   const errorNode = root.querySelector("[data-dashboard-error]");
   const successNode = root.querySelector("[data-dashboard-success]");
@@ -443,6 +353,8 @@ function syncDashboardModalState(root) {
     root.querySelector("[data-dashboard-add-overlay]"),
     root.querySelector("[data-dashboard-household-overlay]"),
     root.querySelector("[data-dashboard-list-overlay]"),
+    root.querySelector("[data-dashboard-invite-overlay]"),
+    root.querySelector("[data-dashboard-members-overlay]"),
   ];
   const hasModalOpen = overlays.some((overlay) => overlay instanceof HTMLElement && !overlay.hidden);
   document.body.classList.toggle("has-list-modal-open", hasModalOpen);
@@ -463,6 +375,16 @@ function setDashboardPanelOpen(root, panelName, isOpen) {
       overlay: root.querySelector("[data-dashboard-list-overlay]"),
       panel: root.querySelector("[data-dashboard-list-panel]"),
       focus: root.querySelector("[data-list-name-input]"),
+    },
+    invite: {
+      overlay: root.querySelector("[data-dashboard-invite-overlay]"),
+      panel: root.querySelector("[data-dashboard-invite-panel]"),
+      focus: root.querySelector("[data-invite-mode]"),
+    },
+    members: {
+      overlay: root.querySelector("[data-dashboard-members-overlay]"),
+      panel: root.querySelector("[data-dashboard-members-panel]"),
+      focus: root.querySelector("[data-dashboard-members-close]"),
     },
   };
   const toggle = root.querySelector("[data-dashboard-add-toggle]");
@@ -500,27 +422,34 @@ function updateHouseholdOptions(root, households) {
   }
 
   const currentValue = select.value;
+  const manageableHouseholds = households.filter((household) => household.role === "owner");
   select.innerHTML = "";
 
   const placeholder = document.createElement("option");
   placeholder.value = "";
-  placeholder.textContent = households.length
+  placeholder.textContent = manageableHouseholds.length
     ? translate("dashboard.select_household", {}, "Select a household")
     : translate("dashboard.create_household_first", {}, "Create a household first");
   select.appendChild(placeholder);
 
-  households.forEach((household) => {
+  manageableHouseholds.forEach((household) => {
     const option = document.createElement("option");
     option.value = household.id;
     option.textContent = household.name;
     select.appendChild(option);
   });
 
-  if (households.some((household) => household.id === currentValue)) {
+  if (manageableHouseholds.some((household) => household.id === currentValue)) {
     select.value = currentValue;
-  } else if (households.length === 1) {
-    select.value = households[0].id;
+  } else if (manageableHouseholds.length === 1) {
+    select.value = manageableHouseholds[0].id;
   }
+
+  root.querySelectorAll('[data-dashboard-add-option="list"]').forEach((node) => {
+    if (node instanceof HTMLElement) {
+      node.hidden = manageableHouseholds.length === 0;
+    }
+  });
 }
 
 function updateDashboardListOptions(root, households, listsByHousehold) {
@@ -530,7 +459,9 @@ function updateDashboardListOptions(root, households, listsByHousehold) {
     return;
   }
 
-  const listOptions = households.flatMap((household) =>
+  const listOptions = households
+    .filter((household) => household.role !== "viewer")
+    .flatMap((household) =>
     (listsByHousehold.get(household.id) || []).map((list) => ({
       householdName: household.name,
       id: list.id,
@@ -574,23 +505,27 @@ function renderHouseholds(root, households, listsByHousehold) {
     const lists = listsByHousehold.get(household.id) || [];
     const card = document.createElement("article");
     card.className = "household-card";
+    const roleLabel = translate(
+      `dashboard.role_${household.role}`,
+      {},
+      household.role === "owner" ? "Owner" : household.role === "viewer" ? "Viewer" : "Editor"
+    );
+    const inviteButton = household.role === "owner"
+      ? `<button type="button" class="secondary-button" data-open-invite-sheet="${household.id}">
+          ${translate("dashboard.create_invite_link", {}, "Create invite link")}
+        </button>`
+      : "";
     card.innerHTML = `
       <div class="household-card-header">
         <div>
           <h3>${household.name}</h3>
-          <p class="household-meta">${translatePlural("dashboard.list_count", lists.length, {}, { one: "{count} list", other: "{count} lists" })}</p>
+          <p class="household-meta">${translatePlural("dashboard.list_count", lists.length, {}, { one: "{count} list", other: "{count} lists" })} · ${roleLabel}</p>
         </div>
-        <button type="button" class="secondary-button" data-create-invite="${household.id}">
-          ${translate("dashboard.create_invite_link", {}, "Create invite link")}
-        </button>
-      </div>
-      <div class="household-invite-output" data-invite-output="${household.id}" hidden>
-        <p class="dashboard-helper">${translate("dashboard.share_invite_hint", {}, "Share this link within 24 hours:")}</p>
-        <div class="household-invite-row">
-          <input type="text" readonly data-invite-link-input="${household.id}" />
-          <button type="button" class="secondary-button" data-copy-invite="${household.id}">
-            ${translate("common.copy", {}, "Copy")}
+        <div class="household-card-actions">
+          <button type="button" class="secondary-button" data-open-members="${household.id}" data-household-role="${household.role}">
+            ${translate("dashboard.members", {}, "Members")}
           </button>
+          ${inviteButton}
         </div>
       </div>
     `;
@@ -598,7 +533,7 @@ function renderHouseholds(root, households, listsByHousehold) {
     const listGrid = document.createElement("ul");
     listGrid.className = "list-grid";
 
-    if (lists.length === 0) {
+    if (lists.length === 0 && household.role === "owner") {
       const emptyListState = document.createElement("li");
       emptyListState.innerHTML = `
         <button type="button" class="dashboard-action-card" data-dashboard-add-option="list">
@@ -608,7 +543,7 @@ function renderHouseholds(root, households, listsByHousehold) {
       `;
       listGrid.appendChild(emptyListState);
       card.appendChild(listGrid);
-    } else {
+    } else if (lists.length > 0) {
       lists.forEach((list) => {
         const openItemCount = Number.isInteger(list.open_item_count) ? list.open_item_count : 0;
         const item = document.createElement("li");
@@ -627,114 +562,96 @@ function renderHouseholds(root, households, listsByHousehold) {
   });
 }
 
-function formatPasskeyDate(value) {
-  if (!value) {
-    return translate("settings.never_used", {}, "Never used yet");
-  }
-
-  return new Date(value).toLocaleString(getPreferredLocale(), {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
-
-function renderPasskeys(root, passkeys) {
-  const container = root.querySelector("[data-passkey-list]");
-  const emptyState = root.querySelector("[data-passkey-empty]");
-  if (!container || !emptyState) {
+function renderHouseholdMembers(root, household, members) {
+  const container = root.querySelector("[data-dashboard-member-list]");
+  const title = root.querySelector("[data-dashboard-members-title]");
+  if (!(container instanceof HTMLElement)) {
     return;
   }
-
+  if (title instanceof HTMLElement) {
+    title.textContent = translate(
+      "dashboard.members_title_named",
+      { household: household.name },
+      "{household} members"
+    );
+  }
   container.innerHTML = "";
-  const hasPasskeys = passkeys.length > 0;
-  emptyState.hidden = hasPasskeys;
-  emptyState.style.display = hasPasskeys ? "none" : "";
-
-  passkeys.forEach((passkey, index) => {
-    const row = document.createElement("article");
-    row.className = "passkey-row";
+  members.forEach((member) => {
+    const row = document.createElement("div");
+    row.className = "household-member-row";
+    const roleControl = household.role === "owner" && member.role !== "owner"
+      ? `<label>
+          <span class="sr-only">${translate("dashboard.member_role", {}, "Role")}</span>
+          <select data-member-role="${member.user_id}">
+            <option value="editor"${member.role === "editor" ? " selected" : ""}>${translate("dashboard.role_editor", {}, "Editor")}</option>
+            <option value="viewer"${member.role === "viewer" ? " selected" : ""}>${translate("dashboard.role_viewer", {}, "Viewer")}</option>
+          </select>
+        </label>
+        <button type="button" class="danger-button" data-remove-member="${member.user_id}">
+          ${translate("dashboard.remove_member", {}, "Remove")}
+        </button>`
+      : `<span class="household-member-role">${translate(`dashboard.role_${member.role}`, {}, member.role)}</span>`;
     row.innerHTML = `
-      <div class="passkey-copy">
-        <strong>${passkey.name}</strong>
-        <span>${translate("settings.added_on", { date: formatPasskeyDate(passkey.created_at) }, "Added {date}")}</span>
-        <span>${translate("settings.last_used", { date: formatPasskeyDate(passkey.last_used_at) }, "Last used {date}")}</span>
+      <div>
+        <strong>${member.display_name}</strong>
+        <small>${member.email}</small>
       </div>
-      <div class="passkey-actions">
-        <button
-          type="button"
-          class="secondary-button"
-          data-passkey-rename="${passkey.id}"
-          data-passkey-current-name="${passkey.name}"
-        >
-          ${translate("settings.rename", {}, "Rename")}
-        </button>
-        <button
-          type="button"
-          class="danger-button"
-          data-passkey-delete="${passkey.id}"
-          data-passkey-locked="${passkeys.length <= 1 ? "true" : "false"}"
-          ${
-            passkeys.length <= 1
-              ? `title="${translate("settings.delete_disabled", {}, "Add another passkey before deleting this one.")}" aria-disabled="true"`
-              : ""
-          }
-          ${passkeys.length <= 1 ? "disabled" : ""}
-        >
-          ${translate("common.delete", {}, "Delete")}
-        </button>
-      </div>
+      <div class="household-member-actions">${roleControl}</div>
     `;
     container.appendChild(row);
   });
 }
 
-function suggestedPasskeyName(root) {
-  return translate(
-    "settings.suggested_name",
-    { number: root.querySelectorAll(".passkey-row").length + 1 },
-    "Passkey {number}"
-  );
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(String(value), 10);
+  const normalized = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.min(Math.max(normalized, min), max);
 }
 
-function setPasskeyNameFormState(root, state) {
-  const form = root.querySelector("[data-passkey-name-form]");
-  const input = root.querySelector("[data-passkey-name-input]");
-  const addButton = root.querySelector("[data-passkey-add]");
-  const title = root.querySelector("[data-passkey-name-title]");
-  const submitButton = root.querySelector("[data-passkey-name-submit]");
-  if (
-    !(form instanceof HTMLFormElement)
-    || !(input instanceof HTMLInputElement)
-    || !(title instanceof HTMLElement)
-    || !(submitButton instanceof HTMLButtonElement)
-  ) {
-    return;
+function inviteDurationLabel(hours) {
+  if (hours % 24 === 0) {
+    const days = hours / 24;
+    return translatePlural("dashboard.invite_duration_days", days, {}, { one: "{count} day", other: "{count} days" });
   }
+  return translatePlural("dashboard.invite_duration_hours", hours, {}, { one: "{count} hour", other: "{count} hours" });
+}
 
-  const isOpen = Boolean(state);
-  form.hidden = !isOpen;
-  if (addButton instanceof HTMLButtonElement) {
-    addButton.hidden = isOpen;
+function syncInviteSheet(root) {
+  const mode = root.querySelector("[data-invite-mode]")?.value || "time";
+  const timeFields = root.querySelector("[data-invite-time-fields]");
+  const useFields = root.querySelector("[data-invite-use-fields]");
+  if (timeFields instanceof HTMLElement) {
+    timeFields.hidden = mode !== "time";
   }
-
-  if (!isOpen) {
-    form.dataset.mode = "";
-    form.dataset.passkeyId = "";
-    title.textContent = translate("settings.name_this_passkey", {}, "Name this passkey");
-    submitButton.textContent = translate("common.continue", {}, "Continue");
-    form.reset();
-    return;
+  if (useFields instanceof HTMLElement) {
+    useFields.hidden = mode !== "uses";
   }
+  const hoursInput = root.querySelector("[data-invite-hours-input]");
+  const label = root.querySelector("[data-invite-duration-label]");
+  if (hoursInput instanceof HTMLInputElement && label instanceof HTMLElement) {
+    const hours = boundedInteger(hoursInput.value, 24, 1, 720);
+    hoursInput.value = String(hours);
+    label.textContent = inviteDurationLabel(hours);
+  }
+}
 
-  form.dataset.mode = state.mode;
-  form.dataset.passkeyId = state.passkeyId || "";
-  title.textContent = state.title;
-  submitButton.textContent = state.submitLabel;
-  input.value = state.name;
-  window.setTimeout(() => {
-    input.focus();
-    input.select();
-  }, 0);
+function householdInvitePayload(root) {
+  const mode = root.querySelector("[data-invite-mode]")?.value || "time";
+  const role = root.querySelector("[data-invite-role]")?.value === "viewer" ? "viewer" : "editor";
+  if (mode === "uses") {
+    const maxUsesInput = root.querySelector("[data-invite-max-uses]");
+    const maxUses = boundedInteger(maxUsesInput?.value, 5, 1, 100);
+    if (maxUsesInput instanceof HTMLInputElement) {
+      maxUsesInput.value = String(maxUses);
+    }
+    return { expires_in_hours: null, max_uses: maxUses, role };
+  }
+  const hoursInput = root.querySelector("[data-invite-hours-input]");
+  const expiresInHours = boundedInteger(hoursInput?.value, 24, 1, 720);
+  if (hoursInput instanceof HTMLInputElement) {
+    hoursInput.value = String(expiresInHours);
+  }
+  return { expires_in_hours: expiresInHours, role };
 }
 
 async function copyText(value) {
@@ -754,6 +671,103 @@ async function copyText(value) {
   document.body.removeChild(helper);
 }
 
+function normalizeRememberedPublicList(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const token = typeof entry.token === "string" ? entry.token.trim() : "";
+  const id = typeof entry.id === "string" ? entry.id.trim() : "";
+  const name = typeof entry.name === "string" ? entry.name.trim() : "";
+  const expiresAt = typeof entry.expires_at === "string" ? entry.expires_at : "";
+  if (!token || !id || !name || !Number.isFinite(Date.parse(expiresAt))) {
+    return null;
+  }
+  return { token, id, name, expires_at: expiresAt };
+}
+
+function loadRememberedPublicLists(storage = globalThis.window?.localStorage) {
+  if (!storage) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(storage.getItem(PUBLIC_LIST_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map(normalizeRememberedPublicList).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRememberedPublicLists(entries, storage = globalThis.window?.localStorage) {
+  if (!storage) {
+    return [];
+  }
+  const normalized = Array.isArray(entries)
+    ? entries.map(normalizeRememberedPublicList).filter(Boolean)
+    : [];
+  storage.setItem(PUBLIC_LIST_STORAGE_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function rememberPublicList(root, groceryList, storage = globalThis.window?.localStorage) {
+  const token = publicListToken(root);
+  const entry = normalizeRememberedPublicList({ token, ...groceryList });
+  if (!entry || !storage) {
+    return null;
+  }
+  const entries = loadRememberedPublicLists(storage).filter((candidate) => candidate.token !== token);
+  saveRememberedPublicLists([entry, ...entries], storage);
+  return entry;
+}
+
+function removeRememberedPublicList(token, storage = globalThis.window?.localStorage) {
+  const entries = loadRememberedPublicLists(storage).filter((entry) => entry.token !== token);
+  return saveRememberedPublicLists(entries, storage);
+}
+
+function renderRememberedPublicLists(root, entries = loadRememberedPublicLists(), nowMs = Date.now()) {
+  const card = root.querySelector("[data-public-lists-card]");
+  const container = root.querySelector("[data-public-lists]");
+  if (!(card instanceof HTMLElement) || !(container instanceof HTMLElement)) {
+    return;
+  }
+
+  container.innerHTML = "";
+  card.hidden = entries.length === 0;
+  entries.forEach((entry) => {
+    const expired = Date.parse(entry.expires_at) <= nowMs;
+    const item = document.createElement("li");
+    item.className = "public-list-row";
+    const link = document.createElement(expired ? "div" : "a");
+    link.className = "public-list-entry";
+    if (!expired) {
+      link.href = `/public/lists/${encodeURIComponent(entry.token)}`;
+    }
+    const name = document.createElement("strong");
+    name.textContent = entry.name;
+    const statusNode = document.createElement("small");
+    statusNode.textContent = expired
+      ? translate("dashboard.public_list_expired", {}, "Expired")
+      : translate(
+          "dashboard.public_list_expires",
+          { date: formatInviteExpiry(entry.expires_at) },
+          "Expires {date}",
+        );
+    link.append(name, statusNode);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "secondary-button public-list-remove";
+    removeButton.dataset.removePublicList = entry.token;
+    removeButton.textContent = translate("common.remove", {}, "Remove");
+    removeButton.setAttribute(
+      "aria-label",
+      translate("dashboard.remove_public_list", { name: entry.name }, "Remove {name}"),
+    );
+    item.append(link, removeButton);
+    container.appendChild(item);
+  });
+}
+
 async function loadDashboardData(root) {
   const households = await fetchJson("/api/v1/households");
   const listResponses = await Promise.all(
@@ -769,283 +783,7 @@ async function loadDashboardData(root) {
   updateHouseholdOptions(root, households);
   updateDashboardListOptions(root, households, listsByHousehold);
   renderHouseholds(root, households, listsByHousehold);
-}
-
-async function loadPasskeyManagementData(root) {
-  const passkeys = await fetchJson("/api/v1/auth/passkeys");
-  renderPasskeys(root, passkeys);
-}
-
-function togglePasskeyManagementForms(root, disabled) {
-  root
-    .querySelectorAll("[data-passkey-management] button, [data-passkey-management] input")
-    .forEach((node) => {
-      const locked = node.getAttribute("data-passkey-locked") === "true";
-      node.disabled = disabled || locked;
-    });
-}
-
-function syncPasskeyManagementModalState(root) {
-  const deleteOverlay = root.querySelector("[data-passkey-delete-overlay]");
-  const hasModalOpen = deleteOverlay instanceof HTMLElement && !deleteOverlay.hidden;
-  document.body.classList.toggle("has-list-modal-open", hasModalOpen);
-}
-
-function setPasskeyDeleteConfirmState(root, state) {
-  const overlay = root.querySelector("[data-passkey-delete-overlay]");
-  const panel = root.querySelector("[data-passkey-delete-panel]");
-  const confirmButton = root.querySelector("[data-passkey-delete-confirm]");
-  const copyNode = root.querySelector("[data-passkey-delete-copy]");
-  if (
-    !(overlay instanceof HTMLElement)
-    || !(panel instanceof HTMLElement)
-    || !(confirmButton instanceof HTMLButtonElement)
-  ) {
-    return;
-  }
-
-  const isOpen = Boolean(state);
-  overlay.hidden = !isOpen;
-  panel.hidden = !isOpen;
-  const passkeyName = state?.name || translate("settings.delete_target_fallback", {}, "this passkey");
-  if (copyNode instanceof HTMLElement) {
-    const emphasisNode = document.createElement("strong");
-    emphasisNode.textContent = translate("settings.delete_help_emphasis", {}, "another");
-    copyNode.replaceChildren(
-      document.createTextNode(
-        translate(
-          "settings.delete_help_prefix",
-          { name: passkeyName },
-          "To delete {name}, you must authenticate with "
-        )
-      ),
-      emphasisNode,
-      document.createTextNode(
-        translate(
-          "settings.delete_help_suffix",
-          {},
-          " passkey to confirm you still have a working Passkey after deleting one."
-        )
-      )
-    );
-  }
-  confirmButton.dataset.passkeyId = state?.passkeyId || "";
-  syncPasskeyManagementModalState(root);
-
-  if (isOpen) {
-    window.setTimeout(() => {
-      confirmButton.focus();
-    }, 0);
-  }
-}
-
-function initPasskeyManagement(root, options = {}) {
-  if (!root) {
-    return;
-  }
-
-  const {
-    setMessage = setPasskeyManagementMessage,
-    toggleForms = togglePasskeyManagementForms,
-    refreshData = () => loadPasskeyManagementData(root),
-  } = options;
-
-  const refresh = async () => {
-    setMessage(root, "", "");
-    await refreshData();
-  };
-
-  const passkeyNameForm = root.querySelector("[data-passkey-name-form]");
-
-  root.addEventListener("click", async (event) => {
-    const addPasskeyButton = event.target.closest("[data-passkey-add]");
-    if (addPasskeyButton) {
-      if (!window.PublicKeyCredential || !navigator.credentials) {
-        setMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-        return;
-      }
-      setMessage(root, "", "");
-      setPasskeyNameFormState(root, {
-        mode: "add",
-        passkeyId: "",
-        title: translate("settings.name_this_passkey", {}, "Name this passkey"),
-        submitLabel: translate("common.continue", {}, "Continue"),
-        name: suggestedPasskeyName(root),
-      });
-      return;
-    }
-
-    const cancelPasskeyNameButton = event.target.closest("[data-passkey-name-cancel]");
-    if (cancelPasskeyNameButton) {
-      setMessage(root, "", "");
-      setPasskeyNameFormState(root, null);
-      return;
-    }
-
-    const renamePasskeyButton = event.target.closest("[data-passkey-rename]");
-    if (renamePasskeyButton) {
-      if (!window.PublicKeyCredential || !navigator.credentials) {
-        setMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-        return;
-      }
-
-      const passkeyId = renamePasskeyButton.getAttribute("data-passkey-rename");
-      const currentName = renamePasskeyButton.getAttribute("data-passkey-current-name") || "";
-      setMessage(root, "", "");
-      setPasskeyNameFormState(root, {
-        mode: "rename",
-        passkeyId,
-        title: translate("settings.rename_this_passkey", {}, "Rename this passkey"),
-        submitLabel: translate("settings.save_and_verify", {}, "Save and verify"),
-        name: currentName,
-      });
-      return;
-    }
-
-    const deletePasskeyButton = event.target.closest("[data-passkey-delete]");
-    if (deletePasskeyButton) {
-      if (!window.PublicKeyCredential || !navigator.credentials) {
-        setMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-        return;
-      }
-
-      setMessage(root, "", "");
-      setPasskeyDeleteConfirmState(root, {
-        passkeyId: deletePasskeyButton.getAttribute("data-passkey-delete"),
-        name:
-          deletePasskeyButton.closest(".passkey-row")?.querySelector(".passkey-copy strong")
-            ?.textContent?.trim() || translate("settings.delete_target_fallback", {}, "this passkey"),
-      });
-      return;
-    }
-
-    const closeDeletePasskeyButton = event.target.closest("[data-passkey-delete-close]");
-    if (closeDeletePasskeyButton) {
-      setPasskeyDeleteConfirmState(root, null);
-      return;
-    }
-
-    const confirmDeletePasskeyButton = event.target.closest("[data-passkey-delete-confirm]");
-    if (confirmDeletePasskeyButton) {
-      const passkeyId = confirmDeletePasskeyButton.getAttribute("data-passkey-id");
-      if (!passkeyId) {
-        setPasskeyDeleteConfirmState(root, null);
-        setMessage(root, "error", translate("settings.delete_choose_first", {}, "Choose a passkey to delete first."));
-        return;
-      }
-
-      toggleForms(root, true);
-      try {
-        await deletePasskey(root, passkeyId);
-        setPasskeyDeleteConfirmState(root, null);
-        setPasskeyNameFormState(root, null);
-        await refresh();
-        setMessage(root, "success", translate("settings.deleted_success", {}, "Passkey deleted after confirming another one worked."));
-      } catch (error) {
-        setMessage(
-          root,
-          "error",
-          error instanceof Error ? error.message : translate("settings.delete_failed", {}, "Could not delete that passkey.")
-        );
-      } finally {
-        toggleForms(root, false);
-      }
-    }
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") {
-      return;
-    }
-
-    const overlay = root.querySelector("[data-passkey-delete-overlay]");
-    if (overlay instanceof HTMLElement && !overlay.hidden) {
-      setPasskeyDeleteConfirmState(root, null);
-    }
-  });
-
-  if (passkeyNameForm instanceof HTMLFormElement) {
-    passkeyNameForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const formData = new FormData(passkeyNameForm);
-      const passkeyName = String(formData.get("name") || "").trim();
-      const mode = passkeyNameForm.dataset.mode;
-      const passkeyId = passkeyNameForm.dataset.passkeyId;
-      if (!passkeyName) {
-        setMessage(root, "error", translate("settings.name_required", {}, "Passkey name is required."));
-        const input = root.querySelector("[data-passkey-name-input]");
-        if (input instanceof HTMLInputElement) {
-          input.focus();
-        }
-        return;
-      }
-
-      toggleForms(root, true);
-      try {
-        if (mode === "rename") {
-          if (!passkeyId) {
-            throw new Error(translate("settings.rename_choose_first", {}, "Choose a passkey to rename first."));
-          }
-          await renamePasskey(root, passkeyId, passkeyName);
-        } else {
-          await addPasskey(root, passkeyName);
-        }
-        setPasskeyNameFormState(root, null);
-        await refresh();
-        setMessage(
-          root,
-          "success",
-          mode === "rename"
-            ? translate("settings.renamed_success", {}, "Passkey renamed after confirming it still works.")
-            : translate("settings.added_success", {}, "Another passkey is ready to use.")
-        );
-      } catch (error) {
-        setMessage(
-          root,
-          "error",
-          error instanceof Error
-            ? error.message
-            : mode === "rename"
-              ? translate("settings.rename_failed", {}, "Could not rename that passkey.")
-              : translate("settings.add_failed", {}, "Could not add another passkey.")
-        );
-      } finally {
-        toggleForms(root, false);
-      }
-    });
-  }
-
-  return refresh();
-}
-
-async function addPasskey(root, name) {
-  const options = await postJson("/api/v1/auth/passkeys/register/options", { name });
-  const credential = await navigator.credentials.create({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson("/api/v1/auth/passkeys/register/verify", {
-    credential: credentialToJSON(credential),
-  });
-}
-
-async function renamePasskey(root, passkeyId, name) {
-  const options = await postJson(`/api/v1/auth/passkeys/${passkeyId}/rename/options`, { name });
-  const credential = await navigator.credentials.get({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson(`/api/v1/auth/passkeys/${passkeyId}/rename/verify`, {
-    credential: credentialToJSON(credential),
-  });
-}
-
-async function deletePasskey(root, passkeyId) {
-  const options = await postJson(`/api/v1/auth/passkeys/${passkeyId}/delete/options`, {});
-  const credential = await navigator.credentials.get({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson(`/api/v1/auth/passkeys/${passkeyId}/delete/verify`, {
-    credential: credentialToJSON(credential),
-  });
+  renderRememberedPublicLists(root);
 }
 
 async function initDashboard() {
@@ -1063,35 +801,111 @@ async function initDashboard() {
   };
 
   root.addEventListener("click", async (event) => {
-    const inviteButton = event.target.closest("[data-create-invite]");
-    if (inviteButton) {
-      const householdId = inviteButton.getAttribute("data-create-invite");
+    const removePublicListButton = event.target.closest("[data-remove-public-list]");
+    if (removePublicListButton) {
+      removeRememberedPublicList(removePublicListButton.dataset.removePublicList || "");
+      renderRememberedPublicLists(root);
+      return;
+    }
+
+    const openMembersButton = event.target.closest("[data-open-members]");
+    if (openMembersButton) {
+      const householdId = openMembersButton.getAttribute("data-open-members");
+      const householdName = openMembersButton.closest(".household-card")?.querySelector("h3")?.textContent || "";
+      const householdRole = openMembersButton.getAttribute("data-household-role") || "viewer";
+      if (!householdId) {
+        return;
+      }
+      root.dataset.membersHouseholdId = householdId;
+      root.dataset.membersHouseholdRole = householdRole;
+      root.dataset.membersHouseholdName = householdName;
       toggleDashboardForms(root, true);
       try {
-        const invite = await postJson(`/api/v1/households/${householdId}/invites`, {});
-        const output = root.querySelector(`[data-invite-output="${householdId}"]`);
-        const input = root.querySelector(`[data-invite-link-input="${householdId}"]`);
-        if (output && input) {
-          input.value = invite.invite_url;
-          output.hidden = false;
-        }
-        setDashboardMessage(root, "success", translate("dashboard.invite_link_created", {}, "Invite link created. It stays valid for 24 hours."));
-      } catch (error) {
-        setDashboardMessage(
+        const members = await fetchJson(`/api/v1/households/${householdId}/members`);
+        renderHouseholdMembers(
           root,
-          "error",
-          error instanceof Error ? error.message : translate("dashboard.invite_link_create_failed", {}, "Could not create the invite link.")
+          { id: householdId, name: householdName, role: householdRole },
+          members
         );
+        setDashboardPanelOpen(root, "members", true);
+      } catch (error) {
+        setDashboardMessage(root, "error", error instanceof Error ? error.message : "Could not load members.");
       } finally {
         toggleDashboardForms(root, false);
       }
       return;
     }
 
-    const copyButton = event.target.closest("[data-copy-invite]");
-    if (copyButton) {
-      const householdId = copyButton.getAttribute("data-copy-invite");
-      const input = root.querySelector(`[data-invite-link-input="${householdId}"]`);
+    const removeMemberButton = event.target.closest("[data-remove-member]");
+    if (removeMemberButton) {
+      const householdId = root.dataset.membersHouseholdId;
+      const memberUserId = removeMemberButton.getAttribute("data-remove-member");
+      if (!householdId || !memberUserId) {
+        return;
+      }
+      toggleDashboardForms(root, true);
+      try {
+        await fetchJson(`/api/v1/households/${householdId}/members/${memberUserId}`, {
+          method: "DELETE",
+        });
+        const members = await fetchJson(`/api/v1/households/${householdId}/members`);
+        renderHouseholdMembers(
+          root,
+          {
+            id: householdId,
+            name: root.dataset.membersHouseholdName || "",
+            role: root.dataset.membersHouseholdRole || "viewer",
+          },
+          members
+        );
+        setDashboardMessage(root, "success", translate("dashboard.member_removed", {}, "Member removed."));
+      } catch (error) {
+        setDashboardMessage(root, "error", error instanceof Error ? error.message : "Could not remove member.");
+      } finally {
+        toggleDashboardForms(root, false);
+      }
+      return;
+    }
+
+    const openInviteButton = event.target.closest("[data-open-invite-sheet]");
+    if (openInviteButton) {
+      const householdId = openInviteButton.getAttribute("data-open-invite-sheet");
+      root.dataset.inviteHouseholdId = householdId || "";
+      const householdName = openInviteButton.closest(".household-card")?.querySelector("h3")?.textContent || "";
+      const householdNode = root.querySelector("[data-dashboard-invite-household]");
+      if (householdNode instanceof HTMLElement) {
+        householdNode.textContent = translate(
+          "dashboard.invite_sheet_helper",
+          { household: householdName },
+          "Choose how this invite link should stay valid for {household}."
+        );
+      }
+      const output = root.querySelector("[data-invite-sheet-output]");
+      const input = root.querySelector("[data-invite-sheet-link-input]");
+      if (output instanceof HTMLElement) {
+        output.hidden = true;
+      }
+      if (input instanceof HTMLInputElement) {
+        input.value = "";
+      }
+      syncInviteSheet(root);
+      setDashboardPanelOpen(root, "invite", true);
+      return;
+    }
+
+    const presetButton = event.target.closest("[data-invite-hours-preset]");
+    if (presetButton) {
+      const hoursInput = root.querySelector("[data-invite-hours-input]");
+      if (hoursInput instanceof HTMLInputElement) {
+        hoursInput.value = presetButton.getAttribute("data-invite-hours-preset") || "24";
+      }
+      syncInviteSheet(root);
+      return;
+    }
+
+    const copyInviteButton = event.target.closest("[data-copy-invite-sheet]");
+    if (copyInviteButton) {
+      const input = root.querySelector("[data-invite-sheet-link-input]");
       if (!(input instanceof HTMLInputElement) || !input.value) {
         return;
       }
@@ -1104,6 +918,42 @@ async function initDashboard() {
           "error",
           error instanceof Error ? error.message : translate("dashboard.invite_link_copy_failed", {}, "Could not copy the invite link.")
         );
+      }
+      return;
+    }
+
+    const inviteButton = event.target.closest("[data-create-invite]");
+    if (inviteButton) {
+      event.preventDefault();
+      const householdId = root.dataset.inviteHouseholdId;
+      if (!householdId) {
+        return;
+      }
+      toggleDashboardForms(root, true);
+      try {
+        const payload = householdInvitePayload(root);
+        const invite = await postJson(`/api/v1/households/${householdId}/invites`, payload);
+        const output = root.querySelector("[data-invite-sheet-output]");
+        const input = root.querySelector("[data-invite-sheet-link-input]");
+        const hint = root.querySelector("[data-invite-sheet-hint]");
+        if (output && input) {
+          input.value = invite.invite_url;
+          output.hidden = false;
+        }
+        if (hint instanceof HTMLElement) {
+          hint.textContent = payload.max_uses
+            ? translate("dashboard.share_invite_use_hint", { count: payload.max_uses }, "Share this link. It can be used {count} times.")
+            : translate("dashboard.share_invite_time_hint", { duration: inviteDurationLabel(payload.expires_in_hours || 24) }, "Share this link within {duration}.");
+        }
+        setDashboardMessage(root, "success", translate("dashboard.invite_link_created", {}, "Invite link created."));
+      } catch (error) {
+        setDashboardMessage(
+          root,
+          "error",
+          error instanceof Error ? error.message : translate("dashboard.invite_link_create_failed", {}, "Could not create the invite link.")
+        );
+      } finally {
+        toggleDashboardForms(root, false);
       }
       return;
     }
@@ -1130,6 +980,41 @@ async function initDashboard() {
     }
   });
 
+  root.addEventListener("change", async (event) => {
+    const roleSelect = event.target.closest("[data-member-role]");
+    if (!(roleSelect instanceof HTMLSelectElement)) {
+      return;
+    }
+    const householdId = root.dataset.membersHouseholdId;
+    const memberUserId = roleSelect.getAttribute("data-member-role");
+    if (!householdId || !memberUserId) {
+      return;
+    }
+    toggleDashboardForms(root, true);
+    try {
+      await fetchJson(`/api/v1/households/${householdId}/members/${memberUserId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: roleSelect.value }),
+      });
+      setDashboardMessage(root, "success", translate("dashboard.member_role_updated", {}, "Member role updated."));
+    } catch (error) {
+      setDashboardMessage(root, "error", error instanceof Error ? error.message : "Could not update member role.");
+      const members = await fetchJson(`/api/v1/households/${householdId}/members`);
+      renderHouseholdMembers(
+        root,
+        {
+          id: householdId,
+          name: root.dataset.membersHouseholdName || "",
+          role: root.dataset.membersHouseholdRole || "viewer",
+        },
+        members
+      );
+    } finally {
+      toggleDashboardForms(root, false);
+    }
+  });
+
   root.querySelector("[data-dashboard-add-toggle]")?.addEventListener("click", () => {
     const panel = root.querySelector("[data-dashboard-add-panel]");
     setDashboardPanelOpen(root, "add", panel?.hidden ?? true);
@@ -1153,6 +1038,31 @@ async function initDashboard() {
     });
   });
 
+  root.querySelectorAll("[data-dashboard-invite-close]").forEach((node) => {
+    node.addEventListener("click", () => {
+      setDashboardPanelOpen(root, "invite", false);
+    });
+  });
+
+  root.querySelectorAll("[data-dashboard-members-close]").forEach((node) => {
+    node.addEventListener("click", () => {
+      setDashboardPanelOpen(root, "members", false);
+    });
+  });
+
+  root.querySelector("[data-invite-mode]")?.addEventListener("change", () => {
+    syncInviteSheet(root);
+  });
+
+  root.querySelector("[data-invite-hours-input]")?.addEventListener("input", () => {
+    syncInviteSheet(root);
+  });
+
+  root.querySelector("[data-dashboard-invite-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    root.querySelector("[data-create-invite='sheet']")?.click();
+  });
+
   root.querySelectorAll("[data-dashboard-panel-back]").forEach((node) => {
     node.addEventListener("click", () => {
       setDashboardPanelOpen(root, "add", true);
@@ -1164,7 +1074,7 @@ async function initDashboard() {
       return;
     }
 
-    const panelNames = ["household", "list", "add"];
+    const panelNames = ["members", "invite", "household", "list", "add"];
     const openPanelName = panelNames.find((name) => {
       const panel = root.querySelector(`[data-dashboard-${name}-panel]`);
       return panel instanceof HTMLElement && !panel.hidden;
@@ -1372,21 +1282,50 @@ function normalizeNullableItemEditValue(value) {
   return normalized || null;
 }
 
+function dateTimeLocalValue(value) {
+  const date = value instanceof Date ? value : new Date(value || "");
+  if (!Number.isFinite(date.getTime())) {
+    return "";
+  }
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function dateTimeLocalToIso(value) {
+  const date = new Date(String(value || ""));
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function defaultSaleWindow(now = new Date()) {
+  return {
+    startsAt: dateTimeLocalValue(new Date(now.getTime() - 60 * 60_000)),
+    endsAt: dateTimeLocalValue(new Date(now.getTime() + 24 * 60 * 60_000)),
+  };
+}
+
 function normalizeItemEditPayload(payload) {
+  const saleEnabled = Boolean(payload?.sale_enabled);
   return {
     name: String(payload?.name || "").trim(),
     quantity_text: normalizeNullableItemEditValue(payload?.quantity_text),
     note: normalizeNullableItemEditValue(payload?.note),
     category_id: normalizeNullableItemEditValue(payload?.category_id),
+    sale_enabled: saleEnabled,
+    sale_starts_at: saleEnabled ? normalizeNullableItemEditValue(payload?.sale_starts_at) : null,
+    sale_ends_at: saleEnabled ? normalizeNullableItemEditValue(payload?.sale_ends_at) : null,
   };
 }
 
 function itemEditPayloadFromItem(item) {
+  const saleEnabled = Boolean(item?.sale_starts_at && item?.sale_ends_at);
   return normalizeItemEditPayload({
     name: item?.name,
     quantity_text: item?.quantity_text,
     note: item?.note,
     category_id: item?.category_id,
+    sale_enabled: saleEnabled,
+    sale_starts_at: item?.sale_starts_at,
+    sale_ends_at: item?.sale_ends_at,
   });
 }
 
@@ -1397,8 +1336,63 @@ function itemEditPayloadsEqual(left, right) {
     normalizedLeft.name === normalizedRight.name &&
     normalizedLeft.quantity_text === normalizedRight.quantity_text &&
     normalizedLeft.note === normalizedRight.note &&
-    normalizedLeft.category_id === normalizedRight.category_id
+    normalizedLeft.category_id === normalizedRight.category_id &&
+    normalizedLeft.sale_enabled === normalizedRight.sale_enabled &&
+    normalizedLeft.sale_starts_at === normalizedRight.sale_starts_at &&
+    normalizedLeft.sale_ends_at === normalizedRight.sale_ends_at
   );
+}
+
+function isValidSaleWindowPayload(payload) {
+  const normalized = normalizeItemEditPayload(payload);
+  if (!normalized.sale_enabled) {
+    return true;
+  }
+  const startsAt = Date.parse(normalized.sale_starts_at || "");
+  const endsAt = Date.parse(normalized.sale_ends_at || "");
+  return Number.isFinite(startsAt) && Number.isFinite(endsAt) && startsAt < endsAt;
+}
+
+function itemEditApiPayload(payload, previousItem = null) {
+  const normalized = normalizeItemEditPayload(payload);
+  const apiPayload = {
+    name: normalized.name,
+    quantity_text: normalized.quantity_text,
+    note: normalized.note,
+    category_id: normalized.category_id,
+  };
+  if (normalized.sale_enabled || itemEditPayloadFromItem(previousItem).sale_enabled) {
+    apiPayload.sale_starts_at = normalized.sale_starts_at;
+    apiPayload.sale_ends_at = normalized.sale_ends_at;
+  }
+  return apiPayload;
+}
+
+function syncSaleWindowControls(form, { useDefaults = false } = {}) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const enabledInput = form.elements.namedItem("sale_enabled");
+  const startsInput = form.elements.namedItem("sale_starts_at");
+  const endsInput = form.elements.namedItem("sale_ends_at");
+  if (
+    !(enabledInput instanceof HTMLInputElement) ||
+    !(startsInput instanceof HTMLInputElement) ||
+    !(endsInput instanceof HTMLInputElement)
+  ) {
+    return;
+  }
+
+  if (enabledInput.checked && useDefaults && (!startsInput.value || !endsInput.value)) {
+    const defaults = defaultSaleWindow();
+    startsInput.value = startsInput.value || defaults.startsAt;
+    endsInput.value = endsInput.value || defaults.endsAt;
+  }
+  startsInput.disabled = !enabledInput.checked;
+  endsInput.disabled = !enabledInput.checked;
+  startsInput.required = enabledInput.checked;
+  endsInput.required = enabledInput.checked;
+  form.querySelector("[data-sale-window-fields]")?.toggleAttribute("hidden", !enabledInput.checked);
 }
 
 function cloneItemEditHistoryItem(item) {
@@ -1585,11 +1579,15 @@ function readItemEditFormPayload(root) {
   }
 
   const formData = new FormData(form);
+  const saleEnabled = Boolean(form.elements.namedItem("sale_enabled")?.checked);
   return normalizeItemEditPayload({
     name: formData.get("name"),
     quantity_text: formData.get("quantity_text"),
     note: formData.get("note"),
     category_id: formData.get("edit_category_id"),
+    sale_enabled: saleEnabled,
+    sale_starts_at: saleEnabled ? dateTimeLocalToIso(formData.get("sale_starts_at")) : null,
+    sale_ends_at: saleEnabled ? dateTimeLocalToIso(formData.get("sale_ends_at")) : null,
   });
 }
 
@@ -1603,6 +1601,19 @@ function setItemEditFormValues(root, state, item) {
   form.elements.namedItem("name").value = normalized.name;
   form.elements.namedItem("quantity_text").value = normalized.quantity_text || "";
   form.elements.namedItem("note").value = normalized.note || "";
+  const saleEnabledInput = form.elements.namedItem("sale_enabled");
+  const saleStartsInput = form.elements.namedItem("sale_starts_at");
+  const saleEndsInput = form.elements.namedItem("sale_ends_at");
+  if (saleEnabledInput instanceof HTMLInputElement) {
+    saleEnabledInput.checked = normalized.sale_enabled;
+  }
+  if (saleStartsInput instanceof HTMLInputElement) {
+    saleStartsInput.value = dateTimeLocalValue(normalized.sale_starts_at);
+  }
+  if (saleEndsInput instanceof HTMLInputElement) {
+    saleEndsInput.value = dateTimeLocalValue(normalized.sale_ends_at);
+  }
+  syncSaleWindowControls(form);
   setCategoryRadioValue(root, 'input[name="edit_category_id"]', normalized.category_id || "");
   syncCategoryRadioGroups(root, state);
 }
@@ -1668,6 +1679,14 @@ async function applyItemEditPayload(root, state, itemId, payload, { recordHistor
     return false;
   }
 
+  if (!isValidSaleWindowPayload(normalized)) {
+    const message = translate("list_detail.sale_window_invalid", {}, "Sale end must be after its start.");
+    setItemEditStatus(root, "error", message);
+    setListMessage(root, "error", message);
+    updateItemEditUndoButton(root, state);
+    return false;
+  }
+
   const previousItem = state.items.get(itemId);
   if (!previousItem) {
     const message = translate("list_detail.item_not_found", {}, "Could not find that item.");
@@ -1685,7 +1704,12 @@ async function applyItemEditPayload(root, state, itemId, payload, { recordHistor
 
   setItemEditStatus(root, "saving", translate("list_detail.item_saving", {}, "Saving..."));
   try {
-    const updatedItem = await updateItemWithOfflineFallback(root, state, itemId, normalized);
+    const updatedItem = await updateItemWithOfflineFallback(
+      root,
+      state,
+      itemId,
+      itemEditApiPayload(normalized, previousItem),
+    );
     if (recordHistory) {
       pushItemEditHistory(root, state, itemId, previousItem);
       clearItemEditRedoHistory(root, state, itemId);
@@ -1899,10 +1923,40 @@ function listTitleText(root) {
   return root.querySelector("[data-list-title]")?.textContent?.trim() || "";
 }
 
+function publicListToken(root) {
+  return root?.dataset?.publicListToken || "";
+}
+
+function isPublicList(root) {
+  return Boolean(publicListToken(root));
+}
+
+function listApiUrl(root, suffix = "") {
+  const token = publicListToken(root);
+  if (token) {
+    return `/api/v1/public/lists/${token}${suffix}`;
+  }
+  return `/api/v1/lists/${root.dataset.listId}${suffix}`;
+}
+
+function itemApiUrl(root, itemId, suffix = "") {
+  const token = publicListToken(root);
+  if (token) {
+    return `/api/v1/public/lists/${token}/items/${itemId}${suffix}`;
+  }
+  return `/api/v1/items/${itemId}${suffix}`;
+}
+
 function setListName(root, state, name) {
   state.listName = name;
-  root.querySelector("[data-list-title]").textContent = name;
-  root.querySelector("[data-list-name-input]").value = name;
+  const title = root.querySelector("[data-list-title]");
+  const input = root.querySelector("[data-list-name-input]");
+  if (title instanceof HTMLElement) {
+    title.textContent = name;
+  }
+  if (input instanceof HTMLInputElement) {
+    input.value = name;
+  }
 }
 
 async function saveListName(root, state, name) {
@@ -1919,7 +1973,7 @@ async function saveListName(root, state, name) {
   }
 
   const listId = root.dataset.listId;
-  const groceryList = await fetchJson(`/api/v1/lists/${listId}`, {
+  const groceryList = await fetchJson(listApiUrl(root), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: trimmedName }),
@@ -1930,7 +1984,7 @@ async function saveListName(root, state, name) {
 }
 
 function persistOfflineListState(root, state) {
-  if (typeof window === "undefined" || isDemoList(root)) {
+  if (typeof window === "undefined" || isDemoList(root) || isPublicList(root)) {
     return;
   }
 
@@ -1942,6 +1996,7 @@ function persistOfflineListState(root, state) {
   window.localStorage?.setItem(
     offlineListStorageKey(listId),
     JSON.stringify({
+      accessRole: state.accessRole || "viewer",
       title: listTitleText(root),
       items: [...state.items.values()],
       lists: state.lists || [],
@@ -1958,6 +2013,7 @@ function persistOfflineListState(root, state) {
 }
 
 function applyOfflineListState(root, state, cachedState) {
+  applyListAccess(root, state, cachedState.accessRole || "editor");
   setListName(root, state, cachedState.title || listTitleText(root));
 
   state.categories = new Map((cachedState.categories || []).map((category) => [category.id, category]));
@@ -1968,7 +2024,7 @@ function applyOfflineListState(root, state, cachedState) {
   setDisabledCategoryIds(state, cachedState.disabledCategoryIds || []);
   replaceItems(state, cachedState.items || []);
   state.checkedRemainingCount = cachedState.checkedRemainingCount || 0;
-  state.pendingMutations = cachedState.pendingMutations || [];
+  state.pendingMutations = state.canEdit ? cachedState.pendingMutations || [] : [];
   syncCategoryRadioGroups(root, state);
   renderItems(root, state);
 }
@@ -2029,7 +2085,7 @@ function applyOfflineSyncResult(state, result) {
 }
 
 async function flushOfflineMutations(root, state) {
-  if (isDemoList(root) || state.pendingMutations.length === 0) {
+  if (isDemoList(root) || isPublicList(root) || state.pendingMutations.length === 0) {
     return null;
   }
 
@@ -2040,7 +2096,7 @@ async function flushOfflineMutations(root, state) {
   const listId = root.dataset.listId;
   const mutations = [...state.pendingMutations];
   setListSyncStatus(root, translate("list_detail.offline_syncing", {}, "Syncing saved changes..."));
-  state.offlineSyncInFlight = postJson(`/api/v1/lists/${listId}/items/sync`, { mutations })
+  state.offlineSyncInFlight = postJson(`${listApiUrl(root)}/items/sync`, { mutations })
     .then((result) => {
       applyOfflineSyncResult(state, result);
       persistOfflineListState(root, state);
@@ -2345,11 +2401,13 @@ function itemSuggestionMatch(itemName, query) {
 function syncModalState(root) {
   const addOverlay = root.querySelector("[data-item-panel-overlay]");
   const editOverlay = root.querySelector("[data-item-edit-overlay]");
+  const moveOverlay = root.querySelector("[data-item-move-overlay]");
   const settingsOverlay = root.querySelector("[data-list-settings-overlay]");
   const categoryConfirmOverlay = root.querySelector("[data-category-disable-confirm-overlay]");
   const hasModalOpen =
     (addOverlay instanceof HTMLElement && !addOverlay.hidden) ||
     (editOverlay instanceof HTMLElement && !editOverlay.hidden) ||
+    (moveOverlay instanceof HTMLElement && !moveOverlay.hidden) ||
     (settingsOverlay instanceof HTMLElement && !settingsOverlay.hidden) ||
     (categoryConfirmOverlay instanceof HTMLElement && !categoryConfirmOverlay.hidden);
 
@@ -2780,6 +2838,9 @@ async function createItemWithOfflineFallback(root, state, listId, payload) {
   if (isDemoList(root)) {
     return createDemoItem(state, payload);
   }
+  if (isPublicList(root)) {
+    return postJson(`${listApiUrl(root)}/items`, payload);
+  }
 
   const recordedAt = new Date().toISOString();
   const clientItemId = createOfflineId(OFFLINE_ITEM_ID_PREFIX);
@@ -2801,7 +2862,7 @@ async function createItemWithOfflineFallback(root, state, listId, payload) {
   }
 
   try {
-    return await postJson(`/api/v1/lists/${listId}/items`, payload);
+    return await postJson(`${listApiUrl(root)}/items`, payload);
   } catch (error) {
     if (!isOfflineRequestError(error)) {
       throw error;
@@ -2813,6 +2874,13 @@ async function createItemWithOfflineFallback(root, state, listId, payload) {
 async function updateItemWithOfflineFallback(root, state, itemId, payload) {
   if (isDemoList(root)) {
     return updateDemoItem(state, itemId, payload);
+  }
+  if (isPublicList(root)) {
+    return fetchJson(itemApiUrl(root, itemId), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
   }
 
   const existingItem = state.items.get(itemId);
@@ -2835,7 +2903,7 @@ async function updateItemWithOfflineFallback(root, state, itemId, payload) {
   }
 
   try {
-    return await fetchJson(`/api/v1/items/${itemId}`, {
+    return await fetchJson(itemApiUrl(root, itemId), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -2863,7 +2931,7 @@ async function moveItemWithOfflineFallback(root, state, itemId, payload) {
     );
   }
 
-  return fetchJson(`/api/v1/items/${itemId}`, {
+  return fetchJson(itemApiUrl(root, itemId), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -2873,6 +2941,9 @@ async function moveItemWithOfflineFallback(root, state, itemId, payload) {
 async function setItemCheckedWithOfflineFallback(root, state, itemId, checked) {
   if (isDemoList(root)) {
     return setDemoItemChecked(state, itemId, checked);
+  }
+  if (isPublicList(root)) {
+    return postJson(itemApiUrl(root, itemId, `/${checked ? "check" : "uncheck"}`), {});
   }
 
   const existingItem = state.items.get(itemId);
@@ -2895,7 +2966,7 @@ async function setItemCheckedWithOfflineFallback(root, state, itemId, checked) {
   }
 
   try {
-    return await postJson(`/api/v1/items/${itemId}/${checked ? "check" : "uncheck"}`, {});
+    return await postJson(itemApiUrl(root, itemId, `/${checked ? "check" : "uncheck"}`), {});
   } catch (error) {
     if (!isOfflineRequestError(error)) {
       throw error;
@@ -2913,7 +2984,7 @@ async function saveCategoryOrder(root, state) {
 
   const listId = root.dataset.listId;
   const categoryIds = getManualCategoryIds(state);
-  const response = await fetchJson(`/api/v1/lists/${listId}/category-order`, {
+  const response = await fetchJson(`${listApiUrl(root)}/category-order`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ category_ids: categoryIds }),
@@ -2921,23 +2992,16 @@ async function saveCategoryOrder(root, state) {
   state.categoryOrder = new Map(response.map((entry) => [entry.category_id, entry.sort_order]));
 }
 
-function syncItemMoveSelect(root, state, currentListId) {
-  const field = root.querySelector("[data-item-edit-list-field]");
-  const select = root.querySelector("[data-item-edit-list-select]");
+function syncItemMoveButton(root, state, itemId, currentListId) {
+  const button = root.querySelector("[data-item-edit-move-open]");
   const lists = state.lists || [];
-  if (!(field instanceof HTMLElement) || !(select instanceof HTMLSelectElement)) {
+  if (!(button instanceof HTMLButtonElement)) {
     return;
   }
 
-  field.hidden = lists.length <= 1;
-  select.innerHTML = "";
-  lists.forEach((list) => {
-    const option = document.createElement("option");
-    option.value = list.id;
-    option.textContent = list.name;
-    select.appendChild(option);
-  });
-  select.value = currentListId || root.dataset.listId || "";
+  const activeListId = currentListId || root.dataset.listId || "";
+  button.hidden = !lists.some((list) => list.id !== activeListId);
+  button.dataset.itemMoveOpen = itemId || "";
 }
 
 function showItemMovedMessage(root, targetListId) {
@@ -2996,7 +3060,7 @@ async function flushCategoryOrderSaveQueue(root, state) {
     while (tracker.queuedIds) {
       const categoryIds = [...tracker.queuedIds];
       tracker.queuedIds = null;
-      const response = await fetchJson(`/api/v1/lists/${root.dataset.listId}/category-order`, {
+      const response = await fetchJson(`${listApiUrl(root)}/category-order`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category_ids: categoryIds }),
@@ -3010,6 +3074,7 @@ async function flushCategoryOrderSaveQueue(root, state) {
         persistOfflineListState(root, state);
       }
     }
+    await loadListHistory(root, state);
     setCategoryOrderSaveStatus(root, state, "", "");
   } catch (error) {
     tracker.queuedIds = null;
@@ -3073,7 +3138,7 @@ async function saveDisabledCategories(root, state) {
   }
 
   const listId = root.dataset.listId;
-  const response = await fetchJson(`/api/v1/lists/${listId}/disabled-categories`, {
+  const response = await fetchJson(`${listApiUrl(root)}/disabled-categories`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ category_ids: getDisabledCategoryIds(state) }),
@@ -3133,15 +3198,24 @@ async function moveEditingItemToList(root, state, targetListId) {
 
   const payload = readItemEditFormPayload(root);
   if (!payload?.name) {
-    setItemEditStatus(root, "error", translate("list_detail.item_name_required", {}, "Please enter an item name."));
-    setListMessage(root, "error", translate("list_detail.item_name_required", {}, "Please enter an item name."));
+    const message = translate("list_detail.item_name_required", {}, "Please enter an item name.");
+    setItemEditStatus(root, "error", message);
+    setItemMoveStatus(root, "error", message);
+    setListMessage(root, "error", message);
+    return false;
+  }
+  if (!isValidSaleWindowPayload(payload)) {
+    const message = translate("list_detail.sale_window_invalid", {}, "Sale end must be after its start.");
+    setItemEditStatus(root, "error", message);
+    setItemMoveStatus(root, "error", message);
+    setListMessage(root, "error", message);
     return false;
   }
 
   setItemEditStatus(root, "saving", translate("list_detail.item_saving", {}, "Saving..."));
   try {
     const movedItem = await moveItemWithOfflineFallback(root, state, itemId, {
-      ...payload,
+      ...itemEditApiPayload(payload, existingItem),
       list_id: targetListId,
     });
     removeItem(state, movedItem.id);
@@ -3155,13 +3229,193 @@ async function moveEditingItemToList(root, state, targetListId) {
     setListMessage(root, "", "");
     return true;
   } catch (error) {
-    syncItemMoveSelect(root, state, existingListId);
     const message = error instanceof Error ? error.message : translate("list_detail.item_update_failed", {}, "Could not save item.");
     setItemEditStatus(root, "error", message);
+    setItemMoveStatus(root, "error", message);
     setListMessage(root, "error", message);
     updateItemEditUndoButton(root, state);
     return false;
   }
+}
+
+async function moveItemFromMenu(root, state, itemId, targetListId) {
+  const existingItem = state.items.get(itemId);
+  const existingListId = existingItem?.list_id || root.dataset.listId || "";
+  if (!existingItem) {
+    throw new Error(translate("list_detail.item_not_found", {}, "Could not find that item."));
+  }
+  if (!targetListId || targetListId === existingListId) {
+    return false;
+  }
+
+  state.openItemMenuId = null;
+  renderItems(root, state);
+
+  const movedItem = await moveItemWithOfflineFallback(root, state, itemId, {
+    ...itemEditApiPayload(itemEditPayloadFromItem(existingItem), existingItem),
+    list_id: targetListId,
+  });
+  removeItem(state, movedItem.id);
+  persistOfflineListState(root, state);
+  showMovedItemNotice(
+    root,
+    state,
+    createMovedItemNotice(root, state, existingItem, movedItem, targetListId),
+  );
+  setListMessage(root, "", "");
+  return true;
+}
+
+function ensureItemMoveModal(root) {
+  let overlay = root.querySelector("[data-item-move-overlay]");
+  if (overlay instanceof HTMLElement) {
+    return {
+      overlay,
+      panel: root.querySelector("[data-item-move-panel]"),
+      title: root.querySelector("[data-item-move-title]"),
+      options: root.querySelector("[data-item-move-options]"),
+      status: root.querySelector("[data-item-move-status]"),
+    };
+  }
+
+  overlay = document.createElement("div");
+  overlay.className = "item-modal item-move-modal";
+  overlay.dataset.itemMoveOverlay = "";
+  overlay.hidden = true;
+
+  const closeLabel = translate("list_detail.close_move_item", {}, "Close move item dialog");
+  const backdrop = document.createElement("button");
+  backdrop.className = "item-modal-backdrop";
+  backdrop.type = "button";
+  backdrop.dataset.itemMoveClose = "";
+  backdrop.setAttribute("aria-label", closeLabel);
+  overlay.appendChild(backdrop);
+
+  const panel = document.createElement("section");
+  panel.className = "dashboard-card item-move-panel";
+  panel.dataset.itemMovePanel = "";
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+  panel.setAttribute("aria-labelledby", "item-move-title");
+  panel.hidden = true;
+
+  const header = document.createElement("div");
+  header.className = "add-item-panel-header";
+  const heading = document.createElement("div");
+  const label = document.createElement("p");
+  label.className = "dashboard-label";
+  label.textContent = translate("list_detail.move_to_list", {}, "Move to list");
+  heading.appendChild(label);
+  const title = document.createElement("h2");
+  title.id = "item-move-title";
+  title.dataset.itemMoveTitle = "";
+  heading.appendChild(title);
+  header.appendChild(heading);
+
+  const closeButton = document.createElement("button");
+  closeButton.className = "add-item-close";
+  closeButton.type = "button";
+  closeButton.dataset.itemMoveClose = "";
+  closeButton.setAttribute("aria-label", closeLabel);
+  closeButton.textContent = "×";
+  header.appendChild(closeButton);
+  panel.appendChild(header);
+
+  const helper = document.createElement("p");
+  helper.className = "dashboard-helper";
+  helper.textContent = translate(
+    "list_detail.choose_destination_list",
+    {},
+    "Choose the destination list.",
+  );
+  panel.appendChild(helper);
+
+  const options = document.createElement("div");
+  options.className = "item-move-options";
+  options.dataset.itemMoveOptions = "";
+  panel.appendChild(options);
+
+  const status = document.createElement("p");
+  status.className = "item-move-status";
+  status.dataset.itemMoveStatus = "";
+  status.setAttribute("role", "status");
+  status.hidden = true;
+  panel.appendChild(status);
+
+  overlay.appendChild(panel);
+  root.appendChild(overlay);
+  return { overlay, panel, title, options, status };
+}
+
+function setItemMoveStatus(root, statusName, message) {
+  const status = root.querySelector("[data-item-move-status]");
+  if (!(status instanceof HTMLElement)) {
+    return;
+  }
+  status.hidden = !message;
+  status.dataset.status = statusName || "";
+  status.textContent = message || "";
+  root.querySelectorAll("[data-item-move-target]").forEach((button) => {
+    button.disabled = statusName === "saving";
+  });
+}
+
+function setItemMoveModalOpen(root, state, itemId, fromEditor = false) {
+  const { overlay, panel, title, options } = ensureItemMoveModal(root);
+  if (
+    !(overlay instanceof HTMLElement) ||
+    !(panel instanceof HTMLElement) ||
+    !(title instanceof HTMLElement) ||
+    !(options instanceof HTMLElement)
+  ) {
+    return;
+  }
+
+  if (!itemId) {
+    state.movingItemId = null;
+    state.moveItemFromEditor = false;
+    overlay.hidden = true;
+    panel.hidden = true;
+    setItemMoveStatus(root, "", "");
+    syncModalState(root);
+    return;
+  }
+
+  const item = state.items.get(itemId);
+  if (!item) {
+    return;
+  }
+
+  const currentListId = item.list_id || root.dataset.listId || "";
+  state.movingItemId = itemId;
+  state.moveItemFromEditor = fromEditor;
+  state.openItemMenuId = null;
+  renderItems(root, state);
+
+  title.textContent = translate(
+    "list_detail.move_item_named",
+    { name: item.name },
+    "Move {name}",
+  );
+  options.innerHTML = "";
+  (state.lists || [])
+    .filter((list) => list.id !== currentListId)
+    .forEach((list) => {
+      const button = document.createElement("button");
+      button.className = "item-move-option";
+      button.type = "button";
+      button.dataset.itemMoveTarget = list.id;
+      button.textContent = list.name;
+      options.appendChild(button);
+    });
+
+  setItemMoveStatus(root, "", "");
+  overlay.hidden = false;
+  panel.hidden = false;
+  syncModalState(root);
+  window.setTimeout(() => {
+    options.querySelector("[data-item-move-target]")?.focus();
+  }, 0);
 }
 
 function ensureCategoryDisableConfirm(root) {
@@ -3353,6 +3607,7 @@ async function setCategoryDisabled(root, state, categoryId, disabled) {
   renderItems(root, state);
   renderCategoryOrderSettings(root, state);
   persistOfflineListState(root, state);
+  await loadListHistory(root, state);
   return true;
 }
 
@@ -3534,7 +3789,7 @@ function setItemEditPanelOpen(root, state, itemId) {
   syncModalState(root);
   title.textContent = item.name;
 
-  syncItemMoveSelect(root, state, item.list_id || root.dataset.listId);
+  syncItemMoveButton(root, state, item.id, item.list_id || root.dataset.listId);
   const editSearch = root.querySelector("[data-item-edit-category-search]");
   if (editSearch instanceof HTMLInputElement) {
     editSearch.value = "";
@@ -3659,6 +3914,180 @@ function renderCategoryOrderSettings(root, state) {
   });
 }
 
+function formatListHistoryTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString(getPreferredLocale(), {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function listHistoryMessage(entry) {
+  const actor = entry.actor_display_name || translate("list_detail.history_someone", {}, "Someone");
+  const subject = entry.subject_name || translate("list_detail.history_this_list", {}, "this list");
+  const details = entry.details || {};
+  switch (entry.event_type) {
+    case "list_created":
+      return translate("list_detail.history_list_created", { actor }, "{actor} created this list.");
+    case "list_renamed":
+      return translate(
+        "list_detail.history_list_renamed",
+        {
+          actor,
+          old_name: details.old_name || translate("list_detail.history_this_list", {}, "this list"),
+          new_name: details.new_name || subject,
+        },
+        "{actor} renamed {old_name} to {new_name}."
+      );
+    case "list_accent_changed":
+      return translate("list_detail.history_list_accent_changed", { actor }, "{actor} changed the list color.");
+    case "category_order_changed":
+      return translate("list_detail.history_category_order_changed", { actor }, "{actor} changed the category order.");
+    case "list_categories_changed":
+      return translate("list_detail.history_categories_changed", { actor }, "{actor} changed enabled categories.");
+    case "item_created":
+      return translate("list_detail.history_item_created", { actor, subject }, "{actor} added {subject}.");
+    case "item_updated":
+      return translate("list_detail.history_item_updated", { actor, subject }, "{actor} edited {subject}.");
+    case "item_checked":
+      return translate("list_detail.history_item_checked", { actor, subject }, "{actor} checked off {subject}.");
+    case "item_unchecked":
+      return translate("list_detail.history_item_unchecked", { actor, subject }, "{actor} restored {subject}.");
+    case "item_deleted":
+      return translate("list_detail.history_item_deleted", { actor, subject }, "{actor} removed {subject}.");
+    case "item_moved_out":
+      return translate(
+        "list_detail.history_item_moved_out",
+        {
+          actor,
+          subject,
+          list: details.other_list || translate("list_detail.history_another_list", {}, "another list"),
+        },
+        "{actor} moved {subject} to {list}."
+      );
+    case "item_moved_in":
+      return translate(
+        "list_detail.history_item_moved_in",
+        {
+          actor,
+          subject,
+          list: details.other_list || translate("list_detail.history_another_list", {}, "another list"),
+        },
+        "{actor} moved {subject} here from {list}."
+      );
+    case "member_added":
+      return translate(
+        "list_detail.history_member_added",
+        { actor, subject },
+        "{actor} added {subject} to the household."
+      );
+    case "member_role_changed":
+      return translate(
+        "list_detail.history_member_role_changed",
+        {
+          actor,
+          subject,
+          role: details.new_role || translate("list_detail.history_new_role", {}, "a new role"),
+        },
+        "{actor} changed {subject}'s role to {role}."
+      );
+    case "member_removed":
+      return translate(
+        "list_detail.history_member_removed",
+        { actor, subject },
+        "{actor} removed {subject} from the household."
+      );
+    default:
+      return translate("list_detail.history_updated", { actor }, "{actor} updated this list.");
+  }
+}
+
+function renderListHistory(root, entries, status = "ready", errorMessage = "") {
+  const container = root.querySelector("[data-list-history]");
+  if (!(container instanceof HTMLElement)) {
+    return;
+  }
+  container.innerHTML = "";
+
+  if (status === "loading") {
+    const loading = document.createElement("p");
+    loading.className = "dashboard-helper list-history-state";
+    loading.textContent = translate("list_detail.history_loading", {}, "Loading history...");
+    container.appendChild(loading);
+    return;
+  }
+  if (status === "error") {
+    const error = document.createElement("p");
+    error.className = "dashboard-helper list-history-state is-error";
+    error.textContent = errorMessage || translate("list_detail.history_load_failed", {}, "Could not load history.");
+    container.appendChild(error);
+    return;
+  }
+
+  const safeEntries = Array.isArray(entries) ? entries : [];
+  if (safeEntries.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "dashboard-helper list-history-state";
+    empty.textContent = translate("list_detail.history_empty", {}, "No activity yet.");
+    container.appendChild(empty);
+    return;
+  }
+
+  safeEntries.forEach((entry) => {
+    const row = document.createElement("article");
+    row.className = "list-history-row";
+    row.dataset.historyEvent = entry.event_type || "unknown";
+
+    const marker = document.createElement("span");
+    marker.className = "list-history-marker";
+    marker.setAttribute("aria-hidden", "true");
+    row.appendChild(marker);
+
+    const copy = document.createElement("div");
+    const message = document.createElement("p");
+    message.textContent = listHistoryMessage(entry);
+    copy.appendChild(message);
+    const timestamp = document.createElement("time");
+    timestamp.dateTime = entry.created_at || "";
+    timestamp.textContent = formatListHistoryTimestamp(entry.created_at);
+    copy.appendChild(timestamp);
+    row.appendChild(copy);
+    container.appendChild(row);
+  });
+}
+
+async function loadListHistory(root, state) {
+  const container = root.querySelector("[data-list-history]");
+  if (!(container instanceof HTMLElement)) {
+    return [];
+  }
+  if (isDemoList(root)) {
+    state.listHistory = [];
+    renderListHistory(root, []);
+    return [];
+  }
+
+  renderListHistory(root, [], "loading");
+  try {
+    const entries = await fetchJson(`/api/v1/lists/${root.dataset.listId}/history`);
+    state.listHistory = Array.isArray(entries) ? entries : [];
+    renderListHistory(root, state.listHistory);
+    return state.listHistory;
+  } catch (error) {
+    state.listHistory = [];
+    renderListHistory(
+      root,
+      [],
+      "error",
+      error instanceof Error ? error.message : ""
+    );
+    return [];
+  }
+}
+
 function setListSettingsOpen(root, state, isOpen) {
   const overlay = root.querySelector("[data-list-settings-overlay]");
   const panel = root.querySelector("[data-list-settings-panel]");
@@ -3674,6 +4103,7 @@ function setListSettingsOpen(root, state, isOpen) {
     setItemEditPanelOpen(root, state, null);
     setListName(root, state, state.listName || listTitleText(root));
     renderCategoryOrderSettings(root, state);
+    void loadListHistory(root, state);
   }
 
   syncModalState(root);
@@ -3921,6 +4351,101 @@ function createMovedItemNoticeElement(root, state, notice) {
   return article;
 }
 
+function isItemOnSale(item, now = Date.now()) {
+  const startsAt = Date.parse(item?.sale_starts_at || "");
+  const endsAt = Date.parse(item?.sale_ends_at || "");
+  return Number.isFinite(startsAt) && Number.isFinite(endsAt) && startsAt <= now && now < endsAt;
+}
+
+function createItemCopy(item, onSale) {
+  const copy = document.createElement("div");
+  copy.className = "item-copy";
+
+  const titleRow = document.createElement("div");
+  titleRow.className = "item-name-row";
+  const title = document.createElement("h3");
+  title.className = "item-name";
+  title.textContent = item.name;
+  titleRow.appendChild(title);
+  if (onSale) {
+    const badge = document.createElement("span");
+    badge.className = "item-sale-badge";
+    badge.textContent = translate("list_detail.on_sale_badge", {}, "On sale");
+    titleRow.appendChild(badge);
+  }
+  copy.appendChild(titleRow);
+
+  if (item.quantity_text) {
+    const quantity = document.createElement("p");
+    quantity.className = "item-meta";
+    quantity.textContent = translate("list_detail.quantity_prefix", { quantity: item.quantity_text }, "Qty: {quantity}");
+    copy.appendChild(quantity);
+  }
+
+  if (item.note) {
+    const note = document.createElement("p");
+    note.className = "item-meta";
+    note.textContent = item.note;
+    copy.appendChild(note);
+  }
+  return copy;
+}
+
+function createOnSaleSection(state, items) {
+  const section = document.createElement("section");
+  section.className = "item-category-group item-sale-group";
+  section.dataset.itemSaleSection = "";
+
+  const heading = document.createElement("div");
+  heading.className = "item-category-header";
+  const swatch = document.createElement("span");
+  swatch.className = "item-category-swatch";
+  swatch.style.background = "#f59e0b";
+  heading.appendChild(swatch);
+  const headingCopy = document.createElement("div");
+  headingCopy.className = "item-category-copy";
+  const headingTitle = document.createElement("h3");
+  headingTitle.textContent = translate("list_detail.sale_section", {}, "On sale");
+  headingCopy.appendChild(headingTitle);
+  const headingMeta = document.createElement("p");
+  headingMeta.className = "item-category-meta";
+  headingMeta.textContent = translatePlural("list_detail.item_count", items.length, {}, { one: "{count} item", other: "{count} items" });
+  headingCopy.appendChild(headingMeta);
+  heading.appendChild(headingCopy);
+  section.appendChild(heading);
+
+  items.forEach((item) => {
+    const article = document.createElement("article");
+    article.className = `item-card is-on-sale${item.checked ? " is-checked" : ""}${
+      state.highlightedItemId === item.id ? " is-highlighted" : ""
+    }`;
+    article.dataset.itemSaleCard = item.id;
+    article.dataset.itemEdit = item.id;
+
+    const cardContent = document.createElement("div");
+    cardContent.className = "item-card-content";
+    const main = document.createElement("div");
+    main.className = "item-main";
+    const checkButton = document.createElement("button");
+    checkButton.className = `item-check${item.checked ? " is-checked" : ""}`;
+    checkButton.type = "button";
+    checkButton.dataset.itemToggle = item.id;
+    checkButton.setAttribute(
+      "aria-label",
+      item.checked
+        ? translate("list_detail.uncheck_item", { name: item.name }, "Uncheck {name}")
+        : translate("list_detail.check_item", { name: item.name }, "Check {name}"),
+    );
+    main.appendChild(checkButton);
+    main.appendChild(createItemCopy(item, true));
+    cardContent.appendChild(main);
+    article.appendChild(cardContent);
+    section.appendChild(article);
+  });
+
+  return section;
+}
+
 function renderItems(root, state) {
   const container = root.querySelector("[data-item-list]");
   const emptyState = root.querySelector("[data-item-empty]");
@@ -3932,6 +4457,9 @@ function renderItems(root, state) {
   const decoratedItems = [...state.items.values()].map((item) => decorateItem(state, item));
   const movedNoticeItems = [...(state.movedItemNotices?.values() || [])].map(movedItemNoticeRenderItem);
   const renderableItems = decoratedItems.concat(movedNoticeItems);
+  const onSaleItems = decoratedItems
+    .filter((item) => isItemOnSale(item, renderNow))
+    .sort((left, right) => compareActiveItems(state, left, right));
   const activeItems = renderableItems
     .filter((item) => !item.checked && !isItemHidden(item, renderNow))
     .sort((left, right) => compareActiveItems(state, left, right));
@@ -3948,6 +4476,10 @@ function renderItems(root, state) {
   emptyState.style.display = hasItems ? "none" : "";
   if (!hasItems) {
     return;
+  }
+
+  if (onSaleItems.length > 0) {
+    container.appendChild(createOnSaleSection(state, onSaleItems));
   }
 
   const groupedActiveItems = new Map();
@@ -3987,20 +4519,22 @@ function renderItems(root, state) {
     const headingActions = document.createElement("div");
     headingActions.className = "item-category-actions";
 
-    const quickAddButton = document.createElement("button");
-    quickAddButton.className = "item-category-quick-add";
-    quickAddButton.type = "button";
-    quickAddButton.dataset.itemQuickAddCategory = category?.id || "";
-    const quickAddLabel = category
-      ? translate("list_detail.quick_add_category", { name: category.name }, "Quick add to {name}")
-      : translate("list_detail.quick_add_uncategorized", {}, "Quick add uncategorized item");
-    quickAddButton.setAttribute("aria-label", quickAddLabel);
-    quickAddButton.title = quickAddLabel;
-    const quickAddIcon = document.createElement("span");
-    quickAddIcon.setAttribute("aria-hidden", "true");
-    quickAddIcon.textContent = "+";
-    quickAddButton.appendChild(quickAddIcon);
-    headingActions.appendChild(quickAddButton);
+    if (state.canEdit) {
+      const quickAddButton = document.createElement("button");
+      quickAddButton.className = "item-category-quick-add";
+      quickAddButton.type = "button";
+      quickAddButton.dataset.itemQuickAddCategory = category?.id || "";
+      const quickAddLabel = category
+        ? translate("list_detail.quick_add_category", { name: category.name }, "Quick add to {name}")
+        : translate("list_detail.quick_add_uncategorized", {}, "Quick add uncategorized item");
+      quickAddButton.setAttribute("aria-label", quickAddLabel);
+      quickAddButton.title = quickAddLabel;
+      const quickAddIcon = document.createElement("span");
+      quickAddIcon.setAttribute("aria-hidden", "true");
+      quickAddIcon.textContent = "+";
+      quickAddButton.appendChild(quickAddIcon);
+      headingActions.appendChild(quickAddButton);
+    }
     headingActions.appendChild(headingMeta);
     heading.appendChild(headingActions);
 
@@ -4012,18 +4546,24 @@ function renderItems(root, state) {
         return;
       }
 
+      const menuIsOpen = state.openItemMenuId === item.id;
+      const onSale = isItemOnSale(item, renderNow);
       const article = document.createElement("article");
       article.className = `item-card${item.checked ? " is-checked" : ""}${
         state.highlightedItemId === item.id ? " is-highlighted" : ""
-      }`;
+      }${menuIsOpen ? " has-open-menu" : ""}${onSale ? " is-on-sale" : ""}`;
       article.dataset.itemCard = item.id;
-      article.dataset.itemEdit = item.id;
+      if (state.canEdit) {
+        article.dataset.itemEdit = item.id;
+      }
 
-      const swipeAction = document.createElement("div");
-      swipeAction.className = "item-swipe-action";
-      swipeAction.setAttribute("aria-hidden", "true");
-      swipeAction.textContent = translate("list_detail.hide_for_later_short", {}, "Later 4h");
-      article.appendChild(swipeAction);
+      if (state.canEdit) {
+        const swipeAction = document.createElement("div");
+        swipeAction.className = "item-swipe-action";
+        swipeAction.setAttribute("aria-hidden", "true");
+        swipeAction.textContent = translate("list_detail.hide_for_later_short", {}, "Later 4h");
+        article.appendChild(swipeAction);
+      }
 
       const cardContent = document.createElement("div");
       cardContent.className = "item-card-content";
@@ -4031,71 +4571,85 @@ function renderItems(root, state) {
       const main = document.createElement("div");
       main.className = "item-main";
 
-      const checkButton = document.createElement("button");
+      const checkButton = document.createElement(state.canEdit ? "button" : "span");
       checkButton.className = `item-check${item.checked ? " is-checked" : ""}`;
-      checkButton.type = "button";
-      checkButton.dataset.itemToggle = item.id;
-      checkButton.setAttribute(
-        "aria-label",
-        item.checked
-          ? translate("list_detail.uncheck_item", { name: item.name }, "Uncheck {name}")
-          : translate("list_detail.check_item", { name: item.name }, "Check {name}")
-      );
+      if (state.canEdit) {
+        checkButton.type = "button";
+        checkButton.dataset.itemToggle = item.id;
+        checkButton.setAttribute(
+          "aria-label",
+          item.checked
+            ? translate("list_detail.uncheck_item", { name: item.name }, "Uncheck {name}")
+            : translate("list_detail.check_item", { name: item.name }, "Check {name}")
+        );
+      } else {
+        checkButton.setAttribute("aria-hidden", "true");
+      }
       main.appendChild(checkButton);
 
-      const copy = document.createElement("div");
-      copy.className = "item-copy";
-
-      const title = document.createElement("h3");
-      title.className = "item-name";
-      title.textContent = item.name;
-      copy.appendChild(title);
-
-      if (item.quantity_text) {
-        const quantity = document.createElement("p");
-        quantity.className = "item-meta";
-        quantity.textContent = translate("list_detail.quantity_prefix", { quantity: item.quantity_text }, "Qty: {quantity}");
-        copy.appendChild(quantity);
-      }
-
-      if (item.note) {
-        const note = document.createElement("p");
-        note.className = "item-meta";
-        note.textContent = item.note;
-        copy.appendChild(note);
-      }
-
-      main.appendChild(copy);
+      main.appendChild(createItemCopy(item, onSale));
       cardContent.appendChild(main);
 
-      const actions = document.createElement("div");
-      actions.className = "item-actions";
+      if (state.canEdit) {
+        const actions = document.createElement("div");
+        actions.className = "item-actions";
 
-      const menuButton = document.createElement("button");
-      menuButton.type = "button";
-      menuButton.className = "item-more-button";
-      menuButton.dataset.itemMenuToggle = item.id;
-      menuButton.setAttribute(
-        "aria-label",
-        translate("list_detail.more_item_actions", { name: item.name }, "More actions for {name}")
-      );
-      menuButton.setAttribute("aria-expanded", String(state.openItemMenuId === item.id));
-      menuButton.textContent = "⋯";
-      actions.appendChild(menuButton);
-      cardContent.appendChild(actions);
+        const menuButton = document.createElement("button");
+        menuButton.type = "button";
+        menuButton.className = "item-more-button";
+        menuButton.dataset.itemMenuToggle = item.id;
+        menuButton.setAttribute(
+          "aria-label",
+          translate("list_detail.more_item_actions", { name: item.name }, "More actions for {name}")
+        );
+        menuButton.setAttribute("aria-controls", `item-more-menu-${item.id}`);
+        menuButton.setAttribute("aria-expanded", String(menuIsOpen));
+        menuButton.setAttribute("aria-haspopup", "menu");
+        const menuButtonIcon = document.createElement("span");
+        menuButtonIcon.className = "item-more-button-icon";
+        menuButtonIcon.setAttribute("aria-hidden", "true");
+        menuButtonIcon.textContent = "⋯";
+        menuButton.appendChild(menuButtonIcon);
+        actions.appendChild(menuButton);
+        cardContent.appendChild(actions);
+      }
 
       article.appendChild(cardContent);
 
-      const menu = document.createElement("div");
-      menu.className = "item-more-menu";
-      menu.hidden = state.openItemMenuId !== item.id;
+      if (state.canEdit) {
+        const menu = document.createElement("div");
+        menu.className = "item-more-menu";
+        menu.id = `item-more-menu-${item.id}`;
+        menu.setAttribute("role", "menu");
+        menu.hidden = !menuIsOpen;
 
-      const hideButton = document.createElement("button");
-      hideButton.type = "button";
-      hideButton.dataset.itemHide = item.id;
-      hideButton.textContent = translate("list_detail.hide_item_for_later_menu", {}, "Hide item for 4h");
-      menu.appendChild(hideButton);
-      article.appendChild(menu);
+        const currentListId = item.list_id || root.dataset.listId || "";
+        const moveTargetLists = (state.lists || []).filter((list) => list.id !== currentListId);
+        if (moveTargetLists.length > 0) {
+          const moveButton = document.createElement("button");
+          moveButton.type = "button";
+          moveButton.dataset.itemMoveOpen = item.id;
+          moveButton.setAttribute("role", "menuitem");
+          moveButton.textContent = translate(
+            "list_detail.move_to_list",
+            {},
+            "Move to list",
+          );
+          menu.appendChild(moveButton);
+        }
+
+        const hideButton = document.createElement("button");
+        hideButton.type = "button";
+        hideButton.dataset.itemHide = item.id;
+        hideButton.setAttribute("role", "menuitem");
+        hideButton.textContent = translate(
+          "list_detail.hide_item_for_later_menu",
+          {},
+          "Hide item for 4h",
+        );
+        menu.appendChild(hideButton);
+        article.appendChild(menu);
+      }
       section.appendChild(article);
     });
 
@@ -4134,11 +4688,14 @@ function renderItems(root, state) {
       }
 
       const article = document.createElement("article");
+      const onSale = isItemOnSale(item, renderNow);
       article.className = `item-card is-hidden${
         state.highlightedItemId === item.id ? " is-highlighted" : ""
-      }`;
+      }${onSale ? " is-on-sale" : ""}`;
       article.dataset.itemCard = item.id;
-      article.dataset.itemEdit = item.id;
+      if (state.canEdit) {
+        article.dataset.itemEdit = item.id;
+      }
 
       const cardContent = document.createElement("div");
       cardContent.className = "item-card-content";
@@ -4146,40 +4703,20 @@ function renderItems(root, state) {
       const main = document.createElement("div");
       main.className = "item-main";
 
-      const unhideButton = document.createElement("button");
+      const unhideButton = document.createElement(state.canEdit ? "button" : "span");
       unhideButton.className = "item-check item-hidden-clock";
-      unhideButton.type = "button";
-      unhideButton.dataset.itemUnhide = item.id;
-      unhideButton.setAttribute(
-        "aria-label",
-        translate("list_detail.show_hidden_item", { name: item.name }, "Show {name} now")
-      );
+      if (state.canEdit) {
+        unhideButton.type = "button";
+        unhideButton.dataset.itemUnhide = item.id;
+        unhideButton.setAttribute(
+          "aria-label",
+          translate("list_detail.show_hidden_item", { name: item.name }, "Show {name} now")
+        );
+      }
       unhideButton.textContent = formatHiddenUntilLabel(item, renderNow);
       main.appendChild(unhideButton);
 
-      const copy = document.createElement("div");
-      copy.className = "item-copy";
-
-      const title = document.createElement("h3");
-      title.className = "item-name";
-      title.textContent = item.name;
-      copy.appendChild(title);
-
-      if (item.quantity_text) {
-        const quantity = document.createElement("p");
-        quantity.className = "item-meta";
-        quantity.textContent = translate("list_detail.quantity_prefix", { quantity: item.quantity_text }, "Qty: {quantity}");
-        copy.appendChild(quantity);
-      }
-
-      if (item.note) {
-        const note = document.createElement("p");
-        note.className = "item-meta";
-        note.textContent = item.note;
-        copy.appendChild(note);
-      }
-
-      main.appendChild(copy);
+      main.appendChild(createItemCopy(item, onSale));
       cardContent.appendChild(main);
       article.appendChild(cardContent);
       section.appendChild(article);
@@ -4224,11 +4761,14 @@ function renderItems(root, state) {
       }
 
       const article = document.createElement("article");
+      const onSale = isItemOnSale(item, renderNow);
       article.className = `item-card is-checked${
         state.highlightedItemId === item.id ? " is-highlighted" : ""
-      }`;
+      }${onSale ? " is-on-sale" : ""}`;
       article.dataset.itemCard = item.id;
-      article.dataset.itemEdit = item.id;
+      if (state.canEdit) {
+        article.dataset.itemEdit = item.id;
+      }
 
       const cardContent = document.createElement("div");
       cardContent.className = "item-card-content";
@@ -4236,39 +4776,21 @@ function renderItems(root, state) {
       const main = document.createElement("div");
       main.className = "item-main";
 
-      const checkButton = document.createElement("button");
+      const checkButton = document.createElement(state.canEdit ? "button" : "span");
       checkButton.className = "item-check is-checked";
-      checkButton.type = "button";
-      checkButton.dataset.itemToggle = item.id;
-      checkButton.setAttribute(
-        "aria-label",
-        translate("list_detail.uncheck_item", { name: item.name }, "Uncheck {name}")
-      );
+      if (state.canEdit) {
+        checkButton.type = "button";
+        checkButton.dataset.itemToggle = item.id;
+        checkButton.setAttribute(
+          "aria-label",
+          translate("list_detail.uncheck_item", { name: item.name }, "Uncheck {name}")
+        );
+      } else {
+        checkButton.setAttribute("aria-hidden", "true");
+      }
       main.appendChild(checkButton);
 
-      const copy = document.createElement("div");
-      copy.className = "item-copy";
-
-      const title = document.createElement("h3");
-      title.className = "item-name";
-      title.textContent = item.name;
-      copy.appendChild(title);
-
-      if (item.quantity_text) {
-        const quantity = document.createElement("p");
-        quantity.className = "item-meta";
-        quantity.textContent = translate("list_detail.quantity_prefix", { quantity: item.quantity_text }, "Qty: {quantity}");
-        copy.appendChild(quantity);
-      }
-
-      if (item.note) {
-        const note = document.createElement("p");
-        note.className = "item-meta";
-        note.textContent = item.note;
-        copy.appendChild(note);
-      }
-
-      main.appendChild(copy);
+      main.appendChild(createItemCopy(item, onSale));
       cardContent.appendChild(main);
       article.appendChild(cardContent);
       section.appendChild(article);
@@ -4333,7 +4855,7 @@ async function loadMoreCheckedItems(root, state) {
   const listId = root.dataset.listId;
   const checkedOffset = [...state.items.values()].filter((item) => item.checked).length;
   const olderItems = await fetchJson(
-    `/api/v1/lists/${listId}/items/checked?offset=${checkedOffset}&limit=${CHECKED_ITEMS_LOAD_MORE_COUNT}`,
+    `${listApiUrl(root)}/items/checked?offset=${checkedOffset}&limit=${CHECKED_ITEMS_LOAD_MORE_COUNT}`,
   );
   olderItems.forEach((item) => {
     state.items.set(item.id, item);
@@ -4420,7 +4942,7 @@ async function deleteItem(root, state, listId, itemId) {
     queueDelete();
   } else if (!isDemoList(root)) {
     try {
-      const response = await fetch(`/api/v1/items/${itemId}`, { method: "DELETE" });
+      const response = await fetch(itemApiUrl(root, itemId), { method: "DELETE" });
       if (response.status === 401) {
         navigateTo("/login");
         throw new Error(translate("common.errors.unauthorized", {}, "Unauthorized"));
@@ -4478,6 +5000,29 @@ function disposeSocket(state, markDisposed) {
   }
 }
 
+function applyListAccess(root, state, accessRole) {
+  state.accessRole = accessRole;
+  state.canEdit = accessRole === "owner" || accessRole === "editor";
+  state.canManage = accessRole === "owner";
+  root.querySelectorAll("[data-item-form-toggle]").forEach((node) => {
+    if (node instanceof HTMLElement) {
+      node.hidden = !state.canEdit;
+    }
+  });
+  const settingsButton = root.querySelector("[data-list-settings-toggle]");
+  if (settingsButton instanceof HTMLElement) {
+    settingsButton.hidden = false;
+  }
+  const settingsManagement = root.querySelector("[data-list-settings-management]");
+  if (settingsManagement instanceof HTMLElement) {
+    settingsManagement.hidden = !state.canManage;
+  }
+  const readOnlyNotice = root.querySelector("[data-list-read-only]");
+  if (readOnlyNotice instanceof HTMLElement) {
+    readOnlyNotice.hidden = accessRole !== "viewer";
+  }
+}
+
 async function loadListDetail(root, state) {
   if (isDemoList(root)) {
     const payload = state.demoPayload || getDemoPayload(root);
@@ -4485,6 +5030,7 @@ async function loadListDetail(root, state) {
       throw new Error(translate("list_detail.load_failed", {}, "Could not load the list."));
     }
 
+    applyListAccess(root, state, "owner");
     setListName(root, state, payload.list.name);
     renderListSwitcher(root, payload.list, []);
 
@@ -4517,16 +5063,16 @@ async function loadListDetail(root, state) {
   let switchTargets = [];
 
   try {
-    groceryList = await fetchJson(`/api/v1/lists/${listId}`);
+    groceryList = await fetchJson(listApiUrl(root));
     [itemWindow, categories, categoryOrder, disabledCategories, switchTargets] = await Promise.all([
-      fetchJson(`/api/v1/lists/${listId}/items/window`),
-      fetchJson(`/api/v1/lists/${listId}/categories`),
-      fetchJson(`/api/v1/lists/${listId}/category-order`),
-      fetchJson(`/api/v1/lists/${listId}/disabled-categories`),
-      loadListSwitchTargets().catch(() => []),
+      fetchJson(`${listApiUrl(root)}/items/window`),
+      fetchJson(`${listApiUrl(root)}/categories`),
+      fetchJson(`${listApiUrl(root)}/category-order`),
+      fetchJson(`${listApiUrl(root)}/disabled-categories`),
+      isPublicList(root) ? Promise.resolve([]) : loadListSwitchTargets().catch(() => []),
     ]);
   } catch (error) {
-    const cachedState = loadOfflineListState(listId);
+    const cachedState = isPublicList(root) ? null : loadOfflineListState(listId);
     if (cachedState) {
       applyOfflineListState(root, state, cachedState);
       renderListSwitcher(root, null, []);
@@ -4544,18 +5090,34 @@ async function loadListDetail(root, state) {
     throw error;
   }
 
+  applyListAccess(root, state, groceryList.access_role || "viewer");
   setListName(root, state, groceryList.name);
-  renderListSwitcher(root, groceryList, switchTargets);
+  if (isPublicList(root)) {
+    rememberPublicList(root, groceryList);
+  }
+  renderListSwitcher(root, groceryList, isPublicList(root) ? [] : switchTargets);
 
   state.categories = new Map(categories.map((category) => [category.id, category]));
-  state.lists = switchTargets.filter((list) => list.household_id === groceryList.household_id);
+  state.lists = isPublicList(root)
+    ? [
+        {
+          id: groceryList.id,
+          name: groceryList.name,
+          household_id: groceryList.household_id,
+        },
+      ]
+    : switchTargets.filter((list) => list.household_id === groceryList.household_id);
   state.categoryOrder = new Map(
     categoryOrder.map((entry) => [entry.category_id, entry.sort_order])
   );
   setDisabledCategoryIds(state, disabledCategories.category_ids || []);
   state.pendingMutations = [];
-  const cachedState = loadOfflineListState(listId);
-  if (cachedState?.pendingMutations?.length > 0 && Array.isArray(cachedState.items)) {
+  const cachedState = isPublicList(root) ? null : loadOfflineListState(listId);
+  if (
+    state.canEdit &&
+    cachedState?.pendingMutations?.length > 0 &&
+    Array.isArray(cachedState.items)
+  ) {
     state.pendingMutations = cachedState.pendingMutations;
     replaceItems(state, cachedState.items);
     state.checkedRemainingCount = cachedState.checkedRemainingCount || 0;
@@ -4570,7 +5132,7 @@ async function loadListDetail(root, state) {
 }
 
 function connectListSocket(root, state) {
-  if (isDemoList(root)) {
+  if (isDemoList(root) || isPublicList(root)) {
     setListSyncStatus(
       root,
       root.dataset.demoSyncText || translate("list_detail.sync_unavailable", {}, "Live updates unavailable.")
@@ -4668,6 +5230,81 @@ function connectListSocket(root, state) {
   });
 }
 
+async function createPublicListLink(root) {
+  const daysInput = root.querySelector("[data-public-list-link-days]");
+  const submitButton = root.querySelector("[data-public-list-link-submit]");
+  const output = root.querySelector("[data-public-list-link-output]");
+  const urlInput = root.querySelector("[data-public-list-link-url]");
+  const expiry = root.querySelector("[data-public-list-link-expiry]");
+  const expiresInDays = Number.parseInt(daysInput?.value || "7", 10);
+  submitButton.disabled = true;
+  try {
+    const link = await postJson(`/api/v1/lists/${root.dataset.listId}/public-links`, {
+      expires_in_days: expiresInDays,
+    });
+    urlInput.value = link.public_url;
+    expiry.textContent = translate(
+      "list_detail.public_link_expires",
+      { date: formatInviteExpiry(link.expires_at) },
+      "Link expires {date}.",
+    );
+    output.hidden = false;
+    setListMessage(
+      root,
+      "success",
+      translate(
+        "list_detail.public_link_created",
+        {},
+        "Public edit link created.",
+      ),
+    );
+    return link;
+  } catch (error) {
+    setListMessage(
+      root,
+      "error",
+      error instanceof Error
+        ? error.message
+        : translate(
+            "list_detail.public_link_create_failed",
+            {},
+            "Could not create public link.",
+          ),
+    );
+    return null;
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function copyPublicListLink(root) {
+  const input = root.querySelector("[data-public-list-link-url]");
+  if (!(input instanceof HTMLInputElement)) {
+    return false;
+  }
+  input.select();
+  try {
+    await navigator.clipboard?.writeText(input.value);
+    setListMessage(
+      root,
+      "success",
+      translate("list_detail.public_link_copied", {}, "Public link copied."),
+    );
+    return true;
+  } catch {
+    setListMessage(
+      root,
+      "error",
+      translate(
+        "list_detail.public_link_copy_failed",
+        {},
+        "Could not copy public link.",
+      ),
+    );
+    return false;
+  }
+}
+
 async function initListDetail() {
   const root = document.querySelector("[data-list-detail]");
   if (!root) {
@@ -4679,6 +5316,9 @@ async function initListDetail() {
   const nameInput = root.querySelector("[data-item-name-input]");
   const listId = root.dataset.listId;
   const state = {
+    accessRole: "viewer",
+    canEdit: false,
+    canManage: false,
     categoryOrder: new Map(),
     categories: new Map(),
     checkedRemainingCount: 0,
@@ -4695,8 +5335,11 @@ async function initListDetail() {
     itemEditSaveTimerId: null,
     items: new Map(),
     lists: [],
+    listHistory: [],
     listName: "",
     movedItemNotices: new Map(),
+    movingItemId: null,
+    moveItemFromEditor: false,
     nextDemoId: 1,
     offlineSyncInFlight: null,
     openItemMenuId: null,
@@ -4707,6 +5350,9 @@ async function initListDetail() {
     undoAction: null,
     undoTimerId: null,
   };
+
+  syncSaleWindowControls(itemForm);
+  syncSaleWindowControls(itemEditForm);
 
   const refresh = async () => {
     setListMessage(root, "", "");
@@ -4757,6 +5403,19 @@ async function initListDetail() {
     });
   });
 
+  root.querySelector("[data-list-history-refresh]")?.addEventListener("click", () => {
+    void loadListHistory(root, state);
+  });
+
+  root.querySelector("[data-public-list-link-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await createPublicListLink(root);
+  });
+
+  root.querySelector("[data-public-list-link-copy]")?.addEventListener("click", async () => {
+    await copyPublicListLink(root);
+  });
+
   root.querySelector("[data-list-name-form]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const input = root.querySelector("[data-list-name-input]");
@@ -4764,6 +5423,7 @@ async function initListDetail() {
     submitButton.disabled = true;
     try {
       await saveListName(root, state, input.value);
+      await loadListHistory(root, state);
       setListMessage(
         root,
         "success",
@@ -4799,6 +5459,12 @@ async function initListDetail() {
       return;
     }
 
+    const movePanel = root.querySelector("[data-item-move-panel]");
+    if (movePanel instanceof HTMLElement && !movePanel.hidden) {
+      setItemMoveModalOpen(root, state, null);
+      return;
+    }
+
     const settingsPanel = root.querySelector("[data-list-settings-panel]");
     if (settingsPanel instanceof HTMLElement && !settingsPanel.hidden) {
       setListSettingsOpen(root, state, false);
@@ -4817,13 +5483,14 @@ async function initListDetail() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" || event.defaultPrevented) {
+    if (event.key !== "Enter" || event.defaultPrevented || !state.canEdit) {
       return;
     }
 
     const activeElement = document.activeElement;
     const panel = root.querySelector("[data-item-panel]");
     const editOverlay = root.querySelector("[data-item-edit-overlay]");
+    const moveOverlay = root.querySelector("[data-item-move-overlay]");
     const isTypingContext =
       activeElement instanceof HTMLInputElement ||
       activeElement instanceof HTMLTextAreaElement ||
@@ -4833,7 +5500,8 @@ async function initListDetail() {
     if (
       isTypingContext ||
       !panel?.hidden ||
-      (editOverlay instanceof HTMLElement && !editOverlay.hidden)
+      (editOverlay instanceof HTMLElement && !editOverlay.hidden) ||
+      (moveOverlay instanceof HTMLElement && !moveOverlay.hidden)
     ) {
       return;
     }
@@ -4858,7 +5526,7 @@ async function initListDetail() {
     const target = event.target;
     if (
       target instanceof HTMLInputElement &&
-      ["name", "quantity_text", "note"].includes(target.name)
+      ["name", "quantity_text", "note", "sale_starts_at", "sale_ends_at"].includes(target.name)
     ) {
       scheduleItemEditSave(root, state);
     }
@@ -4875,7 +5543,7 @@ async function initListDetail() {
     }
     if (
       target instanceof HTMLInputElement &&
-      ["name", "quantity_text", "note"].includes(target.name)
+      ["name", "quantity_text", "note", "sale_starts_at", "sale_ends_at"].includes(target.name)
     ) {
       void flushItemEditSave(root, state);
     }
@@ -4883,12 +5551,13 @@ async function initListDetail() {
 
   itemEditForm?.addEventListener("change", (event) => {
     const target = event.target;
-    if (target instanceof HTMLInputElement && target.name === "edit_category_id") {
+    if (target instanceof HTMLInputElement && target.name === "sale_enabled") {
+      syncSaleWindowControls(itemEditForm, { useDefaults: true });
       void flushItemEditSave(root, state);
       return;
     }
-    if (target instanceof HTMLSelectElement && target.name === "list_id") {
-      void moveEditingItemToList(root, state, target.value);
+    if (target instanceof HTMLInputElement && target.name === "edit_category_id") {
+      void flushItemEditSave(root, state);
     }
   });
 
@@ -4912,7 +5581,11 @@ async function initListDetail() {
   }
 
   root.addEventListener("pointerdown", (event) => {
-    if (!(event.target instanceof HTMLElement) || event.target.closest("button")) {
+    if (
+      !state.canEdit ||
+      !(event.target instanceof HTMLElement) ||
+      event.target.closest("button")
+    ) {
       return;
     }
 
@@ -5010,6 +5683,10 @@ async function initListDetail() {
     gesture.card.style.removeProperty("--item-swipe-x");
   });
 
+  itemForm.querySelector('input[name="sale_enabled"]')?.addEventListener("change", () => {
+    syncSaleWindowControls(itemForm, { useDefaults: true });
+  });
+
   itemForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(itemForm);
@@ -5032,11 +5709,27 @@ async function initListDetail() {
     if (note) {
       payload.note = note;
     }
+    const saleEnabled = Boolean(itemForm.elements.namedItem("sale_enabled")?.checked);
+    if (saleEnabled) {
+      const salePayload = normalizeItemEditPayload({
+        name,
+        sale_enabled: true,
+        sale_starts_at: dateTimeLocalToIso(formData.get("sale_starts_at")),
+        sale_ends_at: dateTimeLocalToIso(formData.get("sale_ends_at")),
+      });
+      if (!isValidSaleWindowPayload(salePayload)) {
+        setListMessage(root, "error", translate("list_detail.sale_window_invalid", {}, "Sale end must be after its start."));
+        return;
+      }
+      payload.sale_starts_at = salePayload.sale_starts_at;
+      payload.sale_ends_at = salePayload.sale_ends_at;
+    }
 
     try {
       const createdItem = await createItemWithOfflineFallback(root, state, listId, payload);
       upsertItem(state, createdItem);
       itemForm.reset();
+      syncSaleWindowControls(itemForm);
       const addSearch = root.querySelector("[data-item-category-search]");
       if (addSearch instanceof HTMLInputElement) {
         addSearch.value = "";
@@ -5065,13 +5758,16 @@ async function initListDetail() {
     }
 
     const actionTarget = eventTarget.closest(
-      "[data-item-toggle], [data-item-hide], [data-item-unhide], [data-item-menu-toggle], [data-item-reuse], [data-moved-item-undo], [data-settings-category-move], [data-settings-category-toggle]"
+      "[data-item-toggle], [data-item-hide], [data-item-unhide], [data-item-menu-toggle], [data-item-move-open], [data-item-move-target], [data-item-move-close], [data-item-reuse], [data-moved-item-undo], [data-settings-category-move], [data-settings-category-toggle]"
     );
     const target = actionTarget instanceof HTMLElement ? actionTarget : null;
     const toggleId = target?.dataset.itemToggle || "";
     const hideId = target?.dataset.itemHide || "";
     const unhideId = target?.dataset.itemUnhide || "";
     const menuToggleId = target?.dataset.itemMenuToggle || "";
+    const moveOpenItemId = target?.dataset.itemMoveOpen || "";
+    const moveTargetListId = target?.dataset.itemMoveTarget || "";
+    const closeMoveModal = target?.hasAttribute("data-item-move-close") || false;
     const reuseItemId = target?.dataset.itemReuse || "";
     const movedItemUndoId = target?.dataset.movedItemUndo || "";
     const categoryMove = target?.dataset.settingsCategoryMove || "";
@@ -5101,6 +5797,9 @@ async function initListDetail() {
       !hideId &&
       !unhideId &&
       !menuToggleId &&
+      !moveOpenItemId &&
+      !moveTargetListId &&
+      !closeMoveModal &&
       !reuseItemId &&
       !movedItemUndoId &&
       !categoryMove &&
@@ -5151,9 +5850,47 @@ async function initListDetail() {
         return;
       }
 
+      if (closeMoveModal) {
+        setItemMoveModalOpen(root, state, null);
+        return;
+      }
+
+      if (moveOpenItemId) {
+        setItemMoveModalOpen(
+          root,
+          state,
+          moveOpenItemId,
+          target?.hasAttribute("data-item-move-from-editor") || false,
+        );
+        return;
+      }
+
       if (hideId) {
         state.openItemMenuId = null;
         await hideItemForLater(root, state, hideId);
+        return;
+      }
+
+      if (moveTargetListId && state.movingItemId) {
+        setItemMoveStatus(
+          root,
+          "saving",
+          translate("list_detail.item_saving", {}, "Saving..."),
+        );
+        try {
+          const didMove = state.moveItemFromEditor
+            ? await moveEditingItemToList(root, state, moveTargetListId)
+            : await moveItemFromMenu(root, state, state.movingItemId, moveTargetListId);
+          if (didMove) {
+            setItemMoveModalOpen(root, state, null);
+          }
+        } catch (error) {
+          const message = error instanceof Error
+            ? error.message
+            : translate("list_detail.item_update_failed", {}, "Could not save item.");
+          setItemMoveStatus(root, "error", message);
+          setListMessage(root, "error", message);
+        }
         return;
       }
 
@@ -5411,178 +6148,6 @@ async function initListDetail() {
   }
 }
 
-async function registerWithPasskey(root, form) {
-  const formData = new FormData(form);
-  const options = await postJson("/api/v1/auth/register/options", {
-    email: formData.get("email"),
-    display_name: formData.get("display_name"),
-  });
-  const credential = await navigator.credentials.create({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson("/api/v1/auth/register/verify", {
-    credential: credentialToJSON(credential),
-  });
-  setMessage(root, "success", translate("auth.login.created_redirect", {}, "Passkey created. Redirecting to your dashboard..."));
-  navigateTo(root.getAttribute("data-next-url") || "/");
-}
-
-async function loginWithPasskey(root, form) {
-  void form;
-  const options = await postJson("/api/v1/auth/login/options", {});
-  const credential = await navigator.credentials.get({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson("/api/v1/auth/login/verify", {
-    credential: credentialToJSON(credential),
-  });
-  setMessage(root, "success", translate("auth.login.accepted_redirect", {}, "Passkey accepted. Redirecting to your dashboard..."));
-  navigateTo(root.getAttribute("data-next-url") || "/");
-}
-
-async function addPasskeyWithLink(root) {
-  const token = root.getAttribute("data-passkey-add-token");
-  if (!token) {
-    throw new Error(translate("auth.passkey_add.missing_token", {}, "Passkey add link is missing."));
-  }
-
-  const options = await postJson(`/api/v1/auth/passkey-add/${token}/options`, {});
-  const credential = await navigator.credentials.create({
-    publicKey: publicKeyFromJSON(options),
-  });
-  await postJson(`/api/v1/auth/passkey-add/${token}/verify`, {
-    credential: credentialToJSON(credential),
-  });
-  setMessage(root, "success", translate("auth.passkey_add.created_redirect", {}, "Additional passkey created. Redirecting to your dashboard..."));
-  navigateTo("/");
-}
-
-async function handlePasskeyLoginClick(root, loginForm) {
-  toggleButtons(root, true);
-  try {
-    await loginWithPasskey(root, loginForm);
-  } catch (error) {
-    setMessage(root, "error", error instanceof Error ? error.message : translate("auth.login.login_failed", {}, "Passkey login failed."));
-  } finally {
-    toggleButtons(root, false);
-  }
-}
-
-function transitionAuthPanels(root, updatePanels) {
-  const panelGroup = root.querySelector("[data-auth-panels]");
-  if (!(panelGroup instanceof HTMLElement)) {
-    updatePanels();
-    return;
-  }
-
-  const beforeHeight = panelGroup.getBoundingClientRect().height;
-  updatePanels();
-  const afterHeight = panelGroup.scrollHeight;
-  if (!beforeHeight || !afterHeight || beforeHeight === afterHeight) {
-    return;
-  }
-
-  panelGroup.style.height = `${beforeHeight}px`;
-  panelGroup.style.overflow = "hidden";
-  panelGroup.getBoundingClientRect();
-  panelGroup.style.height = `${afterHeight}px`;
-
-  const settle = () => {
-    panelGroup.style.height = "";
-    panelGroup.style.overflow = "";
-    panelGroup.removeEventListener("transitionend", settle);
-  };
-  panelGroup.addEventListener("transitionend", settle, { once: true });
-  window.setTimeout(settle, 240);
-}
-
-function setAuthTab(root, tab) {
-  const panels = root.querySelectorAll("[data-auth-tab-panel]");
-  const triggers = root.querySelectorAll("[data-auth-tab-trigger]");
-  if (!panels.length || !triggers.length) {
-    return;
-  }
-
-  transitionAuthPanels(root, () => {
-    panels.forEach((panel) => {
-      panel.hidden = panel.getAttribute("data-auth-tab-panel") !== tab;
-    });
-  });
-
-  triggers.forEach((trigger) => {
-    trigger.setAttribute(
-      "aria-selected",
-      trigger.getAttribute("data-auth-tab-trigger") === tab ? "true" : "false"
-    );
-  });
-
-  if (tab === "signup") {
-    root.querySelector('[data-passkey-register] input[name="display_name"]')?.focus();
-  }
-}
-
-function initPasskeyAuth() {
-  const root = document.querySelector("[data-passkey-auth]");
-  if (!root) {
-    return;
-  }
-
-  if (!window.PublicKeyCredential || !navigator.credentials) {
-    setMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-    toggleButtons(root, true);
-    return;
-  }
-
-  const registerForm = root.querySelector("[data-passkey-register]");
-  const loginForm = root.querySelector("[data-passkey-login]");
-  root.querySelectorAll("[data-auth-tab-trigger]").forEach((trigger) => {
-    trigger.addEventListener("click", () => {
-      setAuthTab(root, trigger.getAttribute("data-auth-tab-trigger"));
-    });
-  });
-
-  registerForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    toggleButtons(root, true);
-    try {
-      await registerWithPasskey(root, registerForm);
-    } catch (error) {
-      setMessage(root, "error", error instanceof Error ? error.message : translate("auth.login.registration_failed", {}, "Passkey registration failed."));
-    } finally {
-      toggleButtons(root, false);
-    }
-  });
-
-  root.querySelector("[data-passkey-login-button]")?.addEventListener(
-    "click",
-    handlePasskeyLoginClick.bind(null, root, loginForm)
-  );
-}
-
-function initPasskeyAddLink() {
-  const root = document.querySelector("[data-passkey-add-link]");
-  if (!root) {
-    return;
-  }
-
-  if (!window.PublicKeyCredential || !navigator.credentials) {
-    setMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-    toggleButtons(root, true);
-    return;
-  }
-
-  root.querySelector("[data-passkey-add-link-button]")?.addEventListener("click", async () => {
-    toggleButtons(root, true);
-    try {
-      await addPasskeyWithLink(root);
-    } catch (error) {
-      setMessage(root, "error", error instanceof Error ? error.message : translate("auth.passkey_add.failed", {}, "Passkey add failed."));
-    } finally {
-      toggleButtons(root, false);
-    }
-  });
-}
-
 function setSettingsMessage(root, type, message) {
   const errorNode = root.querySelector("[data-settings-error]");
   const successNode = root.querySelector("[data-settings-success]");
@@ -5644,24 +6209,6 @@ function initUserSettings() {
     }
     navigateTo(`${url.pathname}${url.search}${url.hash}`);
   });
-
-  if (!window.PublicKeyCredential || !navigator.credentials) {
-    setPasskeyManagementMessage(root, "error", translate("common.errors.unsupported_passkeys", {}, "This browser does not support passkeys."));
-    toggleButtons(root, true);
-    return;
-  }
-
-  initPasskeyManagement(root, {
-    setMessage: setPasskeyManagementMessage,
-    toggleForms: togglePasskeyManagementForms,
-    refreshData: () => loadPasskeyManagementData(root),
-  }).catch((error) => {
-    setPasskeyManagementMessage(
-      root,
-      "error",
-      error instanceof Error ? error.message : translate("settings.load_failed", {}, "Could not load your passkeys.")
-    );
-  });
 }
 
 function formatInviteExpiry(value) {
@@ -5691,7 +6238,9 @@ async function initHouseholdInvite() {
     loadingNode.hidden = true;
     readyNode.hidden = false;
     householdNameNode.textContent = invite.household_name;
-    expiryNode.textContent = translate("invite.expires_on", { date: formatInviteExpiry(invite.expires_at) }, "This link expires on {date}.");
+    expiryNode.textContent = invite.expires_at
+      ? translate("invite.expires_on", { date: formatInviteExpiry(invite.expires_at) }, "This link expires on {date}.")
+      : translate("invite.remaining_uses", { count: invite.remaining_uses }, "This link has {count} uses remaining.");
     membershipNoteNode.hidden = !invite.already_member;
   } catch (error) {
     loadingNode.hidden = true;
@@ -5726,8 +6275,6 @@ async function initHouseholdInvite() {
 function initApp() {
   applyLanguagePreference();
   registerServiceWorker().catch(() => undefined);
-  initPasskeyAuth();
-  initPasskeyAddLink();
   initUserSettings();
   initDashboard();
   initHouseholdInvite();
@@ -5739,8 +6286,6 @@ if (typeof document !== "undefined") {
 }
 
 export {
-  base64UrlToBytes,
-  bytesToBase64Url,
   getI18nState,
   getCurrentLocale,
   interpolateTranslation,
@@ -5748,8 +6293,6 @@ export {
   translatePlural,
   isItemHidden,
   formatHiddenUntilLabel,
-  publicKeyFromJSON,
-  credentialToJSON,
   normalizeLanguagePreference,
   getBrowserLanguage,
   getStoredLanguagePreference,
@@ -5772,15 +6315,15 @@ export {
   updateHouseholdOptions,
   updateDashboardListOptions,
   renderHouseholds,
+  renderHouseholdMembers,
+  normalizeRememberedPublicList,
+  loadRememberedPublicLists,
+  saveRememberedPublicLists,
+  rememberPublicList,
+  removeRememberedPublicList,
+  renderRememberedPublicLists,
+  householdInvitePayload,
   loadDashboardData,
-  formatPasskeyDate,
-  renderPasskeys,
-  suggestedPasskeyName,
-  setPasskeyNameFormState,
-  setPasskeyDeleteConfirmState,
-  addPasskey,
-  renamePasskey,
-  deletePasskey,
   initDashboard,
   setListMessage,
   setListSyncStatus,
@@ -5789,9 +6332,15 @@ export {
   bindListSwitcher,
   itemEditHistoryStorageKey,
   itemEditRedoHistoryStorageKey,
+  dateTimeLocalValue,
+  dateTimeLocalToIso,
+  defaultSaleWindow,
   normalizeItemEditPayload,
   itemEditPayloadFromItem,
   itemEditPayloadsEqual,
+  isValidSaleWindowPayload,
+  itemEditApiPayload,
+  syncSaleWindowControls,
   loadItemEditHistory,
   loadItemEditRedoHistory,
   pushItemEditHistory,
@@ -5815,6 +6364,12 @@ export {
   loadOfflineListState,
   setListName,
   saveListName,
+  publicListToken,
+  isPublicList,
+  listApiUrl,
+  itemApiUrl,
+  createPublicListLink,
+  copyPublicListLink,
   createOfflineId,
   isBrowserOffline,
   isOfflineRequestError,
@@ -5869,9 +6424,12 @@ export {
   moveItemWithOfflineFallback,
   setItemCheckedWithOfflineFallback,
   saveCategoryOrder,
-  syncItemMoveSelect,
+  syncItemMoveButton,
   showItemMovedMessage,
   moveEditingItemToList,
+  moveItemFromMenu,
+  setItemMoveStatus,
+  setItemMoveModalOpen,
   saveCategoryOrderInBackground,
   saveDisabledCategories,
   itemCountForCategory,
@@ -5890,8 +6448,13 @@ export {
   applyCategoryReorder,
   setItemEditPanelOpen,
   renderCategoryOrderSettings,
+  formatListHistoryTimestamp,
+  listHistoryMessage,
+  renderListHistory,
+  loadListHistory,
   setListSettingsOpen,
   renderItemSuggestions,
+  isItemOnSale,
   highlightItem,
   compareActiveItems,
   compareCheckedItems,
@@ -5910,18 +6473,11 @@ export {
   runUndoAction,
   handleSocketClose,
   disposeSocket,
+  applyListAccess,
   loadListDetail,
   connectListSocket,
   initListDetail,
-  registerWithPasskey,
-  loginWithPasskey,
-  addPasskeyWithLink,
-  handlePasskeyLoginClick,
-  transitionAuthPanels,
-  setAuthTab,
   setSettingsMessage,
-  initPasskeyAuth,
-  initPasskeyAddLink,
   initUserSettings,
   formatInviteExpiry,
   initHouseholdInvite,

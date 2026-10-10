@@ -140,18 +140,6 @@ function settingsHtml() {
   `;
 }
 
-function passkeyAddLinkHtml(token = "add-token") {
-  return `
-    <section data-passkey-add-link data-passkey-add-token="${token}">
-      <p data-auth-error hidden></p>
-      <p data-auth-success hidden></p>
-      <form data-passkey-add-link-form>
-        <button type="button" data-passkey-add-link-button>Add</button>
-      </form>
-    </section>
-  `;
-}
-
 function listDetailHtml() {
   return `
     <section data-list-detail data-list-id="list-1">
@@ -185,7 +173,9 @@ function listDetailHtml() {
       <div data-list-settings-overlay hidden>
         <button type="button" data-list-settings-close>Close settings</button>
         <section data-list-settings-panel hidden>
-          <div data-list-settings-category-list></div>
+          <div data-list-settings-management><div data-list-settings-category-list></div></div>
+          <button type="button" data-list-history-refresh>Refresh history</button>
+          <div data-list-history></div>
         </section>
       </div>
       <div data-item-edit-overlay hidden>
@@ -284,35 +274,10 @@ function installDom(html, options = {}) {
   };
 }
 
-test("conversion and request helpers cover success and failure cases", async () => {
+test("request helpers cover success and failure cases", async () => {
   const env = installDom("");
   try {
     const app = await loadApp();
-    assert.deepEqual([...app.base64UrlToBytes("SGVsbG8")], [72, 101, 108, 108, 111]);
-    assert.equal(app.bytesToBase64Url(new Uint8Array([72, 101, 108, 108, 111])), "SGVsbG8");
-    assert.equal(app.bytesToBase64Url(new Uint8Array([1, 2, 3]).buffer), "AQID");
-
-    const publicKey = app.publicKeyFromJSON({
-      challenge: "AQID",
-      user: { id: "BAUG" },
-      excludeCredentials: [{ id: "BwgJ" }],
-      allowCredentials: [{ id: "CgsM" }],
-    });
-    assert.deepEqual([...publicKey.challenge], [1, 2, 3]);
-    assert.deepEqual([...publicKey.user.id], [4, 5, 6]);
-    assert.deepEqual([...publicKey.excludeCredentials[0].id], [7, 8, 9]);
-    assert.deepEqual([...publicKey.allowCredentials[0].id], [10, 11, 12]);
-
-    assert.deepEqual(app.credentialToJSON([new Uint8Array([1, 2, 3]).buffer]), ["AQID"]);
-    assert.deepEqual(
-      app.credentialToJSON({
-        id: new Uint8Array([1, 2, 3]),
-        nested: { rawId: new Uint8Array([4, 5, 6]) },
-      }),
-      { id: "AQID", nested: { rawId: "BAUG" } },
-    );
-    assert.equal(app.credentialToJSON("plain"), "plain");
-
     let fetchCalls = [];
     globalThis.fetch = async (url, options) => {
       fetchCalls.push([url, options]);
@@ -496,12 +461,12 @@ test("dashboard helpers render household state and form status", async () => {
     });
 
     const households = [
-      { id: "house-1", name: "Home" },
-      { id: "house-2", name: "Office" },
+      { id: "house-1", name: "Home", role: "owner" },
+      { id: "house-2", name: "Office", role: "editor" },
     ];
     app.updateHouseholdOptions(root, households);
     const select = root.querySelector("[data-household-select]");
-    assert.equal(select.options.length, 3);
+    assert.equal(select.options.length, 2);
     assert.equal(select.options[0].textContent, "Select a household");
 
     const addToggle = root.querySelector("[data-dashboard-add-toggle]");
@@ -551,7 +516,9 @@ test("dashboard helpers render household state and form status", async () => {
     globalThis.fetch = async (url) => {
       fetchIndex += 1;
       if (fetchIndex === 1) {
-        return createResponse({ jsonData: [{ id: "house-1", name: "Home" }] });
+        return createResponse({
+          jsonData: [{ id: "house-1", name: "Home", role: "owner" }],
+        });
       }
       return createResponse({ jsonData: [{ id: "list-1", name: "Weekly" }] });
     };
@@ -588,7 +555,6 @@ test("helper guard clauses and alternate render paths are covered", async () => 
 
     app.updateHouseholdOptions(document.createElement("div"), []);
     app.renderHouseholds(document.createElement("div"), [], new Map());
-    app.renderPasskeys(document.createElement("div"), []);
     app.hideUndoToast(document.createElement("div"), { undoTimerId: null, undoAction: null });
     app.showUndoToast(document.createElement("div"), { undoTimerId: null, undoAction: null }, "x", async () => {});
     app.setItemPanelOpen(document.createElement("div"), true);
@@ -617,8 +583,6 @@ test("helper guard clauses and alternate render paths are covered", async () => 
     buttonHost.innerHTML = `<button type="button">A</button><button type="button">B</button>`;
     app.toggleButtons(buttonHost, true);
     buttonHost.querySelectorAll("button").forEach((button) => assert.equal(button.disabled, true));
-
-    assert.equal(app.formatPasskeyDate(null), "Never used yet");
 
     app.setMessage(document.querySelector("[data-passkey-auth]"), "error", "Broken");
     assert.equal(document.querySelector("[data-auth-error]").textContent, "Broken");
@@ -729,26 +693,254 @@ test("helper guard clauses and alternate render paths are covered", async () => 
   }
 });
 
+test("household roles shape dashboard controls and viewer list access", async () => {
+  const env = installDom(`
+    <section data-dashboard>
+      <div data-household-list></div>
+      <div data-dashboard-empty hidden></div>
+      <div data-dashboard-member-list></div>
+      <h2 data-dashboard-members-title></h2>
+      <select data-invite-role><option value="editor">Editor</option><option value="viewer">Viewer</option></select>
+      <select data-invite-mode><option value="time">Time</option><option value="uses">Uses</option></select>
+      <input data-invite-hours-input value="72" />
+      <input data-invite-max-uses value="3" />
+    </section>
+    <section data-list-detail>
+      <button data-item-form-toggle>Add</button>
+      <button data-list-settings-toggle>Settings</button>
+      <div data-list-settings-management>Management</div>
+      <div data-list-read-only hidden>Read only</div>
+    </section>
+  `);
+
+  try {
+    const app = await loadApp();
+    const dashboardRoot = document.querySelector("[data-dashboard]");
+    const households = [
+      { id: "owner-house", name: "Home", role: "owner" },
+      { id: "viewer-house", name: "Shared", role: "viewer" },
+    ];
+    app.renderHouseholds(
+      dashboardRoot,
+      households,
+      new Map([
+        ["owner-house", []],
+        ["viewer-house", []],
+      ]),
+    );
+    assert.equal(dashboardRoot.querySelectorAll("[data-open-members]").length, 2);
+    assert.equal(dashboardRoot.querySelectorAll("[data-open-invite-sheet]").length, 1);
+    assert.equal(dashboardRoot.querySelectorAll('[data-dashboard-add-option="list"]').length, 1);
+    assert.match(dashboardRoot.textContent, /Viewer/);
+
+    app.renderHouseholdMembers(
+      dashboardRoot,
+      households[0],
+      [
+        {
+          user_id: "owner-user",
+          display_name: "Owner",
+          email: "owner@example.com",
+          role: "owner",
+        },
+        {
+          user_id: "viewer-user",
+          display_name: "Viewer",
+          email: "viewer@example.com",
+          role: "viewer",
+        },
+      ],
+    );
+    assert.equal(dashboardRoot.querySelectorAll("[data-member-role]").length, 1);
+    assert.equal(dashboardRoot.querySelectorAll("[data-remove-member]").length, 1);
+    assert.equal(
+      dashboardRoot.querySelector("[data-member-role]").value,
+      "viewer",
+    );
+
+    dashboardRoot.querySelector("[data-invite-role]").value = "viewer";
+    assert.deepEqual(app.householdInvitePayload(dashboardRoot), {
+      expires_in_hours: 72,
+      role: "viewer",
+    });
+    dashboardRoot.querySelector("[data-invite-mode]").value = "uses";
+    assert.deepEqual(app.householdInvitePayload(dashboardRoot), {
+      expires_in_hours: null,
+      max_uses: 3,
+      role: "viewer",
+    });
+
+    const listRoot = document.querySelector("[data-list-detail]");
+    const state = {};
+    app.applyListAccess(listRoot, state, "viewer");
+    assert.equal(state.canEdit, false);
+    assert.equal(state.canManage, false);
+    assert.equal(listRoot.querySelector("[data-item-form-toggle]").hidden, true);
+    assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, false);
+    assert.equal(listRoot.querySelector("[data-list-settings-management]").hidden, true);
+    assert.equal(listRoot.querySelector("[data-list-read-only]").hidden, false);
+
+    app.applyListAccess(listRoot, state, "editor");
+    assert.equal(state.canEdit, true);
+    assert.equal(state.canManage, false);
+    assert.equal(listRoot.querySelector("[data-item-form-toggle]").hidden, false);
+    assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, false);
+    assert.equal(listRoot.querySelector("[data-list-settings-management]").hidden, true);
+
+    app.applyListAccess(listRoot, state, "owner");
+    assert.equal(state.canManage, true);
+    assert.equal(listRoot.querySelector("[data-list-settings-toggle]").hidden, false);
+    assert.equal(listRoot.querySelector("[data-list-settings-management]").hidden, false);
+  } finally {
+    env.restore();
+  }
+});
+
+test("list history formats, renders, and loads every activity type", async () => {
+  const env = installDom(`
+    <section data-list-detail data-list-id="list-1">
+      <div data-list-history></div>
+    </section>
+  `);
+  try {
+    const app = await loadApp();
+    globalThis.__appI18n = { locale: "en", catalog: {} };
+    const root = document.querySelector("[data-list-detail]");
+    const base = {
+      id: "history-1",
+      actor_user_id: "actor-1",
+      actor_display_name: "Alex",
+      subject_name: "Milk",
+      details: {},
+      created_at: "2026-08-13T12:34:56Z",
+    };
+    const entries = [
+      { ...base, event_type: "list_created" },
+      {
+        ...base,
+        event_type: "list_renamed",
+        subject_name: "Market",
+        details: { old_name: "Weekly", new_name: "Market" },
+      },
+      { ...base, event_type: "list_accent_changed" },
+      { ...base, event_type: "category_order_changed" },
+      { ...base, event_type: "list_categories_changed" },
+      { ...base, event_type: "item_created" },
+      { ...base, event_type: "item_updated" },
+      { ...base, event_type: "item_checked" },
+      { ...base, event_type: "item_unchecked" },
+      { ...base, event_type: "item_deleted" },
+      { ...base, event_type: "item_moved_out", details: { other_list: "Hardware" } },
+      { ...base, event_type: "item_moved_in", details: { other_list: "Weekly" } },
+      { ...base, event_type: "member_added", subject_name: "Sam" },
+      {
+        ...base,
+        event_type: "member_role_changed",
+        subject_name: "Sam",
+        details: { new_role: "viewer" },
+      },
+      { ...base, event_type: "member_removed", subject_name: "Sam" },
+      {
+        ...base,
+        event_type: "unknown",
+        actor_display_name: "",
+        subject_name: "",
+        details: null,
+        created_at: "",
+      },
+    ];
+
+    assert.deepEqual(entries.map(app.listHistoryMessage), [
+      "Alex created this list.",
+      "Alex renamed Weekly to Market.",
+      "Alex changed the list color.",
+      "Alex changed the category order.",
+      "Alex changed enabled categories.",
+      "Alex added Milk.",
+      "Alex edited Milk.",
+      "Alex checked off Milk.",
+      "Alex restored Milk.",
+      "Alex removed Milk.",
+      "Alex moved Milk to Hardware.",
+      "Alex moved Milk here from Weekly.",
+      "Alex added Sam to the household.",
+      "Alex changed Sam's role to viewer.",
+      "Alex removed Sam from the household.",
+      "Someone updated this list.",
+    ]);
+    assert.equal(
+      app.listHistoryMessage({ ...base, event_type: "list_renamed", subject_name: "" }),
+      "Alex renamed this list to this list.",
+    );
+    assert.equal(
+      app.listHistoryMessage({ ...base, event_type: "item_moved_out", details: {} }),
+      "Alex moved Milk to another list.",
+    );
+    assert.equal(
+      app.listHistoryMessage({ ...base, event_type: "item_moved_in", details: {} }),
+      "Alex moved Milk here from another list.",
+    );
+    assert.equal(
+      app.listHistoryMessage({ ...base, event_type: "member_role_changed", details: {} }),
+      "Alex changed Milk's role to a new role.",
+    );
+    assert.notEqual(app.formatListHistoryTimestamp(base.created_at), "");
+    assert.equal(app.formatListHistoryTimestamp("not-a-date"), "");
+
+    app.renderListHistory(root, null);
+    assert.match(root.querySelector("[data-list-history]").textContent, /No activity yet/);
+    app.renderListHistory(root, [], "loading");
+    assert.match(root.querySelector("[data-list-history]").textContent, /Loading history/);
+    app.renderListHistory(root, [], "error");
+    assert.match(root.querySelector("[data-list-history]").textContent, /Could not load history/);
+    app.renderListHistory(root, [], "error", "History unavailable");
+    assert.equal(root.querySelector("[data-list-history]").textContent, "History unavailable");
+    app.renderListHistory(root, entries);
+    assert.equal(root.querySelectorAll("[data-history-event]").length, entries.length);
+    assert.match(root.querySelector("[data-list-history]").textContent, /Alex added Milk/);
+
+    const missingRoot = document.createElement("section");
+    app.renderListHistory(missingRoot, entries);
+    assert.deepEqual(await app.loadListHistory(missingRoot, {}), []);
+
+    let state = {};
+    globalThis.fetch = async () => createResponse({ jsonData: entries });
+    env.dom.window.fetch = globalThis.fetch;
+    assert.equal((await app.loadListHistory(root, state)).length, entries.length);
+    assert.equal(state.listHistory.length, entries.length);
+
+    globalThis.fetch = async () => createResponse({ jsonData: {} });
+    env.dom.window.fetch = globalThis.fetch;
+    assert.deepEqual(await app.loadListHistory(root, state), []);
+
+    root.dataset.listMode = "demo";
+    assert.deepEqual(await app.loadListHistory(root, state), []);
+    delete root.dataset.listMode;
+
+    globalThis.fetch = async () => createResponse({ ok: false, status: 500, jsonData: { detail: "Denied" } });
+    env.dom.window.fetch = globalThis.fetch;
+    assert.deepEqual(await app.loadListHistory(root, state), []);
+    assert.equal(root.querySelector("[data-list-history]").textContent, "Denied");
+
+    globalThis.fetch = async () => {
+      throw "offline";
+    };
+    env.dom.window.fetch = globalThis.fetch;
+    assert.deepEqual(await app.loadListHistory(root, state), []);
+    assert.match(root.querySelector("[data-list-history]").textContent, /Could not load history/);
+  } finally {
+    delete globalThis.__appI18n;
+    env.restore();
+  }
+});
+
 test("initDashboard handles refresh, household creation, list creation, and errors", async () => {
   const fetchLog = [];
-  let passkeyFetches = 0;
   const env = installDom(dashboardHtml(), {
     fetch: async (url, options = {}) => {
       fetchLog.push([url, options.method || "GET"]);
       if (url === "/api/v1/households" && (!options.method || options.method === "GET")) {
         return createResponse({ jsonData: [{ id: "house-1", name: "Home" }] });
-      }
-      if (url === "/api/v1/auth/passkeys" && (!options.method || options.method === "GET")) {
-        passkeyFetches += 1;
-        return createResponse({
-          jsonData:
-            passkeyFetches < 3
-              ? [{ id: "passkey-1", name: "Phone", created_at: "2024-01-01T00:00:00Z", last_used_at: null }]
-              : [
-                  { id: "passkey-1", name: "Phone", created_at: "2024-01-01T00:00:00Z", last_used_at: null },
-                  { id: "passkey-2", name: "Laptop", created_at: "2024-01-02T00:00:00Z", last_used_at: null },
-                ],
-        });
       }
       if (url === "/api/v1/households/house-1/lists" && (!options.method || options.method === "GET")) {
         return createResponse({ jsonData: [{ id: "list-1", name: "Weekly" }] });
@@ -759,45 +951,12 @@ test("initDashboard handles refresh, household creation, list creation, and erro
       if (url === "/api/v1/households/house-1/lists" && options.method === "POST") {
         return createResponse({ jsonData: { id: "list-2", name: "Costco" } });
       }
-      if (url === "/api/v1/auth/passkeys/register/options" && options.method === "POST") {
-        assert.equal(options.body, JSON.stringify({ name: "Laptop" }));
-        return createResponse({ jsonData: { challenge: "AQID", user: { id: "BAUG" } } });
-      }
-      if (url === "/api/v1/auth/passkeys/register/verify" && options.method === "POST") {
-        return createResponse({ jsonData: { id: "passkey-2", name: "Laptop" } });
-      }
-      if (url === "/api/v1/auth/passkeys/passkey-2/rename/options" && options.method === "POST") {
-        assert.equal(options.body, JSON.stringify({ name: "Travel key" }));
-        return createResponse({ jsonData: { challenge: "AQID", allowCredentials: [{ id: "BwgJ" }] } });
-      }
-      if (url === "/api/v1/auth/passkeys/passkey-2/rename/verify" && options.method === "POST") {
-        return createResponse({ jsonData: { id: "passkey-2", name: "Travel key" } });
-      }
-      if (url === "/api/v1/auth/passkeys/passkey-1/delete/options" && options.method === "POST") {
-        return createResponse({ jsonData: { challenge: "AQID", allowCredentials: [{ id: "BwgJ" }] } });
-      }
-      if (url === "/api/v1/auth/passkeys/passkey-1/delete/verify" && options.method === "POST") {
-        return createResponse({ jsonData: { message: "passkey deleted" } });
-      }
       return createResponse({ jsonData: {} });
     },
   });
 
   try {
     const app = await loadApp();
-    globalThis.window.PublicKeyCredential = class {};
-    globalThis.navigator.credentials = {
-      create: async () => ({
-        id: "cred-created",
-        rawId: new Uint8Array([1, 2, 3]).buffer,
-        response: { clientDataJSON: new Uint8Array([4, 5, 6]) },
-      }),
-      get: async () => ({
-        id: "cred-verified",
-        rawId: new Uint8Array([1, 2, 3]).buffer,
-        response: { authenticatorData: new Uint8Array([4, 5, 6]) },
-      }),
-    };
     await app.initDashboard();
 
     const root = document.querySelector("[data-dashboard]");
@@ -865,141 +1024,7 @@ test("initDashboard handles refresh, household creation, list creation, and erro
   }
 });
 
-test("initUserSettings handles passkey naming form cancel and blank input", async () => {
-  const fetchLog = [];
-  const env = installDom(settingsHtml(), {
-    fetch: async (url, options = {}) => {
-      fetchLog.push([url, options.method || "GET"]);
-      if (url === "/api/v1/auth/passkeys" && (!options.method || options.method === "GET")) {
-        return createResponse({ jsonData: [{ id: "passkey-1", name: "Phone", created_at: "2024-01-01T00:00:00Z", last_used_at: null }] });
-      }
-      throw new Error(`Unexpected fetch ${url}`);
-    },
-  });
 
-  try {
-    const app = await loadApp();
-    globalThis.window.PublicKeyCredential = class {};
-    globalThis.navigator.credentials = {
-      create: async () => {
-        throw new Error("should not create");
-      },
-    };
-    await app.initUserSettings();
-
-    const root = document.querySelector("[data-user-settings]");
-    root.querySelector("[data-passkey-add]").click();
-    assert.equal(root.querySelector("[data-passkey-name-form]").hidden, false);
-    root.querySelector("[data-passkey-name-cancel]").click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(root.querySelector("[data-passkey-success]").textContent, "");
-    assert.equal(root.querySelector("[data-passkey-name-form]").hidden, true);
-    assert.deepEqual(
-      fetchLog.filter(([url]) => url === "/api/v1/auth/passkeys/register/options"),
-      [],
-    );
-
-    root.querySelector("[data-passkey-add]").click();
-    root.querySelector("[data-passkey-name-input]").value = "   ";
-    root.querySelector("[data-passkey-name-form]").dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(root.querySelector("[data-passkey-error]").textContent, "Passkey name is required.");
-    assert.deepEqual(
-      fetchLog.filter(([url]) => url === "/api/v1/auth/passkeys/register/options"),
-      [],
-    );
-
-    root.querySelector('[data-passkey-rename="passkey-1"]').click();
-    assert.equal(root.querySelector("[data-passkey-name-title]").textContent, "Rename this passkey");
-    assert.equal(root.querySelector("[data-passkey-name-submit]").textContent, "Save and verify");
-  } finally {
-    env.restore();
-  }
-});
-
-test("initUserSettings explains passkey deletion before WebAuthn and keeps last delete visibly locked", async () => {
-  const fetchLog = [];
-  const env = installDom(settingsHtml(), {
-    fetch: async (url, options = {}) => {
-      fetchLog.push([url, options.method || "GET"]);
-      if (url === "/api/v1/auth/passkeys" && (!options.method || options.method === "GET")) {
-        return createResponse({
-          jsonData:
-            fetchLog.filter(([entry]) => entry === "/api/v1/auth/passkeys").length === 1
-              ? [
-                  { id: "passkey-1", name: "Phone", created_at: "2024-01-01T00:00:00Z", last_used_at: null },
-                  { id: "passkey-2", name: "Laptop", created_at: "2024-01-02T00:00:00Z", last_used_at: null },
-                ]
-              : [{ id: "passkey-2", name: "Laptop", created_at: "2024-01-02T00:00:00Z", last_used_at: null }],
-        });
-      }
-      if (url === "/api/v1/auth/passkeys/passkey-1/delete/options" && options.method === "POST") {
-        return createResponse({ jsonData: { challenge: "AQID", allowCredentials: [{ id: "BwgJ" }] } });
-      }
-      if (url === "/api/v1/auth/passkeys/passkey-1/delete/verify" && options.method === "POST") {
-        return createResponse({ jsonData: { message: "passkey deleted" } });
-      }
-      throw new Error(`Unexpected fetch ${url}`);
-    },
-  });
-
-  try {
-    const app = await loadApp();
-    globalThis.window.PublicKeyCredential = class {};
-    globalThis.navigator.credentials = {
-      get: async () => ({
-        id: "cred-verified",
-        rawId: new Uint8Array([1, 2, 3]).buffer,
-        response: { authenticatorData: new Uint8Array([4, 5, 6]) },
-      }),
-    };
-
-    await app.initUserSettings();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    const root = document.querySelector("[data-user-settings]");
-    root.querySelector('[data-passkey-delete="passkey-1"]').click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(root.querySelector("[data-passkey-delete-overlay]").hidden, false);
-    assert.equal(root.querySelector("[data-passkey-delete-panel]").hidden, false);
-    const deleteCopy = root.querySelector("[data-passkey-delete-copy]");
-    assert.match(
-      deleteCopy.textContent,
-      /To delete Phone, you must authenticate with another passkey to confirm you still have a working Passkey after deleting one\./,
-    );
-    assert.equal(deleteCopy.querySelector("strong").textContent, "another");
-    assert.deepEqual(
-      fetchLog.filter(([url]) => url.includes("/delete/options")),
-      [],
-    );
-
-    root.querySelector("[data-passkey-delete-close]").click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(root.querySelector("[data-passkey-delete-overlay]").hidden, true);
-
-    root.querySelector('[data-passkey-delete="passkey-1"]').click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    root.querySelector("[data-passkey-delete-confirm]").click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.deepEqual(
-      fetchLog.filter(([url]) => url.includes("/delete/options")),
-      [["/api/v1/auth/passkeys/passkey-1/delete/options", "POST"]],
-    );
-    assert.equal(
-      root.querySelector("[data-passkey-success]").textContent,
-      "Passkey deleted after confirming another one worked.",
-    );
-
-    const lockedDeleteButton = root.querySelector('[data-passkey-delete="passkey-2"]');
-    assert.equal(lockedDeleteButton.disabled, true);
-    assert.equal(lockedDeleteButton.getAttribute("title"), "Add another passkey before deleting this one.");
-    assert.equal(lockedDeleteButton.getAttribute("aria-disabled"), "true");
-  } finally {
-    env.restore();
-  }
-});
 
 test("list helpers cover normalization, categories, rendering, and modal state", async () => {
   let clearedTimeout = null;
@@ -1472,7 +1497,7 @@ test("initListDetail covers error and alternate interaction branches", async () 
   }
 });
 
-test("initListDetail and passkey auth surface load and interaction failures", async () => {
+test("initListDetail surfaces load failures", async () => {
   const failingListEnv = installDom(listDetailHtml(), {
     fetch: async () => createResponse({ ok: false, status: 500, jsonData: { detail: "Load failed" } }),
   });
@@ -1485,33 +1510,6 @@ test("initListDetail and passkey auth surface load and interaction failures", as
     failingListEnv.restore();
   }
 
-  const passkeyEnv = installDom(loginHtml(), {
-    fetch: async (url) => {
-      if (url.includes("/login/options")) {
-        return createResponse({ jsonData: { challenge: "AQID" } });
-      }
-      return createResponse({ jsonData: {} });
-    },
-  });
-
-  try {
-    const app = await loadApp();
-    window.PublicKeyCredential = class {};
-    navigator.credentials = {
-      create: async () => {
-        throw new Error("Create exploded");
-      },
-      get: async () => {
-        throw "Login exploded";
-      },
-    };
-    app.initPasskeyAuth();
-    document.querySelector("[data-passkey-login-button]").click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(document.querySelector("[data-auth-error]").textContent.length > 0, true);
-  } finally {
-    passkeyEnv.restore();
-  }
 });
 
 test("remaining app.js branch edges are exercised", async () => {
@@ -1683,9 +1681,9 @@ test("remaining app.js branch edges are exercised", async () => {
   }
 });
 
-test("late list-detail and login failure branches are covered", async () => {
+test("late list-detail failure branches are covered", async () => {
   let mode = "initial";
-  const env = installDom(`${listDetailHtml()}${loginHtml()}`, {
+  const env = installDom(listDetailHtml(), {
     fetch: async (url, options = {}) => {
       if (mode === "initial") {
         if (!options.method || options.method === "GET") {
@@ -1847,169 +1845,13 @@ test("late list-detail and login failure branches are covered", async () => {
     socketState.socket.emit("message", { data: JSON.stringify({ type: "item_updated", payload: {} }) });
     window.dispatchEvent(new Event("beforeunload"));
 
-    window.PublicKeyCredential = class {};
-    navigator.credentials = {
-      get: async () => {
-        throw "Login exploded";
-      },
-    };
-    app.initPasskeyAuth();
-    document.querySelector("[data-passkey-login-button]").click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(document.querySelector("[data-auth-error]").textContent, "Passkey login failed.");
   } finally {
     env.restore();
   }
 });
 
-test("passkey login helpers and auth initialization handle supported and unsupported browsers", async () => {
-  const passkeyCalls = [];
-  const env = installDom(loginHtml(), {
-    fetch: async (url) => {
-      if (url === "/api/v1/auth/login/options") {
-        return createResponse({ jsonData: { challenge: "AQID" } });
-      }
-      return createResponse({ jsonData: {} });
-    },
-  });
 
-  try {
-    const app = await loadApp();
-    env.dom.window.PublicKeyCredential = class {};
-    globalThis.window.PublicKeyCredential = env.dom.window.PublicKeyCredential;
-    globalThis.navigator.credentials = {
-      async get(options) {
-        passkeyCalls.push(["get", options.publicKey.challenge.length]);
-        return {
-          id: "cred-2",
-          rawId: new Uint8Array([1, 2, 3]).buffer,
-          response: { authenticatorData: new Uint8Array([4, 5, 6]) },
-        };
-      },
-    };
 
-    const root = document.querySelector("[data-passkey-auth]");
-    const loginForm = root.querySelector("[data-passkey-login]");
-
-    await app.loginWithPasskey(root, loginForm);
-    assert.deepEqual(passkeyCalls, [["get", 3]]);
-    assert.deepEqual(env.assigned, ["/"]);
-
-    await app.initPasskeyAuth();
-    root.querySelector("[data-passkey-login-button]").click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    delete globalThis.window.PublicKeyCredential;
-    delete globalThis.navigator.credentials;
-    await app.initPasskeyAuth();
-    assert.equal(root.querySelector("[data-auth-error]").textContent, "This browser does not support passkeys.");
-  } finally {
-    env.restore();
-  }
-});
-
-test("passkey add-link helpers and initialization handle success and unsupported browsers", async () => {
-  const passkeyCalls = [];
-  const env = installDom(passkeyAddLinkHtml(), {
-    fetch: async (url) => {
-      if (url === "/api/v1/auth/passkey-add/add-token/options") {
-        return createResponse({ jsonData: { challenge: "AQID", user: { id: "BAUG" } } });
-      }
-      if (url === "/api/v1/auth/passkey-add/add-token/verify") {
-        return createResponse({ jsonData: {} });
-      }
-      return createResponse({ jsonData: {} });
-    },
-  });
-
-  try {
-    const app = await loadApp();
-    env.dom.window.PublicKeyCredential = class {};
-    globalThis.window.PublicKeyCredential = env.dom.window.PublicKeyCredential;
-    globalThis.navigator.credentials = {
-      async create(options) {
-        passkeyCalls.push(["create", options.publicKey.challenge.length]);
-        return {
-          id: "cred-reset",
-          rawId: new Uint8Array([1, 2, 3]).buffer,
-          response: { attestationObject: new Uint8Array([4, 5, 6]) },
-        };
-      },
-    };
-
-    const root = document.querySelector("[data-passkey-add-link]");
-
-    await app.addPasskeyWithLink(root);
-    assert.deepEqual(passkeyCalls, [["create", 3]]);
-    assert.deepEqual(env.assigned, ["/"]);
-
-    await app.initPasskeyAddLink();
-    root.querySelector("[data-passkey-add-link-button]").click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    delete globalThis.window.PublicKeyCredential;
-    delete globalThis.navigator.credentials;
-    await app.initPasskeyAddLink();
-    assert.equal(root.querySelector("[data-auth-error]").textContent, "This browser does not support passkeys.");
-  } finally {
-    env.restore();
-  }
-});
-
-test("user settings passkey management handles success and unsupported browsers", async () => {
-  let passkeys = [
-    { id: "passkey-1", name: "Phone", created_at: "2024-01-01T00:00:00Z", last_used_at: null },
-  ];
-  const env = installDom(settingsHtml(), {
-    fetch: async (url, options = {}) => {
-      if (url === "/api/v1/auth/passkeys" && (!options.method || options.method === "GET")) {
-        return createResponse({ jsonData: passkeys });
-      }
-      if (url === "/api/v1/auth/passkeys/register/options") {
-        return createResponse({ jsonData: { challenge: "AQID", user: { id: "BAUG" } } });
-      }
-      if (url === "/api/v1/auth/passkeys/register/verify") {
-        passkeys = [
-          ...passkeys,
-          { id: "passkey-2", name: "Laptop", created_at: "2024-01-02T00:00:00Z", last_used_at: null },
-        ];
-        return createResponse({ jsonData: {} });
-      }
-      return createResponse({ jsonData: {} });
-    },
-  });
-
-  try {
-    const app = await loadApp();
-    env.dom.window.PublicKeyCredential = class {};
-    globalThis.window.PublicKeyCredential = env.dom.window.PublicKeyCredential;
-    globalThis.navigator.credentials = {
-      async create() {
-        return {
-          id: "cred-1",
-          rawId: new Uint8Array([1, 2, 3]).buffer,
-          response: { clientDataJSON: new Uint8Array([4, 5, 6]) },
-        };
-      },
-    };
-    const root = document.querySelector("[data-user-settings]");
-    await app.initUserSettings();
-    root.querySelector("[data-passkey-add]").click();
-    root.querySelector("[data-passkey-name-input]").value = "Laptop";
-    root.querySelector("[data-passkey-name-form]").dispatchEvent(
-      new Event("submit", { bubbles: true, cancelable: true }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(root.querySelector("[data-passkey-success]").textContent, "Another passkey is ready to use.");
-    assert.match(root.querySelector("[data-passkey-list]").textContent, /Laptop/);
-    delete globalThis.window.PublicKeyCredential;
-    delete globalThis.navigator.credentials;
-    await app.initUserSettings();
-    assert.equal(root.querySelector("[data-passkey-error]").textContent, "This browser does not support passkeys.");
-  } finally {
-    env.restore();
-  }
-});
 
 test("undo and restore helpers are directly covered", async () => {
   const env = installDom(listDetailHtml(), {
@@ -2088,16 +1930,6 @@ test("undo and restore helpers are directly covered", async () => {
     }, () => true);
     assert.equal(reconnected, false);
 
-    document.body.innerHTML = loginHtml();
-    const loginRoot = document.querySelector("[data-passkey-auth]");
-    window.PublicKeyCredential = class {};
-    navigator.credentials = {
-      get: async () => {
-        throw "Login exploded";
-      },
-    };
-    await app.handlePasskeyLoginClick(loginRoot, loginRoot.querySelector("[data-passkey-login]"));
-    assert.equal(loginRoot.querySelector("[data-auth-error]").textContent.length > 0, true);
   } finally {
     env.restore();
   }

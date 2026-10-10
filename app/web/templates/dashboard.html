@@ -30,6 +30,17 @@
     <div class="dashboard-household-list" data-household-list></div>
   </section>
 
+  <section class="dashboard-card dashboard-lists" data-public-lists-card hidden>
+    <div class="dashboard-section-heading">
+      <div>
+        <p class="dashboard-label">{{ t("dashboard.shared_with_you") }}</p>
+        <h2>{{ t("dashboard.public_lists") }}</h2>
+      </div>
+    </div>
+    <p class="dashboard-note">{{ t("dashboard.public_lists_hint") }}</p>
+    <ul class="list-grid public-list-grid" data-public-lists></ul>
+  </section>
+
   <aside class="dashboard-card dashboard-card-accent" data-dashboard-organized>
     <h2>{{ t("dashboard.organized_title") }}</h2>
     <ol class="dashboard-steps">
@@ -154,6 +165,81 @@
         </label>
         <button type="submit">{{ t("dashboard.create_list") }}</button>
       </form>
+    </section>
+  </div>
+
+  <div class="item-modal" data-dashboard-invite-overlay hidden>
+    <button class="item-modal-backdrop" type="button" aria-label="{{ t("dashboard.close_invite_sheet") }}" data-dashboard-invite-close></button>
+    <section class="dashboard-card add-item-panel invite-share-panel" data-dashboard-invite-panel hidden>
+      <div class="add-item-panel-header">
+        <div>
+          <p class="dashboard-label">{{ t("dashboard.invite_sheet_label") }}</p>
+          <h2>{{ t("dashboard.invite_sheet_title") }}</h2>
+        </div>
+        <button class="add-item-close" type="button" aria-label="{{ t("dashboard.close_invite_sheet") }}" data-dashboard-invite-close>
+          &times;
+        </button>
+      </div>
+      <p class="dashboard-helper" data-dashboard-invite-household></p>
+      <form class="dashboard-form invite-share-form" data-dashboard-invite-form>
+        <label class="dashboard-field">
+          <span>{{ t("dashboard.member_role") }}</span>
+          <select name="role" data-invite-role>
+            <option value="editor">{{ t("dashboard.role_editor") }}</option>
+            <option value="viewer">{{ t("dashboard.role_viewer") }}</option>
+          </select>
+        </label>
+        <label class="dashboard-field">
+          <span>{{ t("dashboard.invite_limit_type") }}</span>
+          <select name="mode" data-invite-mode>
+            <option value="time">{{ t("dashboard.invite_time_limited") }}</option>
+            <option value="uses">{{ t("dashboard.invite_usage_limited") }}</option>
+          </select>
+        </label>
+        <div class="dashboard-field" data-invite-time-fields>
+          <label>
+            <span>{{ t("dashboard.invite_hours_valid") }}</span>
+            <input type="number" name="expires_in_hours" min="1" max="720" step="1" value="24" inputmode="numeric" data-invite-hours-input />
+          </label>
+          <p class="dashboard-helper" data-invite-duration-label></p>
+          <div class="invite-preset-row">
+            <button type="button" class="secondary-button" data-invite-hours-preset="24">{{ t("dashboard.invite_quick_1_day") }}</button>
+            <button type="button" class="secondary-button" data-invite-hours-preset="72">{{ t("dashboard.invite_quick_3_days") }}</button>
+            <button type="button" class="secondary-button" data-invite-hours-preset="168">{{ t("dashboard.invite_quick_1_week") }}</button>
+          </div>
+        </div>
+        <label class="dashboard-field" data-invite-use-fields hidden>
+          <span>{{ t("dashboard.invite_max_uses") }}</span>
+          <input type="number" name="max_uses" min="1" max="100" step="1" value="5" inputmode="numeric" data-invite-max-uses />
+        </label>
+        <button type="submit" data-create-invite="sheet">{{ t("dashboard.create_invite_link") }}</button>
+      </form>
+      <div class="household-invite-output" data-invite-sheet-output hidden>
+        <p class="dashboard-helper" data-invite-sheet-hint>{{ t("dashboard.share_invite_hint") }}</p>
+        <div class="household-invite-row">
+          <input type="text" readonly data-invite-sheet-link-input />
+          <button type="button" class="secondary-button" data-copy-invite-sheet>
+            {{ t("common.copy") }}
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="item-modal" data-dashboard-members-overlay hidden>
+    <button class="item-modal-backdrop" type="button" aria-label="{{ t("dashboard.close_members") }}" data-dashboard-members-close></button>
+    <section class="dashboard-card add-item-panel household-members-panel" data-dashboard-members-panel hidden>
+      <div class="add-item-panel-header">
+        <div>
+          <p class="dashboard-label">{{ t("dashboard.members_label") }}</p>
+          <h2 data-dashboard-members-title>{{ t("dashboard.members_title") }}</h2>
+        </div>
+        <button class="add-item-close" type="button" aria-label="{{ t("dashboard.close_members") }}" data-dashboard-members-close>
+          &times;
+        </button>
+      </div>
+      <p class="dashboard-helper">{{ t("dashboard.members_helper") }}</p>
+      <div class="household-member-list" data-dashboard-member-list></div>
     </section>
   </div>
 

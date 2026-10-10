@@ -8,7 +8,6 @@ Create Date: 2026-05-14
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "0013_add_item_hidden_until"
 down_revision = "0012_add_offline_item_sync"
 branch_labels = None

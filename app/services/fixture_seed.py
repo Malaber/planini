@@ -16,6 +16,7 @@ from app.models import (
     Passkey,
     User,
 )
+from app.schemas.domain import GroceryItemCreate
 
 PREVIEW_INSTANCE_ADMIN_EMAIL = "planini_admin@schaedler.rocks"
 PREVIEW_MEMBER_EMAIL = "planini@schaedler.rocks"
@@ -186,6 +187,9 @@ async def _ensure_category(
         category.color = payload.get("color") and str(payload["color"])
 
     category.aliases = [str(alias) for alias in payload.get("aliases", [])]
+    category.translations = {
+        str(locale): str(value) for locale, value in dict(payload.get("translations", {})).items()
+    }
     await db.flush()
     return category
 
@@ -205,15 +209,20 @@ async def _ensure_list(
     )
     grocery_list = result.scalar_one_or_none()
     if grocery_list is None:
+        accent_color = payload.get("accent_color")
         grocery_list = GroceryList(
             household_id=household.id,
             name=name,
+            accent_color=str(accent_color) if accent_color is not None else None,
             created_by=created_by.id,
         )
         db.add(grocery_list)
         await db.flush()
     else:
         grocery_list.created_by = created_by.id
+        if "accent_color" in payload:
+            accent_color = payload["accent_color"]
+            grocery_list.accent_color = str(accent_color) if accent_color is not None else None
     return grocery_list
 
 
@@ -237,6 +246,13 @@ async def _seed_list_items(
 
     for index, item_payload in enumerate(payload.get("items", [])):
         item_name = str(item_payload["name"])
+        sale_window = GroceryItemCreate.model_validate(
+            {
+                "name": item_name,
+                "sale_starts_at": item_payload.get("sale_starts_at"),
+                "sale_ends_at": item_payload.get("sale_ends_at"),
+            }
+        )
         item = existing_items.get(item_name)
         created_by = users[str(item_payload["created_by_email"])]
         updated_by = users[
@@ -264,6 +280,8 @@ async def _seed_list_items(
         item.category_id = category.id if category else None
         item.checked = bool(item_payload.get("checked", False))
         item.hidden_until = None
+        item.sale_starts_at = sale_window.sale_starts_at
+        item.sale_ends_at = sale_window.sale_ends_at
         item.sort_order = index
         item.updated_by = updated_by.id
         if item.checked:
@@ -315,7 +333,7 @@ async def ensure_seed_data(db: AsyncSession, fixture_path: str) -> None:
         for member_payload in members_payload:
             member_user = users[str(member_payload["email"])]
             await _ensure_member(
-                db, household, member_user, str(member_payload.get("role", "member"))
+                db, household, member_user, str(member_payload.get("role", "editor"))
             )
         await _ensure_member(db, household, users[str(household_payload["owner_email"])], "owner")
 
@@ -323,7 +341,7 @@ async def ensure_seed_data(db: AsyncSession, fixture_path: str) -> None:
     preview_admin = users.get(PREVIEW_INSTANCE_ADMIN_EMAIL)
     if preview_member is not None:
         for household in households.values():
-            role = "owner" if household.owner_user_id == preview_member.id else "member"
+            role = "owner" if household.owner_user_id == preview_member.id else "editor"
             await _ensure_member(db, household, preview_member, role)
     if preview_admin is not None:
         await db.execute(delete(HouseholdMember).where(HouseholdMember.user_id == preview_admin.id))

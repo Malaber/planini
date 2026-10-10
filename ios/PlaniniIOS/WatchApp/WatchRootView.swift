@@ -1,3 +1,4 @@
+import Foundation
 import PlaniniCore
 import SwiftUI
 
@@ -57,8 +58,14 @@ struct WatchRootView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            LabeledContent("iPhone app installed", value: viewModel.isCompanionAppInstalled ? "Yes" : "No")
-            LabeledContent("iPhone reachable", value: viewModel.isPhoneReachable ? "Yes" : "No")
+            LabeledContent(
+                "iPhone app installed",
+                value: NSLocalizedString(viewModel.isCompanionAppInstalled ? "Yes" : "No", comment: "")
+            )
+            LabeledContent(
+                "iPhone reachable",
+                value: NSLocalizedString(viewModel.isPhoneReachable ? "Yes" : "No", comment: "")
+            )
 
             Button(viewModel.setupButtonTitle) {
                 Task { await viewModel.refresh() }
@@ -89,6 +96,7 @@ struct WatchRootView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .listRowBackground(Color(hex: list.accentColorHex)?.opacity(0.12))
             }
         }
     }
@@ -111,8 +119,25 @@ private struct WatchListDetailView: View {
 
     var body: some View {
         List {
-            addItemSection
+            if list.accessRole.canEditItems {
+                addItemSection
+            } else {
+                Section {
+                    Label("Viewer access. This list is read-only.", systemImage: "eye")
+                        .foregroundStyle(.secondary)
+                }
+            }
             itemsSection
+        }
+        .scrollContentBackground(.hidden)
+        .background {
+            ZStack {
+                Color.black
+                if let accentColor = Color(hex: list.accentColorHex) {
+                    accentColor.opacity(0.14)
+                }
+            }
+            .ignoresSafeArea()
         }
         .navigationTitle(list.name)
         .task(id: list.id) {
@@ -127,7 +152,8 @@ private struct WatchListDetailView: View {
                 .environmentObject(viewModel)
         }
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            if list.accessRole.canEditItems {
+                ToolbarItemGroup(placement: .topBarTrailing) {
                 if viewModel.canRedoListAction(for: list) {
                     Button {
                         Task { await viewModel.redoLastListAction(in: list) }
@@ -144,6 +170,7 @@ private struct WatchListDetailView: View {
                 }
                 .accessibilityIdentifier("watch-list-undo-button")
                 .disabled(viewModel.canUndoListAction(for: list) == false)
+                }
             }
         }
     }
@@ -191,14 +218,16 @@ private struct WatchListDetailView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .disabled(viewModel.isWorking)
+                            .disabled(viewModel.isWorking || !list.accessRole.canEditItems)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button {
-                                    editingItem = item
-                                } label: {
-                                    Label("Edit", systemImage: "pencil")
+                                if list.accessRole.canEditItems {
+                                    Button {
+                                        editingItem = item
+                                    } label: {
+                                        Label("Edit", systemImage: "pencil")
+                                    }
+                                    .tint(.blue)
                                 }
-                                .tint(.blue)
                             }
                         }
                     } header: {

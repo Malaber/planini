@@ -1,8 +1,7 @@
 import importlib.util
+import json
 import shlex
 import sqlite3
-import sys
-import types
 from contextlib import closing
 from pathlib import Path
 
@@ -19,6 +18,152 @@ class RunResult:
         self.exited = exited
         self.stdout = stdout
         self.stderr = stderr
+
+
+def test_wait_for_healthcheck_retries_connection_reset(monkeypatch) -> None:
+    sleeps: list[float] = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+    attempts = iter([ConnectionResetError("reset during startup"), Response()])
+
+    def fake_urlopen(url, timeout):
+        result = next(attempts)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(tasks, "urlopen", fake_urlopen)
+    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    tasks._wait_for_healthcheck(
+        "http://127.0.0.1:8020/health",
+        attempts=2,
+        sleep_seconds=0.25,
+    )
+
+    assert sleeps == [0.25]
+
+
+def test_wait_for_container_health_endpoint_retries_until_ready(monkeypatch) -> None:
+    calls: list[tuple[str, dict]] = []
+    sleeps: list[float] = []
+    results = iter(
+        [
+            RunResult(exited=1, stderr="Connection refused\n"),
+            RunResult(exited=0),
+        ]
+    )
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return next(results)
+
+    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    tasks._wait_for_container_health_endpoint(
+        Context(),
+        "planini-container-smoke",
+        attempts=2,
+        sleep_seconds=0.25,
+    )
+
+    assert len(calls) == 2
+    probe_args = shlex.split(calls[0][0])
+    assert probe_args[:5] == [
+        "docker",
+        "exec",
+        "planini-container-smoke",
+        "python",
+        "-c",
+    ]
+    assert "json.load(response) == {'status': 'ok'}" in probe_args[-1]
+    assert calls[1][0] == calls[0][0]
+    assert all(
+        kwargs == {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"}
+        for _, kwargs in calls
+    )
+    assert sleeps == [0.25]
+
+
+def test_wait_for_container_health_endpoint_reports_timeout(monkeypatch, capsys) -> None:
+    class Context:
+        def run(self, command, **kwargs):
+            return RunResult(exited=1, stderr="Connection refused\n")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    try:
+        tasks._wait_for_container_health_endpoint(
+            Context(), "planini-smoke", attempts=2, sleep_seconds=0.25
+        )
+    except tasks.Exit as exc:
+        assert str(exc).startswith(
+            "Container health endpoint did not become ready after 2 attempt(s): "
+            "docker exec planini-smoke python -c "
+        )
+    else:
+        raise AssertionError("expected container health timeout")
+
+    assert capsys.readouterr().out == "Connection refused\n"
+    assert sleeps == [0.25]
+
+
+def test_check_container_migrations_accepts_current_head() -> None:
+    calls: list[tuple[str, dict]] = []
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return RunResult(exited=0)
+
+    tasks._check_container_migrations(Context(), "planini-container-smoke")
+
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    command_args = shlex.split(command)
+    assert command_args[:5] == [
+        "docker",
+        "exec",
+        "planini-container-smoke",
+        "python",
+        "-c",
+    ]
+    assert command_args[-1] == (
+        "from alembic import command; "
+        "from app.core.database import _build_alembic_config; "
+        "command.current(_build_alembic_config(), check_heads=True)"
+    )
+    assert kwargs == {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"}
+
+
+def test_check_container_migrations_reports_failure(capsys) -> None:
+    class Context:
+        def run(self, command, **kwargs):
+            return RunResult(exited=255, stderr="Database is not on all head revisions\n")
+
+    try:
+        tasks._check_container_migrations(Context(), "planini-smoke")
+    except tasks.Exit as exc:
+        message = str(exc)
+        assert message.startswith(
+            "Container migrations did not reach all heads: docker exec planini-smoke python -c "
+        )
+        assert "_build_alembic_config" in message
+        assert "check_heads=True" in message
+    else:
+        raise AssertionError("expected container migration failure")
+
+    assert capsys.readouterr().out == "Database is not on all head revisions\n"
 
 
 def test_database_url_for_device_uses_distinct_sqlite_file() -> None:
@@ -86,8 +231,7 @@ def test_ios_ui_e2e_failure_summaries_reads_failed_test_messages(tmp_path: Path)
     database_path = bundle_path / "database.sqlite3"
 
     with closing(sqlite3.connect(database_path)) as connection:
-        connection.executescript(
-            """
+        connection.executescript("""
             CREATE TABLE TestCases (name TEXT);
             CREATE TABLE TestCaseRuns (testCase_fk INTEGER, result TEXT);
             CREATE TABLE TestIssues (
@@ -104,8 +248,7 @@ def test_ios_ui_e2e_failure_summaries_reads_failed_test_messages(tmp_path: Path)
                 detailedDescription,
                 orderInOwner
             ) VALUES (1, 'Compact failure', 'Detailed failure', 0);
-            """
-        )
+            """)
 
     assert tasks._ios_ui_e2e_failure_summaries(bundle_path) == [
         "testListViewFlow() [Failure]: Detailed failure"
@@ -171,8 +314,7 @@ def test_ios_ui_e2e_failure_summaries_include_xcresult_details_and_activity(
         commands.append(command)
         assert kwargs == {"capture_output": True, "text": True, "check": False}
         if command[4] == "summary":
-            return Result(
-                """
+            return Result("""
                 {
                   "testFailures": [
                     {
@@ -182,11 +324,9 @@ def test_ios_ui_e2e_failure_summaries_include_xcresult_details_and_activity(
                     }
                   ]
                 }
-                """
-            )
+                """)
         if command[4] == "test-details":
-            return Result(
-                """
+            return Result("""
                 {
                   "testName": "PlaniniUITests.testListViewFlow()",
                   "testRuns": [
@@ -206,11 +346,9 @@ def test_ios_ui_e2e_failure_summaries_include_xcresult_details_and_activity(
                     }
                   ]
                 }
-                """
-            )
+                """)
         assert command[4] == "activities"
-        return Result(
-            """
+        return Result("""
             {
               "testName": "PlaniniUITests.testListViewFlow()",
               "testRuns": {
@@ -227,8 +365,7 @@ def test_ios_ui_e2e_failure_summaries_include_xcresult_details_and_activity(
                 ]
               }
             }
-            """
-        )
+            """)
 
     monkeypatch.setattr(tasks.subprocess, "run", fake_run)
 
@@ -341,6 +478,189 @@ def test_write_ios_ui_e2e_summary_includes_failure_summaries(tmp_path: Path, mon
     assert f"- {tasks.DEFAULT_IOS_UI_E2E_RESULT_BUNDLE}" in summary
 
 
+def test_validate_ios_screenshot_sizes_accepts_expected_png_size(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    artifact_path = tmp_path / "e2e-artifacts" / "ios-marketing-screenshots"
+    artifact_path.mkdir(parents=True)
+    png_header = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + tasks.struct.pack(">II", 1284, 2778)
+    (artifact_path / "app-store-iphone-01-login.png").write_bytes(png_header)
+
+    tasks._validate_ios_screenshot_sizes(
+        "e2e-artifacts/ios-marketing-screenshots",
+        (1284, 2778),
+    )
+
+
+def test_validate_ios_screenshot_sizes_rejects_wrong_png_size(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    artifact_path = tmp_path / "e2e-artifacts" / "ios-marketing-screenshots"
+    artifact_path.mkdir(parents=True)
+    png_header = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + tasks.struct.pack(">II", 1206, 2622)
+    (artifact_path / "app-store-iphone-01-login.png").write_bytes(png_header)
+
+    try:
+        tasks._validate_ios_screenshot_sizes(
+            "e2e-artifacts/ios-marketing-screenshots",
+            (1284, 2778),
+        )
+    except tasks.Exit as exc:
+        assert "Expected iOS screenshots sized 1284x2778" in str(exc)
+        assert "app-store-iphone-01-login.png: 1206x2622" in str(exc)
+    else:
+        raise AssertionError("expected wrong screenshot dimensions to fail")
+
+
+def test_validate_ios_screenshot_sizes_rejects_missing_and_invalid_pngs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    artifact_path = tmp_path / "e2e-artifacts" / "ios-marketing-screenshots"
+    artifact_path.mkdir(parents=True)
+
+    try:
+        tasks._validate_ios_screenshot_sizes(
+            "e2e-artifacts/ios-marketing-screenshots",
+            (1284, 2778),
+        )
+    except tasks.Exit as exc:
+        assert "No iOS screenshots found" in str(exc)
+    else:
+        raise AssertionError("expected missing screenshots to fail")
+
+    invalid_path = artifact_path / "invalid.png"
+    invalid_path.write_bytes(b"not a png")
+    try:
+        tasks._validate_ios_screenshot_sizes(
+            "e2e-artifacts/ios-marketing-screenshots",
+            (1284, 2778),
+        )
+    except tasks.Exit as exc:
+        assert f"Invalid PNG screenshot: {invalid_path}" == str(exc)
+    else:
+        raise AssertionError("expected invalid PNG to fail")
+
+
+def test_capture_watch_marketing_screenshot_launches_localized_watch_and_validates(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, object]] = []
+    env = {"DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"}
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        tasks,
+        "_ensure_ios_simulator_device",
+        lambda name: calls.append(("ensure", name)),
+    )
+    monkeypatch.setattr(
+        tasks.run_ios_simulators_fresh,
+        "body",
+        lambda c, **kwargs: calls.append(("fresh", kwargs)),
+    )
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: env)
+    monkeypatch.setattr(
+        tasks,
+        "_find_simulator_udid",
+        lambda received_env, name: calls.append(("find", (received_env, name))) or "watch-123",
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_terminate_if_running",
+        lambda received_env, udid, bundle_id: calls.append(
+            ("terminate", (received_env, udid, bundle_id))
+        ),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_run_command",
+        lambda command, **kwargs: calls.append(("command", (command, kwargs))),
+    )
+    monkeypatch.setattr(tasks.time, "sleep", lambda seconds: calls.append(("sleep", seconds)))
+    monkeypatch.setattr(
+        tasks,
+        "_validate_ios_screenshot_sizes",
+        lambda artifact_dir, expected_size: calls.append(
+            ("validate", (artifact_dir, expected_size))
+        ),
+    )
+
+    tasks._capture_watch_marketing_screenshot(
+        None,
+        base_url="http://localhost:8019",
+        bootstrap_email="planini-de@schaedler.rocks",
+        initial_list_name="Wocheneinkauf",
+        language="de",
+        locale="de-DE",
+        artifact_dir="e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
+        phone_device="iPhone 17 Pro",
+        watch_device="Apple Watch Ultra 3 (49mm)",
+        derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
+    )
+
+    screenshot_path = (
+        tmp_path
+        / "e2e-artifacts"
+        / "ios-marketing-screenshots"
+        / "watchos"
+        / "de-DE"
+        / "app-store-watch-01-lists.png"
+    )
+    assert calls == [
+        ("ensure", "Apple Watch Ultra 3 (49mm)"),
+        (
+            "fresh",
+            {
+                "phone_device": "iPhone 17 Pro",
+                "watch_device": "Apple Watch Ultra 3 (49mm)",
+                "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
+                "rebuild": False,
+                "backend_url_override": "http://localhost:8019",
+                "bootstrap_email": "planini-de@schaedler.rocks",
+                "initial_list_name": "Wocheneinkauf",
+            },
+        ),
+        ("find", (env, "Apple Watch Ultra 3 (49mm)")),
+        ("sleep", 4),
+        ("terminate", (env, "watch-123", "de.malaber.planini.watchkitapp")),
+        (
+            "command",
+            (
+                [
+                    "xcrun",
+                    "simctl",
+                    "launch",
+                    "watch-123",
+                    "de.malaber.planini.watchkitapp",
+                    "-AppleLanguages",
+                    "(de)",
+                    "-AppleLocale",
+                    "de_DE",
+                ],
+                {"env": env},
+            ),
+        ),
+        ("sleep", 4),
+        (
+            "command",
+            (
+                ["xcrun", "simctl", "io", "watch-123", "screenshot", str(screenshot_path)],
+                {"env": env},
+            ),
+        ),
+        (
+            "validate",
+            (
+                "e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
+                (422, 514),
+            ),
+        ),
+    ]
+    assert screenshot_path.parent.is_dir()
+
+
 def test_ios_simulator_destination_pins_latest_os_and_arm64_on_apple_silicon(
     monkeypatch,
 ) -> None:
@@ -349,6 +669,98 @@ def test_ios_simulator_destination_pins_latest_os_and_arm64_on_apple_silicon(
     assert tasks._ios_simulator_destination("iPhone 17 Pro") == (
         "platform=iOS Simulator,name=iPhone 17 Pro,OS=latest,arch=arm64"
     )
+
+
+def test_ensure_ios_simulator_device_reuses_existing_or_creates_missing(monkeypatch) -> None:
+    env = {"DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"}
+    boots: list[tuple[dict[str, str], str]] = []
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: env)
+    monkeypatch.setattr(
+        tasks,
+        "_boot_simulator",
+        lambda simulator_env, udid: boots.append((simulator_env, udid)),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_list_available_simulators",
+        lambda simulator_env: {"existing": {"name": "iPhone 14 Plus"}},
+    )
+    tasks._ensure_ios_simulator_device("iPhone 14 Plus")
+    assert boots == [(env, "existing")]
+
+    monkeypatch.setattr(tasks, "_list_available_simulators", lambda simulator_env: {})
+    monkeypatch.setattr(
+        tasks,
+        "_simctl_json",
+        lambda simulator_env, *args: {
+            "devicetypes": [
+                {
+                    "name": "iPhone 14 Plus",
+                    "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-14-Plus",
+                }
+            ]
+        },
+    )
+    calls: list[tuple[list[str], dict[str, str]]] = []
+    monkeypatch.setattr(
+        tasks,
+        "_run_command",
+        lambda command, env: calls.append((command, env)),
+    )
+    monkeypatch.setattr(tasks, "_find_simulator_udid", lambda simulator_env, name: "created")
+
+    tasks._ensure_ios_simulator_device("iPhone 14 Plus")
+
+    assert calls == [
+        (
+            [
+                "xcrun",
+                "simctl",
+                "create",
+                "iPhone 14 Plus",
+                "com.apple.CoreSimulator.SimDeviceType.iPhone-14-Plus",
+            ],
+            env,
+        )
+    ]
+    assert boots == [(env, "existing"), (env, "created")]
+
+
+def test_ensure_ios_simulator_device_reports_missing_type(monkeypatch) -> None:
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: {})
+    monkeypatch.setattr(tasks, "_list_available_simulators", lambda env: {})
+    monkeypatch.setattr(tasks, "_simctl_json", lambda env, *args: {"devicetypes": []})
+    try:
+        tasks._ensure_ios_simulator_device("iPhone 14 Plus")
+    except tasks.Exit as exc:
+        assert str(exc) == "iOS simulator device type is unavailable: iPhone 14 Plus"
+    else:
+        raise AssertionError("expected missing device type to fail")
+
+
+def test_shutdown_ios_simulators_ignores_cleanup_failure(monkeypatch) -> None:
+    env = {"DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"}
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: env)
+    monkeypatch.setattr(
+        tasks.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append((command, kwargs)),
+    )
+
+    tasks._shutdown_ios_simulators()
+
+    assert calls == [
+        (
+            ["xcrun", "simctl", "shutdown", "all"],
+            {
+                "env": env,
+                "capture_output": True,
+                "text": True,
+                "check": False,
+            },
+        )
+    ]
 
 
 def test_stop_app_waits_for_exit_before_removing_pid_file(tmp_path: Path, monkeypatch) -> None:
@@ -409,30 +821,60 @@ def test_compute_version_values_for_branch_skips_existing_rc_tags():
     }
 
 
-def test_ios_app_icon_svg_with_background_color_updates_cls_1_fill(
+def test_ios_app_icon_foreground_svg_removes_background_rectangle(
     tmp_path: Path, monkeypatch
 ) -> None:
     source_path = tmp_path / "planini.svg"
     source_path.write_text(
         """
-        <svg>
-          <style>
-            .cls-1 {
-              fill: #ddddc1;
-            }
-          </style>
+        <svg width="4267" height="4267" viewBox="0 0 4267 4267">
+          <rect id="Rechteck_1" class="cls-1" width="100" height="100"/>
+          <path id="logo"/>
         </svg>
         """,
         encoding="utf-8",
     )
     monkeypatch.setattr(tasks, "IOS_APP_ICON_SOURCE_PATH", source_path)
 
-    svg = tasks._ios_app_icon_svg_with_background_color("#A7E79D")
+    svg = tasks._ios_app_icon_foreground_svg()
 
-    assert "fill: #a7e79d;" in svg
+    assert "Rechteck_1" not in svg
+    assert 'id="logo"' in svg
+    assert 'width="1024" height="1024"' in svg
 
 
-def test_ios_app_icon_svg_with_background_color_rejects_invalid_color() -> None:
+def test_ios_app_icon_foreground_svg_rejects_missing_background(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source_path = tmp_path / "planini.svg"
+    source_path.write_text("<svg/>", encoding="utf-8")
+    monkeypatch.setattr(tasks, "IOS_APP_ICON_SOURCE_PATH", source_path)
+
+    try:
+        tasks._ios_app_icon_foreground_svg()
+    except tasks.Exit as exc:
+        assert "background rectangle" in str(exc)
+    else:
+        raise AssertionError("expected missing icon background to fail")
+
+
+def test_ios_app_icon_foreground_svg_rejects_unexpected_canvas(tmp_path: Path, monkeypatch) -> None:
+    source_path = tmp_path / "planini.svg"
+    source_path.write_text(
+        '<svg>\n  <rect id="Rechteck_1" width="100" height="100"/>\n</svg>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tasks, "IOS_APP_ICON_SOURCE_PATH", source_path)
+
+    try:
+        tasks._ios_app_icon_foreground_svg()
+    except tasks.Exit as exc:
+        assert "1024x1024" in str(exc)
+    else:
+        raise AssertionError("expected unexpected icon canvas to fail")
+
+
+def test_ios_app_icon_background_color_rejects_invalid_color() -> None:
     try:
         tasks._normalize_ios_app_icon_background_color("green")
     except tasks.Exit as exc:
@@ -441,43 +883,172 @@ def test_ios_app_icon_svg_with_background_color_rejects_invalid_color() -> None:
         raise AssertionError("expected invalid icon color to fail")
 
 
-def test_generate_ios_app_icons_renders_variant_svg_color(tmp_path: Path, monkeypatch) -> None:
+def test_ios_icon_composer_document_adds_dark_and_glass_appearances() -> None:
+    document = tasks._ios_icon_composer_document("#e18585")
+
+    fills = document["fill-specializations"]
+    assert fills[0]["value"]["linear-gradient"][0] == ("display-p3:0.88235,0.52157,0.52157,1.00000")
+    assert fills[1] == {
+        "appearance": "dark",
+        "value": {
+            "linear-gradient": [
+                "display-p3:0.37059,0.21906,0.21906,1.00000",
+                "display-p3:0.22941,0.13561,0.13561,1.00000",
+            ]
+        },
+    }
+    assert document["groups"][0]["translucency"] == {"enabled": True, "value": 0.2}
+    assert document["supported-platforms"]["circles"] == ["watchOS"]
+
+
+def test_generate_ios_app_icons_writes_icon_composer_document(tmp_path: Path, monkeypatch) -> None:
     source_path = tmp_path / "planini.svg"
     source_path.write_text(
         """
-        <svg>
-          <style>
-            .cls-1 {
-              fill: #ddddc1;
-            }
-          </style>
+        <svg width="4267" height="4267" viewBox="0 0 4267 4267">
+          <rect id="Rechteck_1" class="cls-1" width="100" height="100"/>
+          <path id="logo"/>
         </svg>
         """,
         encoding="utf-8",
     )
-    app_iconset_path = tmp_path / "AppIcon.appiconset"
-    watch_iconset_path = tmp_path / "WatchAppIcon.appiconset"
-    rendered: list[dict] = []
-
-    fake_cairosvg = types.SimpleNamespace(
-        svg2png=lambda **kwargs: rendered.append(kwargs)
-        or Path(kwargs["write_to"]).write_bytes(b"png")
-    )
+    document_path = tmp_path / "AppIcon.icon" / "icon.json"
+    artwork_path = tmp_path / "AppIcon.icon" / "Assets" / "Planini.svg"
 
     monkeypatch.setattr(tasks, "IOS_APP_ICON_SOURCE_PATH", source_path)
     monkeypatch.setattr(tasks, "ROOT", tmp_path)
-    monkeypatch.setattr(tasks, "IOS_APP_ICONSET_PATH", app_iconset_path)
-    monkeypatch.setattr(tasks, "IOS_WATCH_APP_ICONSET_PATH", watch_iconset_path)
-    monkeypatch.setattr(tasks, "IOS_APP_ICON_FILES", {"Icon-20@2x.png": 40})
-    monkeypatch.setattr(tasks, "IOS_WATCH_APP_ICON_FILES", {"Icon-24@2x.png": 48})
-    monkeypatch.setitem(sys.modules, "cairosvg", fake_cairosvg)
+    monkeypatch.setattr(tasks, "IOS_APP_ICON_DOCUMENT_PATH", document_path)
+    monkeypatch.setattr(tasks, "IOS_APP_ICON_ARTWORK_PATH", artwork_path)
 
     tasks.generate_ios_app_icons.body(None, background_color="#e18585")
+    tasks.check_ios_app_icons.body(None)
 
-    assert len(rendered) == 2
-    assert all(b"fill: #e18585;" in call["bytestring"] for call in rendered)
-    assert (app_iconset_path / "Icon-20@2x.png").exists()
-    assert (watch_iconset_path / "Icon-24@2x.png").exists()
+    document = json.loads(document_path.read_text(encoding="utf-8"))
+    assert document["fill-specializations"][1]["appearance"] == "dark"
+    assert document["groups"][0]["translucency"]["enabled"] is True
+    artwork = artwork_path.read_text(encoding="utf-8")
+    assert "Rechteck_1" not in artwork
+    assert 'width="1024" height="1024"' in artwork
+
+
+def test_generate_ios_app_icons_rejects_missing_source(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(tasks, "IOS_APP_ICON_SOURCE_PATH", tmp_path / "missing.svg")
+
+    try:
+        tasks.generate_ios_app_icons.body(None)
+    except tasks.Exit as exc:
+        assert "Missing app icon source SVG" in str(exc)
+    else:
+        raise AssertionError("expected missing icon source to fail")
+
+
+def test_check_ios_app_icons_reports_missing_files(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        tasks, "IOS_APP_ICON_DOCUMENT_PATH", tmp_path / "AppIcon.icon" / "icon.json"
+    )
+    monkeypatch.setattr(
+        tasks,
+        "IOS_APP_ICON_ARTWORK_PATH",
+        tmp_path / "AppIcon.icon" / "Assets" / "Planini.svg",
+    )
+
+    try:
+        tasks.check_ios_app_icons.body(None)
+    except tasks.Exit as exc:
+        assert "Missing generated iOS Icon Composer files" in str(exc)
+        assert "AppIcon.icon/icon.json" in str(exc)
+        assert "AppIcon.icon/Assets/Planini.svg" in str(exc)
+    else:
+        raise AssertionError("expected missing Icon Composer files to fail")
+
+
+def test_generate_ios_app_shortcuts_localizations_uses_all_locale_catalogs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    locales_path = tmp_path / "locales"
+    output_path = tmp_path / "AppShortcutsLocalization"
+    locales_path.mkdir()
+    catalogs = {
+        "en": {
+            "ios": {
+                "siri": {
+                    "add_item_phrase": "Add Item in ${applicationName}",
+                    "add_item_to_list_phrase": ("Add Item to ${list} in ${applicationName}"),
+                }
+            }
+        },
+        "de": {
+            "ios": {
+                "siri": {
+                    "add_item_phrase": "Mit ${applicationName} hinzufügen",
+                    "add_item_to_list_phrase": ("Mit ${applicationName} zu ${list} hinzufügen"),
+                }
+            }
+        },
+    }
+    for locale, catalog in catalogs.items():
+        (locales_path / f"{locale}.json").write_text(tasks.json.dumps(catalog), encoding="utf-8")
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "LOCALES_PATH", locales_path)
+    monkeypatch.setattr(tasks, "IOS_APP_SHORTCUTS_LOCALIZATION_PATH", output_path)
+
+    tasks.generate_ios_app_shortcuts_localizations.body(None)
+
+    assert (output_path / "en.lproj" / "AppShortcuts.strings").read_text(encoding="utf-8") == (
+        '"Add Item in ${applicationName}" = "Add Item in ${applicationName}";\n'
+        '"Add Item to ${list} in ${applicationName}" = '
+        '"Add Item to ${list} in ${applicationName}";\n'
+    )
+    assert (output_path / "de.lproj" / "AppShortcuts.strings").read_text(encoding="utf-8") == (
+        '"Add Item in ${applicationName}" = "Mit ${applicationName} hinzufügen";\n'
+        '"Add Item to ${list} in ${applicationName}" = '
+        '"Mit ${applicationName} zu ${list} hinzufügen";\n'
+    )
+
+
+def test_ios_app_shortcuts_localizations_require_matching_placeholders() -> None:
+    catalog = {
+        "ios": {
+            "siri": {
+                "add_item_phrase": "Artikel hinzufügen",
+                "add_item_to_list_phrase": "Artikel zu ${list} hinzufügen",
+            }
+        }
+    }
+
+    try:
+        tasks._ios_app_shortcuts_strings_content(catalog, "de")
+    except tasks.Exit as exc:
+        assert "placeholders" in str(exc)
+        assert "${applicationName}" in str(exc)
+    else:
+        raise AssertionError("expected missing App Shortcut placeholders to fail")
+
+
+def test_ios_app_shortcuts_localizations_match_shared_locale_catalogs() -> None:
+    for locale_path in sorted(tasks.LOCALES_PATH.glob("*.json")):
+        locale = locale_path.stem
+        catalog = tasks.json.loads(locale_path.read_text(encoding="utf-8"))
+        generated_path = (
+            tasks.IOS_APP_SHORTCUTS_LOCALIZATION_PATH / f"{locale}.lproj" / "AppShortcuts.strings"
+        )
+
+        assert generated_path.read_text(
+            encoding="utf-8"
+        ) == tasks._ios_app_shortcuts_strings_content(catalog, locale)
+
+
+def test_ios_app_shortcut_source_phrases_match_swift_provider() -> None:
+    provider = (tasks.ROOT / "ios" / "PlaniniIOS" / "App" / "PlaniniAppIntents.swift").read_text(
+        encoding="utf-8"
+    )
+
+    for source_phrase, _ in tasks.IOS_APP_SHORTCUT_PHRASE_KEYS:
+        swift_phrase = source_phrase.replace("${applicationName}", r"\(.applicationName)")
+        swift_phrase = swift_phrase.replace("${list}", r"\(\.$list)")
+        assert f'"{swift_phrase}"' in provider
 
 
 def test_ios_testflight_workflow_adds_pr_build_component_and_variant_icon_colors() -> None:
@@ -501,6 +1072,206 @@ def test_ios_testflight_workflow_adds_pr_build_component_and_variant_icon_colors
         'generate-ios-app-icons --background-color="${{ matrix.icon_background_color }}"'
         in workflow
     )
+    assert "APP_STORE_CONNECT_APP_ID: '6762043307'" in workflow
+    assert (
+        'app_store_connect_app_id="${IOS_REVIEW_APP_STORE_CONNECT_APP_ID:-'
+        '$APP_STORE_CONNECT_APP_ID}"'
+    ) in workflow
+    assert '--apple-id "${{ steps.variant.outputs.app_store_connect_app_id }}"' in workflow
+
+
+def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
+    workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+    ci_workflow = (workflows / "ci.yml").read_text(encoding="utf-8")
+    screenshot_workflow = (workflows / "app-store-screenshots.yml").read_text(encoding="utf-8")
+    testflight_workflow = (workflows / "ios-build-and-testflight.yml").read_text(encoding="utf-8")
+
+    assert (
+        "swift_test:\n    runs-on: ubuntu-latest\n    container:\n      image: swift:6.2"
+        in ci_workflow
+    )
+    assert "path: ios/PlaniniIOS/.build" in ci_workflow
+    assert "hashFiles('ios/PlaniniIOS/Package.resolved')" in ci_workflow
+    assert (
+        "ios_native_ui_e2e:\n    name: Native ${{ matrix.platform }} UI e2e\n    runs-on: macos-26"
+        in ci_workflow
+    )
+    assert ci_workflow.count("check-ios-e2e") == 2
+    assert "--skip-filter=listWebsocketEmitsItemLifecycleEvents" in ci_workflow
+    assert "--test-filter=listWebsocketEmitsItemLifecycleEvents" in ci_workflow
+    assert ci_workflow.count("check-ios-ui-e2e") == 1
+    assert "uses: ./.github/workflows/app-store-screenshots.yml" in ci_workflow
+    assert "if: github.ref != 'refs/heads/main'" in ci_workflow
+    assert (
+        "docker_smoke:\n    runs-on: ubuntu-latest\n    needs:\n      - docker_build" in ci_workflow
+    )
+    assert "python -m invoke check-container-smoke" in ci_workflow
+    assert "--legacy-revision=0021_add_list_history" in ci_workflow
+    assert "timeout-minutes: 45" in screenshot_workflow
+    assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in screenshot_workflow
+    assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in screenshot_workflow
+    assert "check-ios-e2e" not in testflight_workflow
+    assert "check-ios-ui-e2e" not in testflight_workflow
+    assert "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}" in testflight_workflow
+
+
+def test_review_workflow_waits_for_backend_health_after_deployment() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "pr-review.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "review_health:\n    name: Review backend health" in workflow
+    assert "needs:\n      - review_deploy" in workflow
+    assert "${REVIEW_URL}/health" in workflow
+    assert 'if [ "$status" = "200" ]' in workflow
+    assert "x-webhooker-placeholder" in workflow
+    assert '"status"[[:space:]]*:[[:space:]]*"ok"' in workflow
+
+
+def test_release_attaches_app_store_screenshots() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "uses: ./.github/workflows/app-store-screenshots.yml" in workflow
+    assert "- ios_marketing_screenshots" in workflow
+    assert 'archive="planini-app-store-screenshots-${GIT_TAG}.zip"' in workflow
+    assert 'gh release upload "$GIT_TAG" "$SCREENSHOT_ARCHIVE" --clobber' in workflow
+    assert "## App Store screenshots" in workflow
+    assert "docs/app-store-screenshots.md" in workflow
+
+
+def test_ci_skips_work_repeated_by_main_release() -> None:
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    main_skip = "if: github.ref != 'refs/heads/main'"
+    assert workflow.count(main_skip) == 3
+    assert f"ios_marketing_screenshots:\n    {main_skip}" in workflow
+    assert f"version:\n    {main_skip}" in workflow
+    assert f"docker_build_platform:\n    {main_skip}" in workflow
+
+
+def test_check_container_smoke_upgrades_persistent_database(tmp_path: Path, monkeypatch) -> None:
+    calls: list[tuple[str, dict]] = []
+    readiness_checks: list[str] = []
+    healthchecks: list[dict] = []
+    container_healthchecks: list[dict] = []
+    container_migration_checks: list[str] = []
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return RunResult(exited=0)
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks.os, "getpid", lambda: 4321)
+    monkeypatch.setattr(
+        tasks,
+        "_wait_for_healthcheck",
+        lambda **kwargs: (readiness_checks.append("host-health"), healthchecks.append(kwargs)),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_wait_for_container_health_endpoint",
+        lambda c, container_name, **kwargs: (
+            readiness_checks.append("container-health"),
+            container_healthchecks.append({"container_name": container_name, **kwargs}),
+        ),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_check_container_migrations",
+        lambda c, container_name: (
+            readiness_checks.append("migration-heads"),
+            container_migration_checks.append(container_name),
+        ),
+    )
+
+    tasks.check_container_smoke.body(
+        Context(),
+        image="ghcr.io/malaber/planini:sha-test",
+        port="8123",
+    )
+
+    assert (tmp_path / "e2e-artifacts" / "container-smoke").exists()
+    prepare_args = shlex.split(calls[0][0])
+    assert prepare_args[:3] == ["docker", "run", "--rm"]
+    assert "0018_add_household_member_roles" in prepare_args[-1]
+    assert prepare_args[-2] == "-c"
+    start_args = shlex.split(calls[1][0])
+    assert start_args[:3] == ["docker", "run", "--detach"]
+    assert "--rm" not in start_args
+    assert "127.0.0.1:8123:8000" in start_args
+    assert "ghcr.io/malaber/planini:sha-test" == start_args[-1]
+    assert healthchecks == [
+        {
+            "url": "http://127.0.0.1:8123/health",
+            "attempts": 30,
+            "sleep_seconds": 2.0,
+        }
+    ]
+    assert container_healthchecks == [
+        {
+            "container_name": "planini-container-smoke-4321",
+            "attempts": 150,
+            "sleep_seconds": 2.0,
+        }
+    ]
+    assert container_migration_checks == ["planini-container-smoke-4321"]
+    assert readiness_checks == ["container-health", "host-health", "migration-heads"]
+    assert calls[2] == (
+        "docker rm --force planini-container-smoke-4321",
+        {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"},
+    )
+
+
+def test_check_container_smoke_prints_logs_when_healthcheck_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return RunResult(exited=0)
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks.os, "getpid", lambda: 9876)
+    monkeypatch.setattr(tasks, "_wait_for_container_health_endpoint", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        tasks,
+        "_wait_for_healthcheck",
+        lambda **kwargs: (_ for _ in ()).throw(tasks.Exit("container unhealthy")),
+    )
+
+    try:
+        tasks.check_container_smoke.body(Context(), image="planini:test")
+    except tasks.Exit as exc:
+        assert str(exc) == "container unhealthy"
+    else:
+        raise AssertionError("expected container smoke test to fail")
+
+    assert calls[-2] == (
+        "docker logs planini-container-smoke-9876",
+        {"warn": True, "pty": False, "shell": "/bin/bash"},
+    )
+    assert calls[-1] == (
+        "docker rm --force planini-container-smoke-9876",
+        {"warn": True, "hide": True, "pty": False, "shell": "/bin/bash"},
+    )
+
+
+def test_ios_project_uses_icon_composer_for_app_and_watch() -> None:
+    project = (
+        Path(__file__).resolve().parents[1] / "ios" / "PlaniniIOS" / "project.yml"
+    ).read_text(encoding="utf-8")
+
+    assert project.count("- path: AppIcon.icon") == 2
+    assert project.count("ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon") == 2
+    assert "WatchAppIcon" not in project
+    assert "AppIcon.appiconset" not in project
 
 
 def test_run_quiet_hides_successful_output() -> None:
@@ -988,11 +1759,15 @@ def test_run_ios_e2e_invokes_swift_test_with_expected_env(monkeypatch) -> None:
         webauthn_rp_id="localhost",
         user_email="ios@example.com",
         origin="https://passkeys.example.com",
+        test_filter="accountRegistrationCreatesUsableAccount|seededPasskeyLoginAndListCrud",
+        skip_filter="listWebsocketEmitsItemLifecycleEvents",
     )
 
     assert calls == [
         (
-            "xcrun swift test --package-path ios/PlaniniIOS --filter LiveBackendE2ETests",
+            "swift test --package-path ios/PlaniniIOS "
+            "--filter 'accountRegistrationCreatesUsableAccount|seededPasskeyLoginAndListCrud' "
+            "--skip listWebsocketEmitsItemLifecycleEvents",
             {
                 "env": {
                     "PLANINI_E2E_BASE_URL": "http://localhost:8017",
@@ -1137,6 +1912,31 @@ def test_run_ios_ui_e2e_prints_failure_summary_before_exiting(
     assert "testListViewFlow() [Failure]: Timed out waiting for response" in captured.out
 
 
+def test_reset_ios_ui_test_app_uninstalls_target_app(monkeypatch) -> None:
+    env = {"DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"}
+    calls: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: env)
+    monkeypatch.setattr(tasks, "_find_simulator_udid", lambda actual_env, name: "device-id")
+    monkeypatch.setattr(
+        tasks,
+        "_terminate_if_running",
+        lambda actual_env, udid, bundle_id: calls.append(("terminate", udid, bundle_id)),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_uninstall_if_present",
+        lambda actual_env, udid, bundle_id: calls.append(("uninstall", udid, bundle_id)),
+    )
+
+    tasks._reset_ios_ui_test_app("iPhone 17")
+
+    assert calls == [
+        ("terminate", "device-id", tasks.DEFAULT_IOS_APP_BUNDLE_IDENTIFIER),
+        ("uninstall", "device-id", tasks.DEFAULT_IOS_APP_BUNDLE_IDENTIFIER),
+    ]
+
+
 def test_check_ios_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
 
@@ -1158,6 +1958,8 @@ def test_check_ios_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
         webauthn_rp_id="localhost",
         user_email="ios@example.com",
         origin="https://passkeys.example.com",
+        test_filter="LiveBackendE2ETests",
+        skip_filter="listWebsocketEmitsItemLifecycleEvents",
         host="127.0.0.1",
         port=8017,
         log_path="ios-e2e-server.log",
@@ -1187,6 +1989,8 @@ def test_check_ios_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
                 "webauthn_rp_id": "localhost",
                 "user_email": "ios@example.com",
                 "origin": "https://passkeys.example.com",
+                "test_filter": "LiveBackendE2ETests",
+                "skip_filter": "listWebsocketEmitsItemLifecycleEvents",
             },
         ),
         ("stop", {"pid_path": "ios-e2e-server.pid"}),
@@ -1210,9 +2014,23 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
         or {"access_token": "token-123", "display_name": "Test User"},
     )
     monkeypatch.setattr(
+        tasks.generate_ios_app_icons,
+        "body",
+        lambda c: calls.append(("icons", {})),
+    )
+    monkeypatch.setattr(
         tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
     )
-    monkeypatch.setattr(tasks, "run_ios_ui_e2e", lambda c, **kwargs: calls.append(("run", kwargs)))
+    monkeypatch.setattr(
+        tasks,
+        "_reset_ios_ui_test_app",
+        lambda device_name: calls.append(("reset-app", {"device_name": device_name})),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "run_ios_ui_e2e",
+        lambda c, **kwargs: calls.append(("run", kwargs)),
+    )
     monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: calls.append(("stop", kwargs)))
 
     tasks.check_ios_ui_e2e.body(
@@ -1224,6 +2042,7 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
         artifact_dir="e2e-artifacts/ios-ui-e2e",
         device_name="iPhone 17",
         initial_list_name="Browser Test Shop",
+        attempts=3,
         host="127.0.0.1",
         port=8018,
         log_path="ios-ui-e2e-server.log",
@@ -1254,7 +2073,9 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
                 "user_email": "ios@example.com",
             },
         ),
+        ("icons", {}),
         ("generate", {}),
+        ("reset-app", {"device_name": "iPhone 17"}),
         (
             "run",
             {
@@ -1266,7 +2087,7 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
                 "initial_list_name": "Browser Test Shop",
                 "access_token": "token-123",
                 "display_name": "Test User",
-                "attempts": 2,
+                "attempts": 1,
                 "only_testing": (
                     "PlaniniUITests/PlaniniUITests/testUsesNativeIPadCanvasWhenRunningOnIPad"
                 ),
@@ -1274,6 +2095,507 @@ def test_check_ios_ui_e2e_starts_waits_runs_and_stops(monkeypatch) -> None:
         ),
         ("stop", {"pid_path": "ios-ui-e2e-server.pid"}),
     ]
+
+
+def test_check_ios_ui_e2e_restarts_backend_before_retry(monkeypatch, capsys) -> None:
+    calls: list[tuple[str, dict]] = []
+    sessions = iter(
+        [
+            {"access_token": "token-first", "display_name": "First User"},
+            {"access_token": "token-second", "display_name": "Second User"},
+        ]
+    )
+    outcomes = iter([tasks.Exit("first attempt failed"), None])
+
+    monkeypatch.setattr(
+        tasks,
+        "_reset_sqlite_database_file",
+        lambda database_url: calls.append(("reset", {"database_url": database_url})),
+    )
+    monkeypatch.setattr(tasks, "start_app", lambda c, **kwargs: calls.append(("start", kwargs)))
+    monkeypatch.setattr(tasks, "wait_for_app", lambda c, **kwargs: calls.append(("wait", kwargs)))
+    monkeypatch.setattr(tasks, "_bootstrap_ios_ui_test_session", lambda **kwargs: next(sessions))
+    monkeypatch.setattr(tasks.generate_ios_app_icons, "body", lambda c: calls.append(("icons", {})))
+    monkeypatch.setattr(
+        tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_reset_ios_ui_test_app",
+        lambda device_name: calls.append(("reset-app", {"device_name": device_name})),
+    )
+
+    def run_ios_ui_e2e(c, **kwargs):
+        calls.append(("run", kwargs))
+        outcome = next(outcomes)
+        if outcome is not None:
+            raise outcome
+
+    monkeypatch.setattr(tasks, "run_ios_ui_e2e", run_ios_ui_e2e)
+    monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: calls.append(("stop", kwargs)))
+
+    tasks.check_ios_ui_e2e.body(None, attempts=2)
+
+    assert [name for name, _ in calls].count("reset") == 2
+    assert [name for name, _ in calls].count("start") == 2
+    assert [name for name, _ in calls].count("stop") == 2
+    assert [name for name, _ in calls].count("reset-app") == 2
+    assert [name for name, _ in calls].count("icons") == 1
+    assert [name for name, _ in calls].count("generate") == 1
+    run_calls = [kwargs for name, kwargs in calls if name == "run"]
+    assert [kwargs["access_token"] for kwargs in run_calls] == ["token-first", "token-second"]
+    assert all(kwargs["attempts"] == 1 for kwargs in run_calls)
+    assert "Retrying iOS UI e2e with a fresh backend (attempt 1/2)" in capsys.readouterr().out
+
+
+def test_check_ios_ui_e2e_stops_backend_after_final_failure(monkeypatch) -> None:
+    stops: list[dict] = []
+
+    monkeypatch.setattr(tasks, "_reset_sqlite_database_file", lambda database_url: None)
+    monkeypatch.setattr(tasks, "start_app", lambda c, **kwargs: None)
+    monkeypatch.setattr(tasks, "wait_for_app", lambda c, **kwargs: None)
+    monkeypatch.setattr(
+        tasks,
+        "_bootstrap_ios_ui_test_session",
+        lambda **kwargs: {"access_token": "token", "display_name": "Test User"},
+    )
+    monkeypatch.setattr(tasks.generate_ios_app_icons, "body", lambda c: None)
+    monkeypatch.setattr(tasks.generate_ios_project, "body", lambda c: None)
+    monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda device_name: None)
+    monkeypatch.setattr(
+        tasks,
+        "run_ios_ui_e2e",
+        lambda c, **kwargs: (_ for _ in ()).throw(tasks.Exit("xcode failed")),
+    )
+    monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: stops.append(kwargs))
+
+    try:
+        tasks.check_ios_ui_e2e.body(None, attempts=1)
+    except tasks.Exit as exc:
+        assert "xcode failed" in str(exc)
+    else:
+        raise AssertionError("expected check_ios_ui_e2e to fail")
+
+    assert stops == [{"pid_path": tasks.DEFAULT_IOS_UI_E2E_PID_PATH}]
+
+
+def test_run_ios_marketing_ui_test_builds_once_for_both_destinations(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+    simulator_lifecycle: list[tuple[str, str | None]] = []
+    summaries: list[str] = []
+    validations: list[tuple[str, tuple[int, int]]] = []
+    env_calls: list[dict] = []
+    results = iter(
+        [
+            RunResult(exited=0),
+            RunResult(exited=65),
+            RunResult(exited=0),
+            RunResult(exited=0),
+        ]
+    )
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+            return next(results)
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        tasks,
+        "_ios_simulator_destination",
+        lambda name: f"platform=iOS Simulator,name={name},OS=latest,arch=arm64",
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_ensure_ios_simulator_device",
+        lambda name: simulator_lifecycle.append(("ensure", name)),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_reset_ios_ui_test_app",
+        lambda name: simulator_lifecycle.append(("reset", name)),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_shutdown_ios_simulators",
+        lambda: simulator_lifecycle.append(("shutdown", None)),
+    )
+
+    def ios_ui_test_env(**kwargs):
+        env_calls.append(kwargs)
+        return {"PLANINI_UI_TEST_ACCESS_TOKEN": kwargs["access_token"]}
+
+    monkeypatch.setattr(tasks, "_ios_ui_test_env", ios_ui_test_env)
+    monkeypatch.setattr(
+        tasks,
+        "_write_ios_ui_e2e_summary",
+        lambda artifact_dir: summaries.append(artifact_dir),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_validate_ios_screenshot_sizes",
+        lambda artifact_dir, expected_size: validations.append((artifact_dir, expected_size)),
+    )
+    derived_data = tmp_path / "ios" / "PlaniniIOS" / ".derived-marketing-screenshots"
+    derived_data.mkdir(parents=True)
+    (derived_data / "stale").write_text("stale", encoding="utf-8")
+
+    tasks._run_ios_marketing_ui_test(
+        Context(),
+        base_url="http://localhost:8019",
+        artifact_dir="e2e-artifacts/ios-marketing-screenshots",
+        device_name="iPhone 14 Plus",
+        ipad_device_name="iPad Pro 13-inch (M5)",
+        initial_list_name="Weekly groceries",
+        german_initial_list_name="Wocheneinkauf",
+        english_session={"access_token": "english-token", "display_name": "Alex"},
+        german_session={"access_token": "german-token", "display_name": "Alex"},
+        derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
+    )
+
+    result_bundle_path = (
+        tmp_path
+        / "e2e-artifacts"
+        / "ios-marketing-screenshots"
+        / tasks.DEFAULT_IOS_UI_E2E_RESULT_BUNDLE
+    )
+    expected_env = {
+        "PLANINI_UI_TEST_ACCESS_TOKEN": "english-token",
+        "PLANINI_UI_TEST_MARKETING_GERMAN_ACCESS_TOKEN": "german-token",
+        "PLANINI_UI_TEST_MARKETING_GERMAN_DISPLAY_NAME": "Alex",
+        "PLANINI_UI_TEST_MARKETING_GERMAN_INITIAL_LIST_NAME": "Wocheneinkauf",
+    }
+    expected_kwargs = {
+        "env": expected_env,
+        "pty": False,
+        "shell": "/bin/bash",
+        "warn": True,
+    }
+    assert calls == [
+        (
+            "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
+            "-scheme Planini "
+            f"-derivedDataPath {derived_data} "
+            "-destination 'generic/platform=iOS Simulator' "
+            "-destination-timeout 120 -quiet "
+            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots "
+            "build-for-testing",
+            expected_kwargs,
+        ),
+        (
+            "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
+            "-scheme Planini "
+            f"-derivedDataPath {derived_data} "
+            "-destination 'platform=iOS Simulator,name=iPhone 14 Plus,OS=latest,arch=arm64' "
+            "-destination-timeout 120 "
+            f"-resultBundlePath {result_bundle_path} -quiet "
+            "-parallel-testing-enabled NO "
+            "-maximum-parallel-testing-workers 1 "
+            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots "
+            "test-without-building",
+            expected_kwargs,
+        ),
+        (
+            "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
+            "-scheme Planini "
+            f"-derivedDataPath {derived_data} "
+            "-destination 'platform=iOS Simulator,name=iPhone 14 Plus,OS=latest,arch=arm64' "
+            "-destination-timeout 120 "
+            f"-resultBundlePath {result_bundle_path} -quiet "
+            "-parallel-testing-enabled NO "
+            "-maximum-parallel-testing-workers 1 "
+            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots "
+            "test-without-building",
+            expected_kwargs,
+        ),
+        (
+            "cd ios/PlaniniIOS && xcodebuild -project PlaniniApp.xcodeproj "
+            "-scheme Planini "
+            f"-derivedDataPath {derived_data} "
+            "-destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5),OS=latest,arch=arm64' "
+            "-destination-timeout 120 "
+            f"-resultBundlePath {result_bundle_path} -quiet "
+            "-parallel-testing-enabled NO "
+            "-maximum-parallel-testing-workers 1 "
+            "-only-testing:PlaniniUITests/PlaniniUITests/testMarketingScreenshots "
+            "test-without-building",
+            expected_kwargs,
+        ),
+    ]
+    assert env_calls == [
+        {
+            "base_url": "http://localhost:8019",
+            "bootstrap_base_url": "http://localhost:8019",
+            "user_email": tasks.DEFAULT_IOS_E2E_USER_EMAIL,
+            "artifact_dir": "e2e-artifacts/ios-marketing-screenshots",
+            "initial_list_name": "Weekly groceries",
+            "access_token": "english-token",
+            "display_name": "Alex",
+        }
+    ]
+    assert simulator_lifecycle == [
+        ("shutdown", None),
+        ("ensure", "iPhone 14 Plus"),
+        ("reset", "iPhone 14 Plus"),
+        ("shutdown", None),
+        ("ensure", "iPhone 14 Plus"),
+        ("reset", "iPhone 14 Plus"),
+        ("shutdown", None),
+        ("ensure", "iPad Pro 13-inch (M5)"),
+        ("reset", "iPad Pro 13-inch (M5)"),
+    ]
+    assert summaries == []
+    assert (
+        "Retrying iOS marketing screenshots on iPhone 14 Plus (attempt 1/2)..."
+        in capsys.readouterr().out
+    )
+    assert validations == [
+        ("e2e-artifacts/ios-marketing-screenshots/iphone/en-US", (1284, 2778)),
+        ("e2e-artifacts/ios-marketing-screenshots/iphone/de-DE", (1284, 2778)),
+        ("e2e-artifacts/ios-marketing-screenshots/ipad/en-US", (2064, 2752)),
+        ("e2e-artifacts/ios-marketing-screenshots/ipad/de-DE", (2064, 2752)),
+    ]
+    assert not derived_data.exists()
+    assert not result_bundle_path.exists()
+
+
+def test_run_ios_marketing_ui_test_reports_build_failure(monkeypatch, tmp_path: Path) -> None:
+    class Context:
+        def run(self, command, **kwargs):
+            return RunResult(exited=65)
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda name: None)
+    monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda name: None)
+    monkeypatch.setattr(tasks, "_shutdown_ios_simulators", lambda: None)
+    monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
+    derived_data = tmp_path / "ios" / "PlaniniIOS" / ".derived-marketing-screenshots"
+    derived_data.mkdir(parents=True)
+    marker = derived_data / "cached-build"
+    marker.write_text("cached", encoding="utf-8")
+
+    try:
+        tasks._run_ios_marketing_ui_test(
+            Context(),
+            base_url="http://localhost:8019",
+            artifact_dir="e2e-artifacts/ios-marketing-screenshots",
+            device_name="iPhone 14 Plus",
+            ipad_device_name="iPad Pro 13-inch (M5)",
+            initial_list_name="Weekly groceries",
+            german_initial_list_name="Wocheneinkauf",
+            english_session={"access_token": "english-token", "display_name": "Alex"},
+            german_session={"access_token": "german-token", "display_name": "Alex"},
+            derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
+            clean_derived_data=False,
+        )
+    except tasks.Exit as exc:
+        assert "marketing screenshot build" in str(exc)
+        assert "exit code 65" in str(exc)
+    else:
+        raise AssertionError("expected marketing build to fail")
+    assert marker.read_text(encoding="utf-8") == "cached"
+
+
+def test_run_ios_marketing_ui_test_reports_xcode_failure(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    results = iter([RunResult(exited=0), RunResult(exited=65)])
+
+    class Context:
+        def run(self, command, **kwargs):
+            return next(results)
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "_ensure_ios_simulator_device", lambda name: None)
+    monkeypatch.setattr(tasks, "_reset_ios_ui_test_app", lambda name: None)
+    monkeypatch.setattr(tasks, "_shutdown_ios_simulators", lambda: None)
+    monkeypatch.setattr(tasks, "_ios_ui_test_env", lambda **kwargs: {})
+    monkeypatch.setattr(tasks, "_write_ios_ui_e2e_summary", lambda artifact_dir: None)
+    monkeypatch.setattr(
+        tasks,
+        "_ios_ui_e2e_failure_summaries",
+        lambda path: ["testMarketingScreenshots() [Failure]: launch failed"],
+    )
+
+    try:
+        tasks._run_ios_marketing_ui_test(
+            Context(),
+            base_url="http://localhost:8019",
+            artifact_dir="e2e-artifacts/ios-marketing-screenshots",
+            device_name="iPhone 14 Plus",
+            ipad_device_name="iPad Pro 13-inch (M5)",
+            initial_list_name="Weekly groceries",
+            german_initial_list_name="Wocheneinkauf",
+            english_session={"access_token": "english-token", "display_name": "Alex"},
+            german_session={"access_token": "german-token", "display_name": "Alex"},
+            derived_data_path="ios/PlaniniIOS/.derived-marketing-screenshots",
+            attempts=1,
+        )
+    except tasks.Exit as exc:
+        assert "exit code 65" in str(exc)
+    else:
+        raise AssertionError("expected marketing xcode failure")
+
+    output = capsys.readouterr().out
+    assert "iOS marketing screenshot failure summary:" in output
+    assert "testMarketingScreenshots() [Failure]: launch failed" in output
+
+
+def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_size(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    stale_artifact = tmp_path / "e2e-artifacts" / "ios-marketing-screenshots" / "old-screenshot.png"
+    stale_artifact.parent.mkdir(parents=True)
+    stale_artifact.write_bytes(b"old")
+    monkeypatch.setattr(
+        tasks,
+        "_reset_sqlite_database_file",
+        lambda database_url: calls.append(("reset", {"database_url": database_url})),
+    )
+    monkeypatch.setattr(tasks, "start_app", lambda c, **kwargs: calls.append(("start", kwargs)))
+    monkeypatch.setattr(tasks, "wait_for_app", lambda c, **kwargs: calls.append(("wait", kwargs)))
+    monkeypatch.setattr(
+        tasks,
+        "_bootstrap_ios_ui_test_session",
+        lambda **kwargs: calls.append(("bootstrap", kwargs))
+        or {
+            "access_token": f"{kwargs['user_email']}-token",
+            "display_name": "Alex",
+        },
+    )
+    monkeypatch.setattr(
+        tasks.generate_ios_app_icons, "body", lambda c: calls.append(("generate-icons", {}))
+    )
+    monkeypatch.setattr(
+        tasks.generate_ios_project, "body", lambda c: calls.append(("generate", {}))
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_run_ios_marketing_ui_test",
+        lambda c, **kwargs: calls.append(("run", kwargs)),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_capture_watch_marketing_screenshot",
+        lambda c, **kwargs: calls.append(("watch", kwargs)),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_shutdown_ios_simulators",
+        lambda: calls.append(("shutdown", {})),
+    )
+    monkeypatch.setattr(
+        tasks,
+        "_write_ios_ui_e2e_summary",
+        lambda artifact_dir: calls.append(("summary", {"artifact_dir": artifact_dir})),
+    )
+    monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: calls.append(("stop", kwargs)))
+
+    tasks.check_ios_marketing_screenshots.body(None)
+
+    run_calls = [call[1] for call in calls if call[0] == "run"]
+    assert calls[0] == (
+        "reset",
+        {"database_url": "sqlite+aiosqlite:///./tmp-ios-marketing-screenshots.db"},
+    )
+    assert not stale_artifact.exists()
+    assert next(call for call in calls if call[0] == "start")[1]["seed_path"] == (
+        "app/fixtures/ios_marketing_seed.json"
+    )
+    assert run_calls == [
+        {
+            "base_url": "http://localhost:8019",
+            "artifact_dir": "e2e-artifacts/ios-marketing-screenshots",
+            "device_name": "iPhone 14 Plus",
+            "ipad_device_name": "iPad Pro 13-inch (M5)",
+            "initial_list_name": "Weekly groceries",
+            "german_initial_list_name": "Wocheneinkauf",
+            "english_session": {
+                "access_token": "planini@schaedler.rocks-token",
+                "display_name": "Alex",
+            },
+            "german_session": {
+                "access_token": "planini-de@schaedler.rocks-token",
+                "display_name": "Alex",
+            },
+            "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
+            "clean_derived_data": True,
+        }
+    ]
+    watch_calls = [call[1] for call in calls if call[0] == "watch"]
+    assert watch_calls == [
+        {
+            "base_url": "http://localhost:8019",
+            "bootstrap_email": "planini@schaedler.rocks",
+            "initial_list_name": "Weekly groceries",
+            "language": "en",
+            "locale": "en-US",
+            "artifact_dir": "e2e-artifacts/ios-marketing-screenshots/watchos/en-US",
+            "phone_device": "iPhone 17 Pro",
+            "watch_device": "Apple Watch Ultra 3 (49mm)",
+            "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
+        },
+        {
+            "base_url": "http://localhost:8019",
+            "bootstrap_email": "planini-de@schaedler.rocks",
+            "initial_list_name": "Wocheneinkauf",
+            "language": "de",
+            "locale": "de-DE",
+            "artifact_dir": "e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
+            "phone_device": "iPhone 17 Pro",
+            "watch_device": "Apple Watch Ultra 3 (49mm)",
+            "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
+        },
+    ]
+    assert len([call for call in calls if call[0] == "shutdown"]) == 2
+    assert [call for call in calls if call[0] == "summary"] == [
+        (
+            "summary",
+            {"artifact_dir": "e2e-artifacts/ios-marketing-screenshots"},
+        )
+    ]
+    assert calls[-1] == ("stop", {"pid_path": "ios-marketing-screenshots-server.pid"})
+
+
+def test_check_ios_marketing_screenshots_preserves_cached_build_on_failure(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    derived_data = tmp_path / "ios" / "PlaniniIOS" / ".derived-marketing-screenshots"
+    derived_data.mkdir(parents=True)
+    marker = derived_data / "cached-build"
+    marker.write_text("cached", encoding="utf-8")
+    stops: list[dict] = []
+
+    monkeypatch.setattr(tasks, "ROOT", tmp_path)
+    monkeypatch.setattr(tasks, "_reset_sqlite_database_file", lambda database_url: None)
+    monkeypatch.setattr(tasks, "start_app", lambda c, **kwargs: None)
+    monkeypatch.setattr(
+        tasks,
+        "wait_for_app",
+        lambda c, **kwargs: (_ for _ in ()).throw(tasks.Exit("healthcheck failed")),
+    )
+    monkeypatch.setattr(tasks, "stop_app", lambda c, **kwargs: stops.append(kwargs))
+
+    try:
+        tasks.check_ios_marketing_screenshots.body(None, preserve_derived_data=True)
+    except tasks.Exit as exc:
+        assert "healthcheck failed" in str(exc)
+    else:
+        raise AssertionError("expected marketing screenshot task to fail")
+
+    assert marker.read_text(encoding="utf-8") == "cached"
+    assert stops == [{"pid_path": tasks.DEFAULT_IOS_MARKETING_SCREENSHOT_PID_PATH}]
 
 
 def test_check_ios_ci_runs_only_mac_native_e2e_prerequisites() -> None:

@@ -8,7 +8,6 @@ import {
   createDemoItem,
   formatInviteExpiry,
   formatHiddenUntilLabel,
-  formatPasskeyDate,
   getDemoPayload,
   getPreferredLocale,
   hideItemForLater,
@@ -25,7 +24,13 @@ import {
   bindListSwitcher,
   renderCategoryOrderSettings,
   renderHouseholds,
-  renderPasskeys,
+  normalizeRememberedPublicList,
+  loadRememberedPublicLists,
+  saveRememberedPublicLists,
+  rememberPublicList,
+  removeRememberedPublicList,
+  renderRememberedPublicLists,
+  householdInvitePayload,
   renderItems,
   renderItemSuggestions,
   renderListSwitcher,
@@ -34,12 +39,24 @@ import {
   restoreToggledItem,
   saveCategoryOrder,
   saveListName,
+  publicListToken,
+  isPublicList,
+  listApiUrl,
+  itemApiUrl,
+  createPublicListLink,
+  copyPublicListLink,
   setCategoryOrder,
   setDemoItemChecked,
   setLanguageSettingsOpen,
   setListName,
   setListSyncStatus,
   itemEditHistoryStorageKey,
+  dateTimeLocalValue,
+  dateTimeLocalToIso,
+  defaultSaleWindow,
+  isValidSaleWindowPayload,
+  itemEditApiPayload,
+  syncSaleWindowControls,
   readItemEditFormPayload,
   setItemEditPanelOpen,
   scheduleItemEditSave,
@@ -48,6 +65,7 @@ import {
   undoItemEdit,
   redoItemEdit,
   moveEditingItemToList,
+  moveItemFromMenu,
   storeLanguagePreference,
   syncLanguageSettings,
   updateDemoItem,
@@ -79,7 +97,9 @@ import {
   updateItemWithOfflineFallback,
   moveItemWithOfflineFallback,
   setItemCheckedWithOfflineFallback,
-  syncItemMoveSelect,
+  syncItemMoveButton,
+  setItemMoveModalOpen,
+  setItemMoveStatus,
   applyOfflineSyncResult,
   flushOfflineMutations,
   createMovedItemNotice,
@@ -94,10 +114,7 @@ import {
   confirmCategoryDisable,
   saveCategoryOrderInBackground,
   setCategoryDropIndicator,
-  addPasskeyWithLink,
-  transitionAuthPanels,
-  setAuthTab,
-  initPasskeyAuth,
+  isItemOnSale,
 } from "./app.js";
 
 function setGlobalProperty(name, value) {
@@ -191,335 +208,12 @@ test("registerServiceWorker registers the root service worker when available", a
   }
 });
 
-test("transitionAuthPanels applies and clears height animation styles", () => {
-  const dom = new JSDOM(`
-    <section>
-      <div data-auth-panels></div>
-    </section>
-  `);
-  const originals = {
-    HTMLElement: globalThis.HTMLElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-  };
-  const originalWindow = globalThis.window;
-  const root = dom.window.document.querySelector("section");
-  const panels = dom.window.document.querySelector("[data-auth-panels]");
-  let didUpdate = false;
 
-  setDomGlobals(dom);
-  setGlobalProperty("window", dom.window);
-  panels.getBoundingClientRect = () => ({ height: 120 });
-  Object.defineProperty(panels, "scrollHeight", { configurable: true, value: 220 });
 
-  try {
-    transitionAuthPanels(root, () => {
-      didUpdate = true;
-    });
-    assert.equal(didUpdate, true);
-    assert.equal(panels.style.height, "220px");
-    assert.equal(panels.style.overflow, "hidden");
 
-    panels.dispatchEvent(new dom.window.Event("transitionend"));
-    assert.equal(panels.style.height, "");
-    assert.equal(panels.style.overflow, "");
-  } finally {
-    restoreDomGlobals(originals);
-    setGlobalProperty("window", originalWindow);
-    dom.window.close();
-  }
-});
 
-test("transitionAuthPanels updates without animation when no wrapper exists", () => {
-  const dom = new JSDOM("<section></section>");
-  const originals = {
-    HTMLElement: globalThis.HTMLElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-  };
-  let didUpdate = false;
 
-  setDomGlobals(dom);
 
-  try {
-    transitionAuthPanels(dom.window.document.querySelector("section"), () => {
-      didUpdate = true;
-    });
-    assert.equal(didUpdate, true);
-  } finally {
-    restoreDomGlobals(originals);
-    dom.window.close();
-  }
-});
-
-test("transitionAuthPanels skips styles when panel height is stable", () => {
-  const dom = new JSDOM(`
-    <section>
-      <div data-auth-panels></div>
-    </section>
-  `);
-  const originals = {
-    HTMLElement: globalThis.HTMLElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-  };
-  const originalWindow = globalThis.window;
-  const root = dom.window.document.querySelector("section");
-  const panels = dom.window.document.querySelector("[data-auth-panels]");
-
-  setDomGlobals(dom);
-  setGlobalProperty("window", dom.window);
-  panels.getBoundingClientRect = () => ({ height: 120 });
-  Object.defineProperty(panels, "scrollHeight", { configurable: true, value: 120 });
-
-  try {
-    transitionAuthPanels(root, () => undefined);
-    assert.equal(panels.style.height, "");
-    assert.equal(panels.style.overflow, "");
-  } finally {
-    restoreDomGlobals(originals);
-    setGlobalProperty("window", originalWindow);
-    dom.window.close();
-  }
-});
-
-test("setAuthTab toggles panels, selected state, focus, and panel height", () => {
-  const dom = new JSDOM(`
-    <section data-passkey-auth>
-      <div data-auth-panels>
-        <div data-auth-tab-panel="signin">
-          <form data-passkey-login></form>
-        </div>
-        <div data-auth-tab-panel="signup" hidden>
-          <form data-passkey-register>
-            <input name="display_name" />
-          </form>
-        </div>
-      </div>
-      <button data-auth-tab-trigger="signin" aria-selected="true"></button>
-      <button data-auth-tab-trigger="signup" aria-selected="false"></button>
-    </section>
-  `);
-  const originals = {
-    HTMLElement: globalThis.HTMLElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-  };
-  const originalWindow = globalThis.window;
-  const root = dom.window.document.querySelector("[data-passkey-auth]");
-  const panels = dom.window.document.querySelector("[data-auth-panels]");
-
-  setDomGlobals(dom);
-  setGlobalProperty("window", dom.window);
-  panels.getBoundingClientRect = () => ({ height: 120 });
-  Object.defineProperty(panels, "scrollHeight", { configurable: true, value: 220 });
-
-  try {
-    setAuthTab(root, "signup");
-    assert.equal(root.querySelector('[data-auth-tab-panel="signin"]').hidden, true);
-    assert.equal(root.querySelector('[data-auth-tab-panel="signup"]').hidden, false);
-    assert.equal(root.querySelector('[data-auth-tab-trigger="signin"]').getAttribute("aria-selected"), "false");
-    assert.equal(root.querySelector('[data-auth-tab-trigger="signup"]').getAttribute("aria-selected"), "true");
-    assert.equal(dom.window.document.activeElement, root.querySelector('input[name="display_name"]'));
-    assert.equal(panels.style.height, "220px");
-    panels.dispatchEvent(new dom.window.Event("transitionend"));
-
-    setAuthTab(root, "signin");
-    assert.equal(root.querySelector('[data-auth-tab-panel="signin"]').hidden, false);
-    assert.equal(root.querySelector('[data-auth-tab-panel="signup"]').hidden, true);
-    assert.equal(root.querySelector('[data-auth-tab-trigger="signin"]').getAttribute("aria-selected"), "true");
-  } finally {
-    restoreDomGlobals(originals);
-    setGlobalProperty("window", originalWindow);
-    dom.window.close();
-  }
-});
-
-test("initPasskeyAuth submits registration form on Enter", async () => {
-  const dom = new JSDOM(`
-    <section data-passkey-auth data-next-url="/dashboard">
-      <p data-auth-error hidden></p>
-      <p data-auth-success hidden></p>
-      <div data-auth-panels>
-        <div data-auth-tab-panel="signin">
-          <form data-passkey-login>
-            <button type="button" data-passkey-login-button>Sign in</button>
-          </form>
-        </div>
-        <div data-auth-tab-panel="signup">
-          <form data-passkey-register>
-            <input name="display_name" value="Ada" />
-            <input name="email" value="ada@example.test" />
-            <button type="submit" data-passkey-register-button>Create passkey</button>
-          </form>
-        </div>
-      </div>
-      <button data-auth-tab-trigger="signin" aria-selected="false"></button>
-      <button data-auth-tab-trigger="signup" aria-selected="true"></button>
-    </section>
-  `, { url: "https://example.test/login" });
-  const originals = {
-    FormData: globalThis.FormData,
-    HTMLElement: globalThis.HTMLElement,
-    HTMLButtonElement: globalThis.HTMLButtonElement,
-    HTMLFormElement: globalThis.HTMLFormElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-    document: globalThis.document,
-    fetch: globalThis.fetch,
-    navigator: globalThis.navigator,
-    window: globalThis.window,
-    __appNavigateTo: globalThis.__appNavigateTo,
-  };
-  const calls = [];
-  const assigned = [];
-  let createdPublicKey = null;
-  let resolveNavigate;
-  const navigated = new Promise((resolve) => {
-    resolveNavigate = resolve;
-  });
-
-  setDomGlobals(dom);
-  setGlobalProperty("document", dom.window.document);
-  setGlobalProperty("window", dom.window);
-  dom.window.PublicKeyCredential = function PublicKeyCredential() {};
-  setGlobalProperty("navigator", {
-    credentials: {
-      create: async ({ publicKey }) => {
-        createdPublicKey = publicKey;
-        return { id: "credential-id", type: "public-key", response: {} };
-      },
-    },
-  });
-  setGlobalProperty("fetch", async (url, options) => {
-    calls.push({ url, payload: JSON.parse(options.body) });
-    if (url === "/api/v1/auth/register/options") {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ challenge: "AA", user: { id: "AQ" } }),
-      };
-    }
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    };
-  });
-  setGlobalProperty("__appNavigateTo", (url) => {
-    assigned.push(url);
-    resolveNavigate();
-  });
-
-  try {
-    initPasskeyAuth();
-    const form = dom.window.document.querySelector("[data-passkey-register]");
-    const submitted = form.dispatchEvent(
-      new dom.window.Event("submit", { bubbles: true, cancelable: true }),
-    );
-    assert.equal(submitted, false);
-    await navigated;
-
-    assert.deepEqual(calls[0], {
-      url: "/api/v1/auth/register/options",
-      payload: { email: "ada@example.test", display_name: "Ada" },
-    });
-    assert.equal(calls[1].url, "/api/v1/auth/register/verify");
-    assert.equal(calls[1].payload.credential.id, "credential-id");
-    assert.ok(createdPublicKey.challenge instanceof Uint8Array);
-    assert.ok(createdPublicKey.user.id instanceof Uint8Array);
-    assert.deepEqual(assigned, ["/dashboard"]);
-    assert.equal(dom.window.document.querySelector("[data-auth-success]").hidden, false);
-    assert.equal(dom.window.document.querySelector("[data-passkey-register-button]").disabled, false);
-  } finally {
-    restoreDomGlobals(originals);
-    setGlobalProperty("document", originals.document);
-    setGlobalProperty("fetch", originals.fetch);
-    setGlobalProperty("navigator", originals.navigator);
-    setGlobalProperty("window", originals.window);
-    setGlobalProperty("__appNavigateTo", originals.__appNavigateTo);
-    dom.window.close();
-  }
-});
-
-test("addPasskeyWithLink submits token from the one-time link path", async () => {
-  const dom = new JSDOM(`
-    <section data-passkey-add-link data-passkey-add-token="secret-token">
-      <p data-auth-error hidden></p>
-      <p data-auth-success hidden></p>
-    </section>
-  `, { url: "https://example.test/passkey-add/secret-token#identifier=abc" });
-  const originals = {
-    FormData: globalThis.FormData,
-    HTMLElement: globalThis.HTMLElement,
-    HTMLButtonElement: globalThis.HTMLButtonElement,
-    HTMLFormElement: globalThis.HTMLFormElement,
-    HTMLInputElement: globalThis.HTMLInputElement,
-    HTMLSelectElement: globalThis.HTMLSelectElement,
-  };
-  const originalFetch = globalThis.fetch;
-  const originalNavigator = globalThis.navigator;
-  const originalWindow = globalThis.window;
-  const originalCredential = globalThis.PublicKeyCredential;
-  const root = dom.window.document.querySelector("[data-passkey-add-link]");
-  const calls = [];
-
-  setDomGlobals(dom);
-  setGlobalProperty("window", dom.window);
-  setGlobalProperty("PublicKeyCredential", function PublicKeyCredential() {});
-  setGlobalProperty("navigator", {
-    credentials: {
-      create: async () => ({
-        id: "credential-id",
-        rawId: new Uint8Array([1, 2]).buffer,
-        response: {},
-        type: "public-key",
-      }),
-    },
-  });
-  setGlobalProperty("fetch", async (url, options) => {
-    const payload = JSON.parse(options.body);
-    calls.push({ url, payload });
-    return {
-      ok: true,
-      status: 200,
-      json: async () => {
-        if (url === "/api/v1/auth/passkey-add/secret-token/options") {
-          return {
-            challenge: "AQID",
-            user: { id: "BAUG" },
-            excludeCredentials: [{ id: "Bwg", type: "public-key" }],
-          };
-        }
-        return { email: "recover@example.com" };
-      },
-    };
-  });
-
-  try {
-    await addPasskeyWithLink(root);
-    assert.deepEqual(calls.map((call) => call.url), [
-      "/api/v1/auth/passkey-add/secret-token/options",
-      "/api/v1/auth/passkey-add/secret-token/verify",
-    ]);
-    assert.deepEqual(calls[0].payload, {});
-    assert.equal(calls[1].payload.credential.id, "credential-id");
-    assert.equal(root.querySelector("[data-auth-success]").hidden, false);
-  } finally {
-    restoreDomGlobals(originals);
-    setGlobalProperty("fetch", originalFetch);
-    setGlobalProperty("navigator", originalNavigator);
-    setGlobalProperty("window", originalWindow);
-    setGlobalProperty("PublicKeyCredential", originalCredential);
-    dom.window.close();
-  }
-});
-
-test("setAuthTab ignores incomplete auth markup", () => {
-  const dom = new JSDOM("<section></section>");
-  assert.doesNotThrow(() => setAuthTab(dom.window.document.querySelector("section"), "signup"));
-  dom.window.close();
-});
 
 function createListRoot() {
   const dom = new JSDOM(`
@@ -545,7 +239,7 @@ function createListRoot() {
       </div>
       <input data-item-category-search value="" />
       <input data-item-edit-category-search value="" />
-      <label data-item-edit-list-field hidden><select name="list_id" data-item-edit-list-select></select></label>
+      <button type="button" data-item-edit-move-open data-item-move-open data-item-move-from-editor hidden>Move to list</button>
       <div data-item-suggestions-slot><div data-item-suggestions></div></div>
       <div data-item-category-radios></div>
       <div data-item-edit-category-radios></div>
@@ -592,9 +286,12 @@ function createEditListRoot() {
             <input type="text" name="name" />
             <input type="text" name="quantity_text" />
             <input type="text" name="note" />
-            <label data-item-edit-list-field hidden>
-              <select name="list_id" data-item-edit-list-select></select>
-            </label>
+            <input type="checkbox" name="sale_enabled" />
+            <div data-sale-window-fields hidden>
+              <input type="datetime-local" name="sale_starts_at" disabled />
+              <input type="datetime-local" name="sale_ends_at" disabled />
+            </div>
+            <button type="button" data-item-edit-move-open data-item-move-open data-item-move-from-editor hidden>Move to list</button>
           </form>
         </section>
       </div>
@@ -658,11 +355,21 @@ function createDashboardRoot() {
     <section data-dashboard>
       <div data-dashboard-empty></div>
       <div data-household-list></div>
+      <section data-public-lists-card hidden>
+        <ul data-public-lists></ul>
+      </section>
+      <select data-invite-mode>
+        <option value="time">Limit by time</option>
+        <option value="uses">Limit by uses</option>
+      </select>
+      <input data-invite-hours-input value="24" />
+      <input data-invite-max-uses value="5" />
     </section>
   `);
   return {
     document: dom.window.document,
     root: dom.window.document.querySelector("[data-dashboard]"),
+    window: dom.window,
   };
 }
 
@@ -695,11 +402,14 @@ function createEditRoot() {
           <input name="name" />
           <input name="quantity_text" />
           <input name="note" />
+          <input type="checkbox" name="sale_enabled" />
+          <div data-sale-window-fields hidden>
+            <input type="datetime-local" name="sale_starts_at" disabled />
+            <input type="datetime-local" name="sale_ends_at" disabled />
+          </div>
           <input data-item-edit-category-search value="" />
           <div data-item-edit-category-radios></div>
-          <label data-item-edit-list-field hidden>
-            <select name="list_id" data-item-edit-list-select></select>
-          </label>
+          <button type="button" data-item-edit-move-open data-item-move-open data-item-move-from-editor hidden>Move to list</button>
         </form>
       </section>
       <input data-item-category-search value="" />
@@ -776,7 +486,7 @@ function createDemoListRoot() {
           <input data-item-name-input value="" />
           <input data-item-category-search value="" />
           <input data-item-edit-category-search value="" />
-          <label data-item-edit-list-field hidden><select name="list_id" data-item-edit-list-select></select></label>
+          <button type="button" data-item-edit-move-open data-item-move-open data-item-move-from-editor hidden>Move to list</button>
           <div data-item-suggestions-slot><div data-item-suggestions></div></div>
           <div data-item-category-radios></div>
           <div data-item-edit-category-radios></div>
@@ -813,7 +523,10 @@ function createState(items) {
     items: new Map(items.map((item) => [item.id, item])),
     lists: [{ id: "list-1", name: "Weekly" }],
     movedItemNotices: new Map(),
+    movingItemId: null,
+    moveItemFromEditor: false,
     offlineSyncInFlight: null,
+    openItemMenuId: null,
     pendingMutations: [],
   };
 }
@@ -899,6 +612,7 @@ test("loadListDetail hydrates the live list switcher", async () => {
     HTMLElement: globalThis.HTMLElement,
     HTMLInputElement: globalThis.HTMLInputElement,
     HTMLSelectElement: globalThis.HTMLSelectElement,
+    window: globalThis.window,
   };
   const calls = [];
   setDomGlobals({ window });
@@ -949,6 +663,323 @@ test("loadListDetail hydrates the live list switcher", async () => {
   assert.equal(document.querySelector("[data-list-switcher-select]").value, "list-1");
 });
 
+test("public list helpers route requests by token without offline persistence", async () => {
+  const { document, root, window } = createListRoot();
+  const originalFetch = globalThis.fetch;
+  const originals = {
+    HTMLElement: globalThis.HTMLElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+    window: globalThis.window,
+  };
+  const calls = [];
+  root.dataset.publicListToken = "shared-token";
+  setDomGlobals({ window });
+  setGlobalProperty("window", window);
+  setGlobalProperty("fetch", async (url) => {
+    calls.push(url);
+    const responses = {
+      "/api/v1/public/lists/shared-token": {
+        id: "list-1",
+        household_id: "home-1",
+        name: "Shared weekly",
+        expires_at: "2026-09-01T12:00:00Z",
+      },
+      "/api/v1/public/lists/shared-token/items/window": {
+        checked_remaining_count: 0,
+        items: [],
+      },
+      "/api/v1/public/lists/shared-token/categories": [],
+      "/api/v1/public/lists/shared-token/category-order": [],
+      "/api/v1/public/lists/shared-token/disabled-categories": { category_ids: [] },
+    };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => responses[url],
+    };
+  });
+
+  const state = {
+    categoryOrder: new Map(),
+    categories: new Map(),
+    checkedRemainingCount: 0,
+    items: new Map(),
+    offlineSyncInFlight: null,
+    pendingMutations: [],
+  };
+  try {
+    assert.equal(publicListToken(null), "");
+    assert.equal(publicListToken(root), "shared-token");
+    assert.equal(isPublicList(root), true);
+    assert.equal(listApiUrl(root), "/api/v1/public/lists/shared-token");
+    assert.equal(
+      listApiUrl(root, "/items/window"),
+      "/api/v1/public/lists/shared-token/items/window",
+    );
+    assert.equal(
+      itemApiUrl(root, "item-1", "/check"),
+      "/api/v1/public/lists/shared-token/items/item-1/check",
+    );
+
+    await loadListDetail(root, state);
+    persistOfflineListState(root, state);
+    state.pendingMutations = [{ mutation_id: "pending" }];
+    assert.equal(await flushOfflineMutations(root, state), null);
+    connectListSocket(root, state);
+  } finally {
+    setGlobalProperty("fetch", originalFetch);
+    setGlobalProperty("window", originals.window);
+    restoreDomGlobals(originals);
+  }
+
+  assert.deepEqual(calls, [
+    "/api/v1/public/lists/shared-token",
+    "/api/v1/public/lists/shared-token/items/window",
+    "/api/v1/public/lists/shared-token/categories",
+    "/api/v1/public/lists/shared-token/category-order",
+    "/api/v1/public/lists/shared-token/disabled-categories",
+  ]);
+  assert.equal(document.querySelector("[data-list-title]").textContent, "Shared weekly");
+  assert.equal(document.querySelector("[data-list-switcher]").hidden, true);
+  assert.deepEqual(state.lists, [
+    { id: "list-1", household_id: "home-1", name: "Shared weekly" },
+  ]);
+  assert.equal(window.localStorage.getItem(offlineListStorageKey("list-1")), null);
+  assert.deepEqual(loadRememberedPublicLists(window.localStorage), [
+    {
+      token: "shared-token",
+      id: "list-1",
+      name: "Shared weekly",
+      expires_at: "2026-09-01T12:00:00Z",
+    },
+  ]);
+  assert.equal(
+    document.querySelector("[data-list-sync-status]").textContent,
+    "Live updates unavailable.",
+  );
+});
+
+test("public list names load without owner settings controls", () => {
+  const dom = new JSDOM('<section><h1 data-list-title></h1></section>');
+  const originals = {
+    HTMLElement: globalThis.HTMLElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+  };
+  setDomGlobals(dom);
+  const state = {};
+  try {
+    setListName(dom.window.document.querySelector("section"), state, "Shared weekly");
+  } finally {
+    restoreDomGlobals(originals);
+  }
+  assert.equal(state.listName, "Shared weekly");
+  assert.equal(dom.window.document.querySelector("[data-list-title]").textContent, "Shared weekly");
+});
+
+test("remembered public lists persist, render expiry, and can be removed", () => {
+  const { document, root, window } = createDashboardRoot();
+  const originals = {
+    HTMLElement: globalThis.HTMLElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+    window: globalThis.window,
+  };
+  setDomGlobals({ window });
+  setGlobalProperty("window", window);
+  try {
+    assert.equal(normalizeRememberedPublicList(null), null);
+    assert.equal(normalizeRememberedPublicList({ token: "", id: "x", name: "x", expires_at: "x" }), null);
+    assert.equal(loadRememberedPublicLists(null).length, 0);
+    assert.equal(saveRememberedPublicLists([], null).length, 0);
+
+    window.localStorage.setItem("planini:public-lists", "broken");
+    assert.deepEqual(loadRememberedPublicLists(), []);
+    window.localStorage.setItem("planini:public-lists", "{}");
+    assert.deepEqual(loadRememberedPublicLists(), []);
+    assert.deepEqual(saveRememberedPublicLists(null), []);
+
+    const publicRoot = document.createElement("section");
+    publicRoot.dataset.publicListToken = "valid-token";
+    assert.equal(rememberPublicList(publicRoot, {}, window.localStorage), null);
+    assert.equal(rememberPublicList(publicRoot, { id: "list-1", name: "Weekly", expires_at: "2026-08-09T12:00:00Z" }, null), null);
+    assert.deepEqual(
+      rememberPublicList(
+        publicRoot,
+        { id: "list-1", name: "Weekly", expires_at: "2026-08-09T12:00:00Z" },
+      ),
+      { token: "valid-token", id: "list-1", name: "Weekly", expires_at: "2026-08-09T12:00:00Z" },
+    );
+    rememberPublicList(
+      publicRoot,
+      { id: "list-1", name: "Weekly updated", expires_at: "2026-08-09T12:00:00Z" },
+    );
+    saveRememberedPublicLists([
+      ...loadRememberedPublicLists(),
+      { token: "expired-token", id: "list-2", name: "Old list", expires_at: "2026-08-01T12:00:00Z" },
+      { token: 3 },
+    ]);
+
+    const entries = loadRememberedPublicLists();
+    assert.equal(entries.length, 2);
+    renderRememberedPublicLists(root, entries, Date.parse("2026-08-08T12:00:00Z"));
+    assert.equal(document.querySelector("[data-public-lists-card]").hidden, false);
+    assert.equal(document.querySelector('[href="/public/lists/valid-token"] strong').textContent, "Weekly updated");
+    assert.equal(document.querySelector(".public-list-entry:not(a) small").textContent, "Expired");
+    assert.equal(document.querySelectorAll("[data-remove-public-list]").length, 2);
+
+    assert.equal(removeRememberedPublicList("expired-token").length, 1);
+    renderRememberedPublicLists(root, [], Date.now());
+    assert.equal(document.querySelector("[data-public-lists-card]").hidden, true);
+    renderRememberedPublicLists(document.createElement("section"), []);
+  } finally {
+    setGlobalProperty("window", originals.window);
+    restoreDomGlobals(originals);
+  }
+});
+
+test("public list load never falls back to private offline cache", async () => {
+  const { root, window } = createListRoot();
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  root.dataset.publicListToken = "shared-token";
+  window.localStorage.setItem(
+    offlineListStorageKey("list-1"),
+    JSON.stringify({ title: "Cached private title", items: [] }),
+  );
+  setGlobalProperty("window", window);
+  setGlobalProperty("fetch", async () => {
+    throw new TypeError("Failed to fetch");
+  });
+
+  try {
+    await assert.rejects(
+      loadListDetail(root, {
+        categoryOrder: new Map(),
+        categories: new Map(),
+        checkedRemainingCount: 0,
+        items: new Map(),
+      }),
+      /Failed to fetch/,
+    );
+  } finally {
+    setGlobalProperty("fetch", originalFetch);
+    setGlobalProperty("window", originalWindow);
+  }
+});
+
+test("public item mutations use token APIs and do not queue offline writes", async () => {
+  const { root } = createListRoot();
+  const originalFetch = globalThis.fetch;
+  root.dataset.publicListToken = "shared-token";
+  const calls = [];
+  const state = createState([
+    { id: "item-1", name: "Milk", checked: false },
+  ]);
+  setGlobalProperty("fetch", async (url, options = {}) => {
+    calls.push([url, options.method, options.body ? JSON.parse(options.body) : null]);
+    return new Response(
+      JSON.stringify({ id: "item-1", list_id: "list-1", name: "Milk" }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  });
+
+  try {
+    await createItemWithOfflineFallback(root, state, "list-1", { name: "Milk" });
+    await updateItemWithOfflineFallback(root, state, "item-1", { note: "Cold" });
+    await setItemCheckedWithOfflineFallback(root, state, "item-1", true);
+    await setItemCheckedWithOfflineFallback(root, state, "item-1", false);
+  } finally {
+    setGlobalProperty("fetch", originalFetch);
+  }
+
+  assert.deepEqual(calls, [
+    ["/api/v1/public/lists/shared-token/items", "POST", { name: "Milk" }],
+    ["/api/v1/public/lists/shared-token/items/item-1", "PATCH", { note: "Cold" }],
+    ["/api/v1/public/lists/shared-token/items/item-1/check", "POST", {}],
+    ["/api/v1/public/lists/shared-token/items/item-1/uncheck", "POST", {}],
+  ]);
+  assert.deepEqual(state.pendingMutations, []);
+});
+
+test("public link creation and copying report success and failures", async () => {
+  const { document, root, window } = createListRoot();
+  const originalFetch = globalThis.fetch;
+  const originalNavigator = globalThis.navigator;
+  const originals = {
+    HTMLElement: globalThis.HTMLElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+    window: globalThis.window,
+  };
+  root.insertAdjacentHTML(
+    "beforeend",
+    `
+      <input data-public-list-link-days value="2" />
+      <button data-public-list-link-submit></button>
+      <div data-public-list-link-output hidden></div>
+      <p data-public-list-link-expiry></p>
+      <input data-public-list-link-url />
+    `,
+  );
+  setDomGlobals({ window });
+  setGlobalProperty("window", window);
+  const copied = [];
+  setGlobalProperty("navigator", {
+    clipboard: {
+      writeText: async (value) => copied.push(value),
+    },
+    language: "en-US",
+  });
+  setGlobalProperty("fetch", async () =>
+    new Response(
+      JSON.stringify({
+        public_url: "https://example.test/public/lists/shared-token",
+        expires_at: "2026-08-01T12:00:00Z",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ),
+  );
+
+  try {
+    const link = await createPublicListLink(root);
+    assert.equal(link.public_url, "https://example.test/public/lists/shared-token");
+    assert.equal(root.querySelector("[data-public-list-link-submit]").disabled, false);
+    assert.equal(root.querySelector("[data-public-list-link-output]").hidden, false);
+    assert.match(root.querySelector("[data-public-list-link-expiry]").textContent, /Link expires/);
+    assert.equal(await copyPublicListLink(root), true);
+    assert.deepEqual(copied, ["https://example.test/public/lists/shared-token"]);
+
+    setGlobalProperty("navigator", { language: "en-US" });
+    assert.equal(await copyPublicListLink(root), true);
+
+    setGlobalProperty("navigator", {
+      clipboard: {
+        writeText: async () => {
+          throw new Error("clipboard blocked");
+        },
+      },
+      language: "en-US",
+    });
+    assert.equal(await copyPublicListLink(root), false);
+    assert.match(document.querySelector("[data-list-error]").textContent, /Could not copy/);
+
+    root.querySelector("[data-public-list-link-days]").value = "";
+    setGlobalProperty("fetch", async () => {
+      throw "request failed";
+    });
+    assert.equal(await createPublicListLink(root), null);
+    assert.match(document.querySelector("[data-list-error]").textContent, /Could not create/);
+
+    assert.equal(await copyPublicListLink(document.createElement("section")), false);
+  } finally {
+    setGlobalProperty("fetch", originalFetch);
+    setGlobalProperty("navigator", originalNavigator);
+    setGlobalProperty("window", originals.window);
+    restoreDomGlobals(originals);
+  }
+});
+
 test("renderItems only shows loaded checked items before loading more", () => {
   const { document, root } = createListRoot();
   const state = {
@@ -987,6 +1018,32 @@ test("renderHouseholds shows open item counts on list links", () => {
   assert.equal(document.querySelector('[href="/lists/list-1"] small').textContent, "1 open item");
   assert.equal(document.querySelector('[href="/lists/list-2"] small').textContent, "3 open items");
   assert.equal(document.body.textContent.includes("Open list"), false);
+});
+
+test("renderHouseholds exposes invite action and invite sheet payloads", () => {
+  const { document, root } = createDashboardRoot();
+
+  renderHouseholds(root, [{ id: "household-1", name: "Home" }], new Map());
+
+  assert.equal(document.querySelector('[data-open-invite-sheet="household-1"]').textContent.trim(), "Create invite link");
+  assert.deepEqual(householdInvitePayload(root), { expires_in_hours: 24 });
+
+  document.querySelector("[data-invite-mode]").value = "uses";
+  document.querySelector("[data-invite-max-uses]").value = "7";
+  assert.deepEqual(householdInvitePayload(root), {
+    expires_in_hours: null,
+    max_uses: 7,
+  });
+
+  document.querySelector("[data-invite-max-uses]").value = "500";
+  assert.deepEqual(householdInvitePayload(root), {
+    expires_in_hours: null,
+    max_uses: 100,
+  });
+
+  document.querySelector("[data-invite-mode]").value = "time";
+  document.querySelector("[data-invite-hours-input]").value = "72.5";
+  assert.deepEqual(householdInvitePayload(root), { expires_in_hours: 72 });
 });
 
 test("saveListName trims, patches, and persists the list title", async () => {
@@ -1069,6 +1126,157 @@ test("renderItems uses brown fallback swatches for uncategorized and checked gro
   assert.match(swatches[1].getAttribute("style") || "", /181, 150, 118|#b59676/);
 });
 
+test("sale date helpers validate and serialize local windows", () => {
+  const fixedNow = new Date("2026-05-14T10:00:00.000Z");
+  const defaults = defaultSaleWindow(fixedNow);
+  assert.equal(new Date(defaults.startsAt).getTime(), fixedNow.getTime() - 60 * 60_000);
+  assert.equal(new Date(defaults.endsAt).getTime(), fixedNow.getTime() + 24 * 60 * 60_000);
+  assert.equal(dateTimeLocalValue("not-a-date"), "");
+  assert.equal(new Date(dateTimeLocalValue(fixedNow)).getTime(), fixedNow.getTime());
+  assert.equal(dateTimeLocalToIso("not-a-date"), null);
+  assert.equal(dateTimeLocalToIso(defaults.startsAt), new Date(defaults.startsAt).toISOString());
+
+  const valid = {
+    sale_enabled: true,
+    sale_starts_at: "2026-05-14T09:00:00.000Z",
+    sale_ends_at: "2026-05-14T11:00:00.000Z",
+  };
+  assert.equal(isValidSaleWindowPayload(valid), true);
+  assert.equal(isValidSaleWindowPayload({ sale_enabled: false }), true);
+  assert.equal(isValidSaleWindowPayload({ ...valid, sale_ends_at: valid.sale_starts_at }), false);
+  assert.equal(isValidSaleWindowPayload({ ...valid, sale_starts_at: "bad" }), false);
+  assert.equal(isItemOnSale(valid, Date.parse(valid.sale_starts_at)), true);
+  assert.equal(isItemOnSale(valid, Date.parse(valid.sale_ends_at)), false);
+  assert.equal(isItemOnSale({}, fixedNow.getTime()), false);
+
+  assert.deepEqual(itemEditApiPayload({ name: "Milk", sale_enabled: false }), {
+    name: "Milk",
+    quantity_text: null,
+    note: null,
+    category_id: null,
+  });
+  assert.deepEqual(itemEditApiPayload({ name: "Milk", ...valid }), {
+    name: "Milk",
+    quantity_text: null,
+    note: null,
+    category_id: null,
+    sale_starts_at: valid.sale_starts_at,
+    sale_ends_at: valid.sale_ends_at,
+  });
+  assert.deepEqual(
+    itemEditApiPayload(
+      { name: "Milk", sale_enabled: false },
+      { sale_starts_at: valid.sale_starts_at, sale_ends_at: valid.sale_ends_at },
+    ),
+    {
+      name: "Milk",
+      quantity_text: null,
+      note: null,
+      category_id: null,
+      sale_starts_at: null,
+      sale_ends_at: null,
+    },
+  );
+});
+
+test("sale controls default, reveal, and disable their date fields", () => {
+  const dom = new JSDOM(`
+    <form>
+      <input type="checkbox" name="sale_enabled" />
+      <div data-sale-window-fields hidden>
+        <input type="datetime-local" name="sale_starts_at" disabled />
+        <input type="datetime-local" name="sale_ends_at" disabled />
+      </div>
+    </form>
+  `);
+  const originals = {
+    FormData: globalThis.FormData,
+    HTMLElement: globalThis.HTMLElement,
+    HTMLButtonElement: globalThis.HTMLButtonElement,
+    HTMLFormElement: globalThis.HTMLFormElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+  };
+  setDomGlobals(dom);
+  try {
+    const form = dom.window.document.querySelector("form");
+    syncSaleWindowControls(null);
+    syncSaleWindowControls(dom.window.document.createElement("form"));
+    syncSaleWindowControls(form);
+    assert.equal(form.elements.namedItem("sale_starts_at").disabled, true);
+    form.elements.namedItem("sale_enabled").checked = true;
+    syncSaleWindowControls(form, { useDefaults: true });
+    assert.equal(form.querySelector("[data-sale-window-fields]").hidden, false);
+    assert.equal(form.elements.namedItem("sale_starts_at").required, true);
+    assert.notEqual(form.elements.namedItem("sale_starts_at").value, "");
+    assert.notEqual(form.elements.namedItem("sale_ends_at").value, "");
+    syncSaleWindowControls(form, { useDefaults: true });
+    form.elements.namedItem("sale_enabled").checked = false;
+    syncSaleWindowControls(form);
+    assert.equal(form.querySelector("[data-sale-window-fields]").hidden, true);
+  } finally {
+    restoreDomGlobals(originals);
+  }
+});
+
+test("renderItems promotes all active sale-window items without replacing normal rows", () => {
+  const { document, root } = createListRoot();
+  const saleWindow = {
+    sale_starts_at: "2020-01-01T00:00:00.000Z",
+    sale_ends_at: "2099-01-01T00:00:00.000Z",
+  };
+  const active = {
+    id: "sale-active",
+    name: "Sale active",
+    checked: false,
+    checked_at: null,
+    category_id: null,
+    note: "discounted",
+    quantity_text: "2",
+    sort_order: 0,
+    ...saleWindow,
+  };
+  const hidden = {
+    ...active,
+    id: "sale-hidden",
+    name: "Sale hidden",
+    hidden_until: "2099-01-01T00:00:00.000Z",
+    sort_order: 1,
+  };
+  const checked = {
+    ...active,
+    id: "sale-checked",
+    name: "Sale checked",
+    checked: true,
+    checked_at: "2026-05-14T10:00:00.000Z",
+    sort_order: 2,
+  };
+  const future = {
+    ...active,
+    id: "future-sale",
+    name: "Future sale",
+    sale_starts_at: "2099-01-01T00:00:00.000Z",
+    sale_ends_at: "2099-01-02T00:00:00.000Z",
+    sort_order: 3,
+  };
+  const state = createState([active, hidden, checked, future]);
+  state.highlightedItemId = checked.id;
+
+  renderItems(root, state);
+
+  const saleSection = document.querySelector("[data-item-sale-section]");
+  assert.equal(saleSection.querySelector(".item-category-header h3").textContent, "On sale");
+  assert.equal(saleSection.querySelector(".item-category-meta").textContent, "3 items");
+  assert.equal(saleSection.querySelectorAll("[data-item-sale-card]").length, 3);
+  assert.equal(saleSection.querySelectorAll(".item-sale-badge").length, 3);
+  assert.equal(saleSection.querySelector('[data-item-sale-card="sale-checked"]').classList.contains("is-checked"), true);
+  assert.equal(saleSection.querySelector('[data-item-sale-card="sale-checked"]').classList.contains("is-highlighted"), true);
+  assert.equal(document.querySelectorAll('[data-item-card="sale-active"]').length, 1);
+  assert.equal(document.querySelectorAll('[data-item-card].is-on-sale').length, 3);
+  assert.equal(document.querySelectorAll('[data-item-toggle="sale-active"]').length, 2);
+  assert.equal(document.querySelector('[data-item-card="future-sale"] .item-sale-badge'), null);
+});
+
 test("renderItems hides active items until their hidden_until time", () => {
   const { document, root } = createListRoot();
   const originalDateNow = Date.now;
@@ -1111,6 +1319,10 @@ test("renderItems hides active items until their hidden_until time", () => {
     assert.equal(formatHiddenUntilLabel(visibleItem, nowMs), "");
 
     const state = createState([visibleItem, hiddenItem, expiredHiddenItem, createCheckedItem(0)]);
+    state.lists = [
+      { id: "list-1", name: "Weekly" },
+      { id: "list-2", name: "Errands" },
+    ];
     state.openItemMenuId = "visible-item";
     renderItems(root, state);
   } finally {
@@ -1123,9 +1335,105 @@ test("renderItems hides active items until their hidden_until time", () => {
   assert.deepEqual(cardNames, ["Visible item", "Expired hidden item", "Hidden item", "Checked item 0"]);
   assert.equal(document.querySelector(".item-hidden-group h3").textContent, "Hidden for 4h");
   assert.equal(document.querySelector('[data-item-unhide="hidden-item"]').textContent, "4h");
-  assert.equal(document.querySelector('[data-item-menu-toggle="visible-item"]').textContent, "⋯");
+  const visibleMenuToggle = document.querySelector('[data-item-menu-toggle="visible-item"]');
+  const visibleMenu = document.querySelector('[data-item-hide="visible-item"]').closest(".item-more-menu");
+  assert.equal(visibleMenuToggle.textContent, "⋯");
+  assert.equal(visibleMenuToggle.getAttribute("aria-haspopup"), "menu");
+  assert.equal(visibleMenuToggle.getAttribute("aria-expanded"), "true");
+  assert.equal(visibleMenuToggle.getAttribute("aria-controls"), visibleMenu.id);
+  assert.equal(visibleMenu.getAttribute("role"), "menu");
+  assert.equal(visibleMenu.closest(".item-card").classList.contains("has-open-menu"), true);
   assert.equal(document.querySelector('[data-item-hide="visible-item"]').textContent, "Hide item for 4h");
-  assert.equal(document.querySelector('[data-item-hide="visible-item"]').closest(".item-more-menu").hidden, false);
+  assert.equal(document.querySelector('[data-item-hide="visible-item"]').getAttribute("role"), "menuitem");
+  const moveButton = document.querySelector('[data-item-move-open="visible-item"]');
+  assert.equal(moveButton.textContent, "Move to list");
+  assert.equal(moveButton.getAttribute("role"), "menuitem");
+  assert.equal(moveButton.closest(".item-more-menu").hidden, false);
+});
+
+test("item context menu moves item directly and shows undo notice", async () => {
+  const { document, root, window } = createListRoot();
+  const originals = {
+    FormData: globalThis.FormData,
+    HTMLElement: globalThis.HTMLElement,
+    HTMLFormElement: globalThis.HTMLFormElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    HTMLSelectElement: globalThis.HTMLSelectElement,
+    document: globalThis.document,
+    fetch: globalThis.fetch,
+    navigator: globalThis.navigator,
+    window: globalThis.window,
+  };
+  const originalItem = {
+    id: "item-1",
+    list_id: "list-1",
+    name: "Milk",
+    checked: false,
+    checked_at: null,
+    category_id: "category-1",
+    note: "organic",
+    quantity_text: "2",
+    sort_order: 0,
+  };
+  const state = createState([originalItem]);
+  state.lists = [
+    { id: "list-1", name: "Weekly" },
+    { id: "list-2", name: "Errands" },
+  ];
+  state.openItemMenuId = "item-1";
+  const calls = [];
+
+  setDomGlobals({ window });
+  setGlobalProperty("document", document);
+  setGlobalProperty("window", window);
+  setGlobalProperty("navigator", { onLine: true });
+  setGlobalProperty("fetch", async (url, options) => {
+    const payload = JSON.parse(options.body);
+    calls.push({ url, method: options.method, payload });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ ...originalItem, ...payload }),
+    };
+  });
+
+  try {
+    renderItems(root, state);
+    assert.equal(await moveItemFromMenu(root, state, "item-1", "list-2"), true);
+    assert.deepEqual(calls, [
+      {
+        url: "/api/v1/items/item-1",
+        method: "PATCH",
+        payload: {
+          name: "Milk",
+          quantity_text: "2",
+          note: "organic",
+          category_id: "category-1",
+          list_id: "list-2",
+        },
+      },
+    ]);
+    assert.equal(state.openItemMenuId, null);
+    assert.equal(state.items.has("item-1"), false);
+    assert.equal(
+      document.querySelector("[data-moved-item-notice='item-1']").textContent,
+      "Milk moved to Errands.UndoGo to list",
+    );
+    await assert.rejects(
+      () => moveItemFromMenu(root, state, "missing", "list-2"),
+      /Could not find that item\./,
+    );
+  } finally {
+    state.movedItemNotices.forEach((notice) => {
+      window.clearTimeout(notice.timerId);
+      window.clearTimeout(notice.removalTimerId);
+    });
+    restoreDomGlobals(originals);
+    setGlobalProperty("document", originals.document);
+    setGlobalProperty("fetch", originals.fetch);
+    setGlobalProperty("navigator", originals.navigator);
+    setGlobalProperty("window", originals.window);
+  }
 });
 
 test("category quick add buttons open the add form with the category selected", () => {
@@ -1258,7 +1566,7 @@ test("loadMoreCheckedItems fetches one hundred older checked items per page", as
   assert.equal(document.querySelector(".checked-items-load-more .item-category-meta").textContent, "10 older items not loaded");
 });
 
-test("item editor renders move-to-list choices", () => {
+test("item editor and context actions share the move-to-list modal", () => {
   const { document, root, window } = createEditRoot();
   const originals = {
     HTMLElement: globalThis.HTMLElement,
@@ -1291,21 +1599,49 @@ test("item editor renders move-to-list choices", () => {
   setGlobalProperty("window", window);
 
   try {
-    syncItemMoveSelect(root, state, "list-2");
-    const field = root.querySelector("[data-item-edit-list-field]");
-    const select = root.querySelector("[data-item-edit-list-select]");
-    assert.equal(field.hidden, false);
-    assert.equal(field.previousElementSibling?.dataset.itemEditCategoryRadios, "");
-    assert.deepEqual([...select.options].map((option) => option.textContent), ["Weekly", "Errands"]);
-    assert.equal(select.value, "list-2");
+    syncItemMoveButton(root, state, "item-1", "list-1");
+    const editMoveButton = root.querySelector("[data-item-edit-move-open]");
+    assert.equal(editMoveButton.hidden, false);
+    assert.equal(editMoveButton.dataset.itemMoveOpen, "item-1");
 
     setItemEditPanelOpen(root, state, "item-1");
     assert.equal(root.querySelector("[data-item-edit-title]").textContent, "Milk");
-    assert.equal(select.value, "list-1");
+    assert.equal(editMoveButton.dataset.itemMoveOpen, "item-1");
+
+    setItemMoveModalOpen(root, state, "item-1", true);
+    const overlay = root.querySelector("[data-item-move-overlay]");
+    const panel = root.querySelector("[data-item-move-panel]");
+    const option = root.querySelector('[data-item-move-target="list-2"]');
+    assert.equal(overlay.hidden, false);
+    assert.equal(panel.hidden, false);
+    assert.equal(panel.getAttribute("role"), "dialog");
+    assert.equal(panel.getAttribute("aria-modal"), "true");
+    assert.equal(root.querySelector("[data-item-move-title]").textContent, "Move Milk");
+    assert.equal(option.textContent, "Errands");
+    assert.equal(root.querySelector('[data-item-move-target="list-1"]'), null);
+    assert.equal(state.movingItemId, "item-1");
+    assert.equal(state.moveItemFromEditor, true);
+
+    setItemMoveStatus(root, "saving", "Saving...");
+    assert.equal(option.disabled, true);
+    assert.equal(root.querySelector("[data-item-move-status]").textContent, "Saving...");
+    setItemMoveStatus(root, "error", "Could not move item.");
+    assert.equal(option.disabled, false);
+    assert.equal(root.querySelector("[data-item-move-status]").dataset.status, "error");
+
+    setItemMoveModalOpen(root, state, null);
+    assert.equal(overlay.hidden, true);
+    assert.equal(root.querySelector("[data-item-edit-overlay]").hidden, false);
+    assert.equal(state.movingItemId, null);
+
+    setItemMoveModalOpen(root, state, "item-1", false);
+    assert.equal(root.querySelector("[data-item-move-overlay]"), overlay);
+    assert.equal(state.moveItemFromEditor, false);
+    setItemMoveModalOpen(root, state, null);
 
     state.lists = [{ id: "list-1", name: "Weekly" }];
-    syncItemMoveSelect(root, state, "list-1");
-    assert.equal(field.hidden, true);
+    syncItemMoveButton(root, state, "item-1", "list-1");
+    assert.equal(editMoveButton.hidden, true);
   } finally {
     restoreDomGlobals(originals);
     setGlobalProperty("document", originals.document);
@@ -1728,6 +2064,86 @@ test("live item editing debounces saves, flushes before close, and undoes local 
     assert.equal(calls[3].payload.quantity_text, "2 cartons");
     assert.equal(form.elements.namedItem("quantity_text").value, "2 cartons");
     assert.equal(document.querySelector("[data-list-success]").textContent, "Edit redone.");
+  } finally {
+    restoreDomGlobals(originals);
+    setGlobalProperty("document", originals.document);
+    setGlobalProperty("fetch", originals.fetch);
+    setGlobalProperty("navigator", originals.navigator);
+    setGlobalProperty("window", originals.window);
+  }
+});
+
+test("live item editing saves, validates, and clears sale windows", async () => {
+  const { document, root, window } = createEditListRoot();
+  const originals = {
+    FormData: globalThis.FormData,
+    HTMLElement: globalThis.HTMLElement,
+    HTMLFormElement: globalThis.HTMLFormElement,
+    HTMLInputElement: globalThis.HTMLInputElement,
+    document: globalThis.document,
+    fetch: globalThis.fetch,
+    navigator: globalThis.navigator,
+    window: globalThis.window,
+  };
+  const state = createState([
+    {
+      id: "item-1",
+      list_id: "list-1",
+      name: "Milk",
+      checked: false,
+      checked_at: null,
+      category_id: null,
+      note: null,
+      quantity_text: null,
+      sale_starts_at: "2026-05-14T09:00:00.000Z",
+      sale_ends_at: "2026-05-14T11:00:00.000Z",
+      sort_order: 0,
+    },
+  ]);
+  const calls = [];
+
+  setDomGlobals({ window });
+  setGlobalProperty("document", document);
+  setGlobalProperty("window", window);
+  setGlobalProperty("navigator", { onLine: true });
+  setGlobalProperty("fetch", async (url, options) => {
+    const payload = JSON.parse(options.body);
+    calls.push({ url, payload });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ ...state.items.get("item-1"), ...payload }),
+    };
+  });
+
+  try {
+    setItemEditPanelOpen(root, state, "item-1");
+    const form = document.querySelector("[data-item-edit-form]");
+    const enabled = form.elements.namedItem("sale_enabled");
+    const starts = form.elements.namedItem("sale_starts_at");
+    const ends = form.elements.namedItem("sale_ends_at");
+    assert.equal(enabled.checked, true);
+    assert.notEqual(starts.value, "");
+    assert.equal(readItemEditFormPayload(root).sale_enabled, true);
+
+    enabled.checked = false;
+    syncSaleWindowControls(form);
+    assert.equal(await flushItemEditSave(root, state), true);
+    assert.equal(calls[0].payload.sale_starts_at, null);
+    assert.equal(calls[0].payload.sale_ends_at, null);
+
+    enabled.checked = true;
+    syncSaleWindowControls(form, { useDefaults: true });
+    ends.value = starts.value;
+    assert.equal(await flushItemEditSave(root, state), false);
+    assert.equal(calls.length, 1);
+    assert.equal(document.querySelector("[data-item-edit-status-text]").textContent, "Sale end must be after its start.");
+
+    ends.value = dateTimeLocalValue(new Date(new Date(starts.value).getTime() + 60 * 60_000));
+    assert.equal(await flushItemEditSave(root, state), true);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].payload.sale_starts_at, new Date(starts.value).toISOString());
+    assert.equal(calls[1].payload.sale_ends_at, new Date(ends.value).toISOString());
   } finally {
     restoreDomGlobals(originals);
     setGlobalProperty("document", originals.document);
@@ -2988,63 +3404,7 @@ test("date formatters use the stored language preference", () => {
 
   try {
     storeLanguagePreference("de");
-    assert.equal(formatPasskeyDate(null), "Never used yet");
-    assert.match(formatPasskeyDate("2026-04-06T12:30:00Z"), /06\.04\.2026|06\. Apr\. 2026/);
     assert.match(formatInviteExpiry("2026-04-06T12:30:00Z"), /06\.04\.2026|06\. Apr\. 2026/);
-  } finally {
-    setGlobalProperty("document", originalDocument);
-    setGlobalProperty("navigator", originalNavigator);
-    setGlobalProperty("window", originalWindow);
-  }
-});
-
-test("renderPasskeys only shows the empty state when no passkeys exist", () => {
-  const originalDocument = globalThis.document;
-  const originalNavigator = globalThis.navigator;
-  const originalWindow = globalThis.window;
-  const dom = new JSDOM(
-    `<!doctype html>
-    <html>
-      <body>
-        <section data-passkey-management>
-          <div class="dashboard-empty" data-passkey-empty hidden>
-            <h3>No passkeys loaded</h3>
-          </div>
-          <div data-passkey-list></div>
-        </section>
-      </body>
-    </html>`,
-    { url: "https://example.test/settings" },
-  );
-
-  setGlobalProperty("document", dom.window.document);
-  setGlobalProperty("navigator", { language: "en-US" });
-  setGlobalProperty("window", dom.window);
-
-  try {
-    const root = dom.window.document.querySelector("[data-passkey-management]");
-    const emptyState = root.querySelector("[data-passkey-empty]");
-    const list = root.querySelector("[data-passkey-list]");
-
-    renderPasskeys(root, [
-      {
-        id: "passkey-1",
-        name: "Bitwarden - Listerine",
-        created_at: "2026-03-18T18:09:00Z",
-        last_used_at: "2026-05-12T18:13:00Z",
-      },
-    ]);
-
-    assert.equal(emptyState.hidden, true);
-    assert.equal(emptyState.style.display, "none");
-    assert.equal(list.querySelectorAll(".passkey-row").length, 1);
-    assert.match(list.textContent, /Bitwarden - Listerine/);
-
-    renderPasskeys(root, []);
-
-    assert.equal(emptyState.hidden, false);
-    assert.equal(emptyState.style.display, "");
-    assert.equal(list.querySelectorAll(".passkey-row").length, 0);
   } finally {
     setGlobalProperty("document", originalDocument);
     setGlobalProperty("navigator", originalNavigator);

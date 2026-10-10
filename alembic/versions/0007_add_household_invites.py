@@ -8,7 +8,6 @@ Create Date: 2026-03-18
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "0007_add_household_invites"
 down_revision = "0006_add_category_aliases"
 branch_labels = None

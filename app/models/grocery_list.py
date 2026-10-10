@@ -16,6 +16,7 @@ class GroceryList(Base):
         Uuid, ForeignKey("households.id"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    accent_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_by: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

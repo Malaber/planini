@@ -24,6 +24,7 @@ async def create_category(
         color=payload.color,
     )
     category.aliases = payload.aliases
+    category.translations = payload.translations
     db.add(category)
     await db.commit()
     await db.refresh(category)
@@ -51,6 +52,7 @@ async def update_category(
     category.name = payload.name
     category.color = payload.color
     category.aliases = payload.aliases
+    category.translations = payload.translations
     await db.commit()
     await db.refresh(category)
     return category

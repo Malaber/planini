@@ -119,6 +119,8 @@ struct WatchBackendClient {
                 "quantity_text": item.quantityText ?? NSNull(),
                 "note": item.note ?? NSNull(),
                 "category_id": item.categoryID?.uuidString ?? NSNull(),
+                "sale_starts_at": item.saleStartsAt.map(apiTimestamp) ?? NSNull(),
+                "sale_ends_at": item.saleEndsAt.map(apiTimestamp) ?? NSNull(),
             ],
             token: session.authToken
         )
@@ -279,6 +281,12 @@ struct WatchBackendClient {
         return favoriteListID
     }
 
+    private func apiTimestamp(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
     private func requestArray(
         backendURL: URL,
         path: String,
@@ -327,6 +335,10 @@ struct WatchBackendClient {
         var request = URLRequest(url: backendURL.appending(path: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(
+            Locale.preferredLanguages.first ?? "en",
+            forHTTPHeaderField: "Accept-Language"
+        )
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

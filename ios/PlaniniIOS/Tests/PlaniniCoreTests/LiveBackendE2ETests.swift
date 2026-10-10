@@ -1,5 +1,4 @@
-#if canImport(CryptoKit)
-import CryptoKit
+import Crypto
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -91,6 +90,133 @@ struct LiveBackendE2ETests {
         #expect(list["name"] as? String == "First iOS List")
     }
 
+    @Test("Reusable passkey management completes a full lifecycle against a live backend")
+    func reusablePasskeyManagementCompletesFullLifecycle() async throws {
+        guard let config = LiveBackendE2EConfiguration.fromEnvironment() else {
+            return
+        }
+
+        let client = LiveBackendClient(baseURL: config.baseURL)
+        let uniqueSuffix = UUID().uuidString.lowercased()
+        let email = "ios-passkey-management-\(uniqueSuffix)@example.com"
+
+        let registrationOptions = try await client.jsonObject(
+            path: "/api/v1/auth/register/options",
+            method: "POST",
+            body: [
+                "email": email,
+                "display_name": "iOS Passkey Management E2E",
+            ],
+            token: nil
+        )
+        let originalPasskey = try GeneratedRegistrationFactory.makePasskey(
+            options: registrationOptions,
+            origin: config.origin,
+            fallbackRelyingPartyIdentifier: config.rpID
+        )
+        _ = try await client.jsonObject(
+            path: "/api/v1/auth/register/verify",
+            method: "POST",
+            body: ["credential": originalPasskey.registrationCredential],
+            token: nil
+        )
+
+        let loginOptions = try await client.jsonObject(
+            path: "/api/v1/auth/login/options",
+            method: "POST",
+            body: [:],
+            token: nil
+        )
+        let loginCredential = try SeededAssertionFactory.makeCredential(
+            options: loginOptions,
+            origin: config.origin,
+            fallbackRelyingPartyIdentifier: config.rpID,
+            credentialID: originalPasskey.credentialID,
+            signCount: 0,
+            privateKey: originalPasskey.privateKey,
+            userHandle: originalPasskey.userHandle
+        )
+        let tokenPayload = try await client.jsonObject(
+            path: "/api/v1/auth/login/verify",
+            method: "POST",
+            body: ["credential": loginCredential],
+            token: nil
+        )
+        let accessToken = try #require(tokenPayload["access_token"] as? String)
+
+        let credentialProvider = GeneratedPasskeyCredentialProvider(
+            origin: config.origin
+        )
+        let service = PasskeyManagementService(
+            backendURL: config.baseURL,
+            accessToken: accessToken,
+            transport: LivePasskeyManagementTransport(client: client),
+            credentialProvider: credentialProvider
+        )
+
+        let initialPasskeys = try await service.listPasskeys()
+        let originalRecord = try #require(initialPasskeys.first)
+        #expect(initialPasskeys.count == 1)
+        #expect(originalRecord.name == "Passkey 1")
+
+        let added = try await service.addPasskey(name: "iOS Backup Key")
+        #expect(added.name == "iOS Backup Key")
+        let passkeysAfterAdd = try await service.listPasskeys()
+        #expect(passkeysAfterAdd.count == 2)
+
+        let renamed = try await service.renamePasskey(
+            id: added.id,
+            name: "iOS Travel Key"
+        )
+        #expect(renamed.id == added.id)
+        #expect(renamed.name == "iOS Travel Key")
+
+        try await service.deletePasskey(id: originalRecord.id)
+
+        let finalPasskeys = try await service.listPasskeys()
+        #expect(finalPasskeys.count == 1)
+        #expect(finalPasskeys.first?.id == added.id)
+        #expect(finalPasskeys.first?.name == "iOS Travel Key")
+
+        await #expect(throws: LiveBackendE2EError.self) {
+            try await service.deletePasskey(id: added.id)
+        }
+        #expect(try await service.listPasskeys() == finalPasskeys)
+
+        let remainingLoginOptions = try await client.jsonObject(
+            path: "/api/v1/auth/login/options",
+            method: "POST",
+            body: [:],
+            token: nil
+        )
+        let remainingLoginOptionsData = try JSONSerialization.data(
+            withJSONObject: remainingLoginOptions
+        )
+        let remainingCredentialData = try await credentialProvider.authenticate(
+            optionsJSON: remainingLoginOptionsData,
+            rpID: config.rpID ?? config.baseURL.host ?? ""
+        )
+        let remainingCredential = try #require(
+            JSONSerialization.jsonObject(with: remainingCredentialData) as? [String: Any]
+        )
+        let remainingTokenPayload = try await client.jsonObject(
+            path: "/api/v1/auth/login/verify",
+            method: "POST",
+            body: ["credential": remainingCredential],
+            token: nil
+        )
+        let remainingAccessToken = try #require(
+            remainingTokenPayload["access_token"] as? String
+        )
+        let me = try await client.jsonObject(
+            path: "/api/v1/auth/me",
+            method: "GET",
+            body: nil,
+            token: remainingAccessToken
+        )
+        #expect(me["email"] as? String == email)
+    }
+
     @Test("Seeded passkey login and list CRUD against a live backend")
     func seededPasskeyLoginAndListCrud() async throws {
         guard let config = LiveBackendE2EConfiguration.fromEnvironment() else {
@@ -121,6 +247,49 @@ struct LiveBackendE2ETests {
         let household = try #require(households.first { $0["name"] as? String == fixture.primaryHouseholdName })
         let householdID = try #require(household["id"] as? String)
 
+        let accentListName = "iOS Accent \(UUID().uuidString.prefix(8))"
+        let createdAccentList = try await client.jsonObject(
+            path: "/api/v1/households/\(householdID)/lists",
+            method: "POST",
+            body: ["name": accentListName],
+            token: accessToken
+        )
+        let accentListID = try #require(createdAccentList["id"] as? String)
+        #expect(createdAccentList["accent_color"] is NSNull)
+
+        let tintedAccentList = try await client.jsonObject(
+            path: "/api/v1/lists/\(accentListID)",
+            method: "PATCH",
+            body: ["accent_color": "#af52de"],
+            token: accessToken
+        )
+        #expect(tintedAccentList["name"] as? String == accentListName)
+        #expect(tintedAccentList["accent_color"] as? String == "#af52de")
+
+        let renamedAccentListName = "\(accentListName) renamed"
+        let renamedAccentList = try await client.jsonObject(
+            path: "/api/v1/lists/\(accentListID)",
+            method: "PATCH",
+            body: ["name": renamedAccentListName],
+            token: accessToken
+        )
+        #expect(renamedAccentList["name"] as? String == renamedAccentListName)
+        #expect(renamedAccentList["accent_color"] as? String == "#af52de")
+
+        let clearedAccentList = try await client.jsonObject(
+            path: "/api/v1/lists/\(accentListID)",
+            method: "PATCH",
+            body: ["accent_color": NSNull()],
+            token: accessToken
+        )
+        #expect(clearedAccentList["accent_color"] is NSNull)
+        _ = try await client.jsonObject(
+            path: "/api/v1/lists/\(accentListID)",
+            method: "DELETE",
+            body: nil,
+            token: accessToken
+        )
+
         let lists = try await client.jsonArray(
             path: "/api/v1/households/\(householdID)/lists",
             token: accessToken
@@ -135,8 +304,16 @@ struct LiveBackendE2ETests {
             token: accessToken
         )
         let categories = categoriesPayload.compactMap(GroceryCategorySummary.init)
-        #expect(categories.contains(where: { $0.name == "Konserven" }))
-        #expect(categories.contains(where: { $0.name == "Gemuese" }))
+        #expect(categories.contains(where: { $0.name == "Canned Goods" }))
+        #expect(categories.contains(where: { $0.name == "Produce" }))
+        let germanCategoriesPayload = try await client.jsonArray(
+            path: "/api/v1/lists/\(listID)/categories",
+            token: accessToken,
+            acceptLanguage: "de-DE"
+        )
+        let germanCategories = germanCategoriesPayload.compactMap(GroceryCategorySummary.init)
+        #expect(germanCategories.contains(where: { $0.name == "Konserven" }))
+        #expect(germanCategories.contains(where: { $0.name == "Gemüse" }))
 
         let categoryOrderPayload = try await client.jsonArray(
             path: "/api/v1/lists/\(listID)/category-order",
@@ -155,8 +332,10 @@ struct LiveBackendE2ETests {
             categories: categories,
             categoryOrder: categoryOrder
         )
-        #expect(initialSections.map(\.title).prefix(4).elementsEqual(["Uncategorized", "Konserven", "Milch & Eier", "Nudeln"]))
-        #expect(initialSections.first?.items.map(\.name) == ["Loose item"])
+        #expect(initialSections.map(\.title).prefix(5).elementsEqual(["On sale", "Uncategorized", "Canned Goods", "Dairy & Eggs", "Pasta"]))
+        #expect(initialSections.first?.items.map(\.name) == ["Sale apples"])
+        #expect(initialSections.dropFirst().first?.items.contains(where: { $0.name == "Loose item" }) == true)
+        #expect(initialSections.dropFirst().first?.items.contains(where: { $0.name == "Sale apples" }) == true)
         #expect(initialSections.last?.title == "Checked off")
         #expect(initialSections.last?.items.contains(where: { $0.name == "Brot" }) == true)
 
@@ -218,14 +397,19 @@ struct LiveBackendE2ETests {
             categories: restoredState.categories,
             categoryOrder: restoredState.categoryOrder
         )
-        #expect(restoredSections.map(\.title).prefix(4).elementsEqual(["Uncategorized", "Konserven", "Milch & Eier", "Nudeln"]))
+        #expect(restoredSections.map(\.title).prefix(5).elementsEqual(["On sale", "Uncategorized", "Canned Goods", "Dairy & Eggs", "Pasta"]))
 
-        let konservenID = try #require(categories.first { $0.name == "Konserven" }?.id)
-        let gemueseID = try #require(categories.first { $0.name == "Gemuese" }?.id)
+        let konservenID = try #require(categories.first { $0.name == "Canned Goods" }?.id)
+        let gemueseID = try #require(categories.first { $0.name == "Produce" }?.id)
 
         let uniqueSuffix = UUID().uuidString.prefix(8)
         let originalName = "iOS E2E \(uniqueSuffix)"
         let updatedName = "\(originalName) Updated"
+        let saleReferenceDate = Date()
+        let saleStartsAt = saleReferenceDate.addingTimeInterval(-60 * 60)
+        let saleEndsAt = saleReferenceDate.addingTimeInterval(60 * 60)
+        let saleStartsAtText = apiTimestamp(from: saleStartsAt)
+        let saleEndsAtText = apiTimestamp(from: saleEndsAt)
 
         let created = try await client.jsonObject(
             path: "/api/v1/lists/\(listID)/items",
@@ -234,7 +418,9 @@ struct LiveBackendE2ETests {
                 "name": originalName,
                 "quantity_text": "2 jars",
                 "note": "Created by iOS backend e2e",
-                "category_id": konservenID.uuidString
+                "category_id": konservenID.uuidString,
+                "sale_starts_at": saleStartsAtText,
+                "sale_ends_at": saleEndsAtText,
             ],
             token: accessToken
         )
@@ -242,12 +428,29 @@ struct LiveBackendE2ETests {
         #expect(created["name"] as? String == originalName)
         #expect(created["checked"] as? Bool == false)
         #expect((created["category_id"] as? String)?.lowercased() == konservenID.uuidString.lowercased())
+        #expect(created["sale_starts_at"] as? String != nil)
+        #expect(created["sale_ends_at"] as? String != nil)
 
         let itemsAfterCreate = try await client.jsonArray(
             path: "/api/v1/lists/\(listID)/items",
             token: accessToken
         )
         #expect(itemsAfterCreate.contains(where: { ($0["id"] as? String) == itemID }))
+        let itemsAfterCreateRecords = itemsAfterCreate.compactMap(GroceryItemRecord.init)
+        let createdRecord = try #require(itemsAfterCreateRecords.first { $0.id.uuidString.lowercased() == itemID.lowercased() })
+        #expect(createdRecord.isOnSale(at: saleReferenceDate))
+        let sectionsAfterCreate = GroceryItemSectionBuilder.build(
+            items: itemsAfterCreateRecords,
+            categories: categories,
+            categoryOrder: categoryOrder,
+            now: saleReferenceDate
+        )
+        let onSaleSection = try #require(sectionsAfterCreate.first { $0.kind == .onSale })
+        let createdCategorySection = try #require(
+            sectionsAfterCreate.first { $0.kind == .category(konservenID) }
+        )
+        #expect(onSaleSection.items.contains(where: { $0.id == createdRecord.id }))
+        #expect(createdCategorySection.items.contains(where: { $0.id == createdRecord.id }))
 
         let updated = try await client.jsonObject(
             path: "/api/v1/items/\(itemID)",
@@ -274,7 +477,7 @@ struct LiveBackendE2ETests {
             categories: categories,
             categoryOrder: categoryOrder
         )
-        let gemueseSection = try #require(updatedSections.first { $0.title == "Gemuese" })
+        let gemueseSection = try #require(updatedSections.first { $0.title == "Produce" })
         #expect(gemueseSection.items.contains(where: { $0.name == updatedName }))
 
         let moved = try await client.jsonObject(
@@ -310,6 +513,24 @@ struct LiveBackendE2ETests {
             token: accessToken
         )
         #expect(checked["checked"] as? Bool == true)
+        let checkedRecord = try #require(GroceryItemRecord(json: checked))
+        #expect(checkedRecord.saleStartsAt == createdRecord.saleStartsAt)
+        #expect(checkedRecord.saleEndsAt == createdRecord.saleEndsAt)
+        let sectionsAfterCheck = GroceryItemSectionBuilder.build(
+            items: [checkedRecord],
+            categories: categories,
+            categoryOrder: categoryOrder,
+            now: saleReferenceDate
+        )
+        let checkedSaleItem = try #require(
+            sectionsAfterCheck.first { $0.kind == .onSale }?.items.first
+        )
+        let checkedNormalItem = try #require(
+            sectionsAfterCheck.first { $0.kind == .checked }?.items.first
+        )
+        #expect(checkedSaleItem.id == checkedNormalItem.id)
+        #expect(checkedSaleItem.checked)
+        #expect(checkedNormalItem.checked)
 
         let unchecked = try await client.jsonObject(
             path: "/api/v1/items/\(itemID)/uncheck",
@@ -352,6 +573,18 @@ struct LiveBackendE2ETests {
             token: accessToken
         )
         #expect(restoredHidden["hidden_until"] is NSNull || restoredHidden["hidden_until"] == nil)
+
+        let clearedSale = try await client.jsonObject(
+            path: "/api/v1/items/\(itemID)",
+            method: "PATCH",
+            body: [
+                "sale_starts_at": NSNull(),
+                "sale_ends_at": NSNull(),
+            ],
+            token: accessToken
+        )
+        #expect(clearedSale["sale_starts_at"] is NSNull || clearedSale["sale_starts_at"] == nil)
+        #expect(clearedSale["sale_ends_at"] is NSNull || clearedSale["sale_ends_at"] == nil)
 
         _ = try await client.data(
             path: "/api/v1/items/\(itemID)",
@@ -405,6 +638,8 @@ struct LiveBackendE2ETests {
         let uniqueSuffix = UUID().uuidString.prefix(8)
         let originalName = "WebSocket E2E \(uniqueSuffix)"
         let updatedName = "\(originalName) Updated"
+        let saleStartsAt = apiTimestamp(from: Date().addingTimeInterval(-60 * 60))
+        let saleEndsAt = apiTimestamp(from: Date().addingTimeInterval(60 * 60))
 
         let created = try await client.jsonObject(
             path: "/api/v1/lists/\(listID)/items",
@@ -414,6 +649,8 @@ struct LiveBackendE2ETests {
                 "quantity_text": NSNull(),
                 "note": "Created by websocket e2e",
                 "category_id": NSNull(),
+                "sale_starts_at": saleStartsAt,
+                "sale_ends_at": saleEndsAt,
             ],
             token: accessToken
         )
@@ -422,6 +659,8 @@ struct LiveBackendE2ETests {
         let createdEvent = try await client.receiveWebSocketEvent(from: socket)
         #expect(createdEvent.type == "item_created")
         #expect(createdEvent.itemID?.lowercased() == itemID.lowercased())
+        #expect(createdEvent.saleStartsAt != nil)
+        #expect(createdEvent.saleEndsAt != nil)
 
         _ = try await client.jsonObject(
             path: "/api/v1/items/\(itemID)",
@@ -502,6 +741,12 @@ private func loginSeededUser(
     }
 
     throw lastError ?? LiveBackendE2EError("Seeded login failed without a specific error.")
+}
+
+private func apiTimestamp(from date: Date) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: date)
 }
 
 private struct LiveBackendE2EConfiguration {
@@ -634,9 +879,11 @@ private final class LiveBackendClient {
     init(baseURL: URL) {
         self.baseURL = baseURL
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieStorage = HTTPCookieStorage()
-        configuration.httpShouldSetCookies = true
-        configuration.httpCookieAcceptPolicy = .always
+        // Keep cookie handling isolated and portable. FoundationNetworking does
+        // not expose HTTPCookieStorage's empty initializer on Linux, while this
+        // client already captures and sends the session cookie explicitly.
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
         session = URLSession(configuration: configuration)
     }
 
@@ -657,9 +904,16 @@ private final class LiveBackendClient {
         path: String,
         method: String = "GET",
         body: [String: Any]? = nil,
-        token: String
+        token: String,
+        acceptLanguage: String = "en"
     ) async throws -> [[String: Any]] {
-        let data = try await data(path: path, method: method, body: body, token: token)
+        let data = try await data(
+            path: path,
+            method: method,
+            body: body,
+            token: token,
+            acceptLanguage: acceptLanguage
+        )
         guard let payload = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             throw LiveBackendE2EError("Expected JSON array for \(path).")
         }
@@ -670,7 +924,8 @@ private final class LiveBackendClient {
         path: String,
         method: String,
         body: [String: Any]?,
-        token: String?
+        token: String?,
+        acceptLanguage: String = "en"
     ) async throws -> Data {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw LiveBackendE2EError("Invalid URL path \(path).")
@@ -679,6 +934,7 @@ private final class LiveBackendClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(acceptLanguage, forHTTPHeaderField: "Accept-Language")
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -750,11 +1006,116 @@ private final class LiveBackendClient {
     }
 }
 
+private struct LivePasskeyManagementTransport: PasskeyManagementTransport, @unchecked Sendable {
+    let client: LiveBackendClient
+
+    func send(request: PasskeyAPIRequest) async throws -> Data {
+        let method = switch request.method {
+        case .get:
+            "GET"
+        case .post:
+            "POST"
+        }
+        let body: [String: Any]?
+        if let bodyData = request.body {
+            guard let decodedBody = try JSONSerialization.jsonObject(with: bodyData) as? [String: Any] else {
+                throw LiveBackendE2EError("Expected passkey request body to be a JSON object.")
+            }
+            body = decodedBody
+        } else {
+            body = nil
+        }
+        return try await client.data(
+            path: request.path,
+            method: method,
+            body: body,
+            token: request.accessToken
+        )
+    }
+}
+
+private actor GeneratedPasskeyCredentialProvider: PasskeyCredentialProvider {
+    private struct StoredCredential {
+        let passkey: GeneratedPasskey
+        var signCount: Int
+    }
+
+    private let origin: String
+    private var credentials: [String: StoredCredential] = [:]
+
+    init(origin: String) {
+        self.origin = origin
+    }
+
+    func register(optionsJSON: Data, rpID: String) async throws -> Data {
+        let options = try Self.jsonObject(from: optionsJSON)
+        let passkey = try GeneratedRegistrationFactory.makePasskey(
+            options: options,
+            origin: origin,
+            fallbackRelyingPartyIdentifier: rpID
+        )
+        credentials[passkey.credentialID] = StoredCredential(
+            passkey: passkey,
+            signCount: 0
+        )
+        return try JSONSerialization.data(withJSONObject: passkey.registrationCredential)
+    }
+
+    func authenticate(optionsJSON: Data, rpID: String) async throws -> Data {
+        let options = try Self.jsonObject(from: optionsJSON)
+        let publicKey = (options["publicKey"] as? [String: Any]) ?? options
+        let allowedCredentialIDs = (publicKey["allowCredentials"] as? [[String: Any]])?
+            .compactMap { $0["id"] as? String } ?? []
+        let credentialID = if allowedCredentialIDs.isEmpty {
+            credentials.keys.sorted().first
+        } else {
+            allowedCredentialIDs.first(where: { credentials[$0] != nil })
+        }
+        guard
+            let credentialID,
+            var stored = credentials[credentialID]
+        else {
+            throw LiveBackendE2EError(
+                "Passkey options did not allow a generated credential."
+            )
+        }
+
+        let credential = try SeededAssertionFactory.makeCredential(
+            options: options,
+            origin: origin,
+            fallbackRelyingPartyIdentifier: rpID,
+            credentialID: stored.passkey.credentialID,
+            signCount: stored.signCount,
+            privateKey: stored.passkey.privateKey,
+            userHandle: stored.passkey.userHandle
+        )
+        stored.signCount += 1
+        credentials[credentialID] = stored
+        return try JSONSerialization.data(withJSONObject: credential)
+    }
+
+    private static func jsonObject(from data: Data) throws -> [String: Any] {
+        guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw LiveBackendE2EError("Expected passkey options to be a JSON object.")
+        }
+        return payload
+    }
+}
+
 private struct LiveListSocketEvent: Decodable {
     struct Payload: Decodable {
         struct Item: Decodable {
             let id: String?
             let name: String?
+            let saleStartsAt: String?
+            let saleEndsAt: String?
+
+            private enum CodingKeys: String, CodingKey {
+                case id
+                case name
+                case saleStartsAt = "sale_starts_at"
+                case saleEndsAt = "sale_ends_at"
+            }
         }
 
         let item: Item?
@@ -769,6 +1130,14 @@ private struct LiveListSocketEvent: Decodable {
 
     var itemName: String? {
         payload?.item?.name
+    }
+
+    var saleStartsAt: String? {
+        payload?.item?.saleStartsAt
+    }
+
+    var saleEndsAt: String? {
+        payload?.item?.saleEndsAt
     }
 }
 
@@ -1050,4 +1419,3 @@ private extension Data {
             .replacingOccurrences(of: "=", with: "")
     }
 }
-#endif

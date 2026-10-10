@@ -11,7 +11,6 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.sql import text
 
-
 revision = "0008_normalize_passkeys"
 down_revision = "0007_add_household_invites"
 branch_labels = None
@@ -101,9 +100,7 @@ def downgrade() -> None:
         )
 
     bind = op.get_bind()
-    bind.execute(
-        text(
-            """
+    bind.execute(text("""
             UPDATE users
             SET
                 passkey_credential_id = (
@@ -127,7 +124,5 @@ def downgrade() -> None:
                     ORDER BY created_at ASC, id ASC
                     LIMIT 1
                 ), 0)
-            """
-        )
-    )
+            """))
     op.drop_table("passkeys")

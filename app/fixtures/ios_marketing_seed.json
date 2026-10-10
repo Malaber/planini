@@ -1,0 +1,273 @@
+{
+  "metadata": {
+    "description": "Polished seed data for repeatable iOS App Store screenshots."
+  },
+  "users": [
+    {
+      "email": "planini@schaedler.rocks",
+      "display_name": "Alex",
+      "is_admin": false
+    },
+    {
+      "email": "planini-de@schaedler.rocks",
+      "display_name": "Alex",
+      "is_admin": false
+    }
+  ],
+  "categories": [
+    {
+      "name": "Produce",
+      "color": "#7ed957",
+      "aliases": ["Fruit", "Vegetables"]
+    },
+    {
+      "name": "Bakery",
+      "color": "#fb923c",
+      "aliases": ["Bread"]
+    },
+    {
+      "name": "Dairy",
+      "color": "#d8b4e2",
+      "aliases": ["Milk"]
+    },
+    {
+      "name": "Pantry",
+      "color": "#d6b08b",
+      "aliases": ["Pasta"]
+    },
+    {
+      "name": "Home",
+      "color": "#64748b",
+      "aliases": ["Household"]
+    },
+    {
+      "name": "Obst & Gemüse",
+      "color": "#7ed957",
+      "aliases": ["Obst", "Gemüse"]
+    },
+    {
+      "name": "Bäckerei",
+      "color": "#fb923c",
+      "aliases": ["Brot"]
+    },
+    {
+      "name": "Milchprodukte",
+      "color": "#d8b4e2",
+      "aliases": ["Milch"]
+    },
+    {
+      "name": "Vorrat",
+      "color": "#d6b08b",
+      "aliases": ["Pasta"]
+    },
+    {
+      "name": "Haushalt",
+      "color": "#64748b",
+      "aliases": ["Zuhause"]
+    }
+  ],
+  "households": [
+    {
+      "name": "Our home",
+      "owner_email": "planini@schaedler.rocks",
+      "members": [
+        {
+          "email": "planini@schaedler.rocks",
+          "role": "owner"
+        }
+      ],
+      "lists": [
+        {
+          "name": "Weekly groceries",
+          "created_by_email": "planini@schaedler.rocks",
+          "category_order": ["Produce", "Bakery", "Dairy", "Pantry"],
+          "items": [
+            {
+              "name": "Strawberries",
+              "category": "Produce",
+              "quantity_text": "2 baskets",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Avocados",
+              "category": "Produce",
+              "quantity_text": "3",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Sourdough bread",
+              "category": "Bakery",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Oat milk",
+              "category": "Dairy",
+              "quantity_text": "2 cartons",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Fresh pasta",
+              "category": "Pantry",
+              "quantity_text": "500 g",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Olive oil",
+              "category": "Pantry",
+              "checked": true,
+              "checked_by_email": "planini@schaedler.rocks",
+              "created_by_email": "planini@schaedler.rocks"
+            }
+          ]
+        },
+        {
+          "name": "Dinner with friends",
+          "created_by_email": "planini@schaedler.rocks",
+          "category_order": ["Produce", "Home", "Pantry"],
+          "items": [
+            {
+              "name": "Fresh flowers",
+              "category": "Produce",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Sparkling water",
+              "category": "Pantry",
+              "quantity_text": "6 bottles",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Cloth napkins",
+              "category": "Home",
+              "created_by_email": "planini@schaedler.rocks"
+            }
+          ]
+        },
+        {
+          "name": "Weekend brunch",
+          "created_by_email": "planini@schaedler.rocks",
+          "category_order": ["Produce", "Bakery", "Dairy"],
+          "items": [
+            {
+              "name": "Blueberries",
+              "category": "Produce",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Croissants",
+              "category": "Bakery",
+              "quantity_text": "4",
+              "created_by_email": "planini@schaedler.rocks"
+            },
+            {
+              "name": "Greek yogurt",
+              "category": "Dairy",
+              "created_by_email": "planini@schaedler.rocks"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Unser Zuhause",
+      "owner_email": "planini-de@schaedler.rocks",
+      "members": [
+        {
+          "email": "planini-de@schaedler.rocks",
+          "role": "owner"
+        }
+      ],
+      "lists": [
+        {
+          "name": "Wocheneinkauf",
+          "created_by_email": "planini-de@schaedler.rocks",
+          "category_order": ["Obst & Gemüse", "Bäckerei", "Milchprodukte", "Vorrat"],
+          "items": [
+            {
+              "name": "Erdbeeren",
+              "category": "Obst & Gemüse",
+              "quantity_text": "2 Schalen",
+              "created_by_email": "planini-de@schaedler.rocks"
+            },
+            {
+              "name": "Avocados",
+              "category": "Obst & Gemüse",
+              "quantity_text": "3",
+              "created_by_email": "planini-de@schaedler.rocks"
+            },
+            {
+              "name": "Sauerteigbrot",
+              "category": "Bäckerei",
+              "created_by_email": "planini-de@schaedler.rocks"
+            },
+            {
+              "name": "Hafermilch",
+              "category": "Milchprodukte",
+              "quantity_text": "2 Packungen",
+              "created_by_email": "planini-de@schaedler.rocks"
+            },
+            {
+              "name": "Frische Pasta",
+              "category": "Vorrat",
+              "quantity_text": "500 g",
+              "created_by_email": "planini-de@schaedler.rocks"
+            },
+            {
+              "name": "Olivenöl",
+              "category": "Vorrat",
+              "checked": true,
+              "checked_by_email": "planini-de@schaedler.rocks",
+              "created_by_email": "planini-de@schaedler.rocks"
+            }
+          ]
+        },
+        {
+          "name": "Abendessen mit Freunden",
+          "created_by_email": "planini-de@schaedler.rocks",
+          "category_order": ["Obst & Gemüse", "Haushalt", "Vorrat"],
+          "items": [
+            {
+              "name": "Frische Blumen",
+              "category": "Obst & Gemüse",
+              "created_by_email": "planini-de@schaedler.rocks"
+            },
+            {
+              "name": "Mineralwasser",
+              "category": "Vorrat",
+              "quantity_text": "6 Flaschen",
+              "created_by_email": "planini-de@schaedler.rocks"
+            },
+            {
+              "name": "Stoffservietten",
+              "category": "Haushalt",
+              "created_by_email": "planini-de@schaedler.rocks"
+            }
+          ]
+        },
+        {
+          "name": "Wochenendbrunch",
+          "created_by_email": "planini-de@schaedler.rocks",
+          "category_order": ["Obst & Gemüse", "Bäckerei", "Milchprodukte"],
+          "items": [
+            {
+              "name": "Blaubeeren",
+              "category": "Obst & Gemüse",
+              "created_by_email": "planini-de@schaedler.rocks"
+            },
+            {
+              "name": "Croissants",
+              "category": "Bäckerei",
+              "quantity_text": "4",
+              "created_by_email": "planini-de@schaedler.rocks"
+            },
+            {
+              "name": "Griechischer Joghurt",
+              "category": "Milchprodukte",
+              "created_by_email": "planini-de@schaedler.rocks"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

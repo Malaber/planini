@@ -20,11 +20,11 @@ dependencies = [
   "python-jose[cryptography]>=3.3.0",
   "passlib[bcrypt]>=1.7.4",
   "jinja2>=3.1.4",
-  "sqladmin==0.27.1",
+  "sqladmin==0.31.1",
   "python-multipart>=0.0.9",
   "email-validator>=2.2.0",
   "itsdangerous>=2.2.0",
-  "webauthn>=2.7.1",
+  "fastpasskey @ https://github.com/Malaber/python-libs/releases/download/fastpasskey-v0.2.6/fastpasskey-0.2.6-py3-none-any.whl#sha256=b66a362eb0805860692e1d01bc51db16c8a832a684453a8c825bfe9788d0d19e",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +36,7 @@ dev = [
   "httpx>=0.27.0",
   "coverage[toml]>=7.6.0",
   "cairosvg>=2.7.1",
-  "black==25.12.0",
+  "black==26.5.1",
   "flake8>=7.1.0",
   "invoke>=2.2.0",
 ]
@@ -63,4 +63,4 @@ target-version = ["py314"]
 [tool.flake8]
 max-line-length = 100
 extend-ignore = ["E203", "W503"]
-exclude = [".venv"]
+exclude = [".venv", ".build"]

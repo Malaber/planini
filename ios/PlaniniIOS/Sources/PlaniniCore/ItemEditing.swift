@@ -5,12 +5,23 @@ public struct GroceryItemEditPayload: Codable, Equatable, Sendable {
     public var quantityText: String?
     public var note: String?
     public var categoryID: UUID?
+    public var saleStartsAt: Date?
+    public var saleEndsAt: Date?
 
-    public init(name: String, quantityText: String?, note: String?, categoryID: UUID?) {
+    public init(
+        name: String,
+        quantityText: String?,
+        note: String?,
+        categoryID: UUID?,
+        saleStartsAt: Date? = nil,
+        saleEndsAt: Date? = nil
+    ) {
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         self.quantityText = Self.normalizedOptionalText(quantityText)
         self.note = Self.normalizedOptionalText(note)
         self.categoryID = categoryID
+        self.saleStartsAt = saleStartsAt
+        self.saleEndsAt = saleEndsAt
     }
 
     public init(item: GroceryItemRecord) {
@@ -18,12 +29,25 @@ public struct GroceryItemEditPayload: Codable, Equatable, Sendable {
             name: item.name,
             quantityText: item.quantityText,
             note: item.note,
-            categoryID: item.categoryID
+            categoryID: item.categoryID,
+            saleStartsAt: item.saleStartsAt,
+            saleEndsAt: item.saleEndsAt
         )
     }
 
     public var isValid: Bool {
-        name.isEmpty == false
+        name.isEmpty == false && hasValidSaleSchedule
+    }
+
+    public var hasValidSaleSchedule: Bool {
+        switch (saleStartsAt, saleEndsAt) {
+        case (nil, nil):
+            return true
+        case let (saleStartsAt?, saleEndsAt?):
+            return saleStartsAt < saleEndsAt
+        default:
+            return false
+        }
     }
 
     public var jsonBody: [String: Any] {
@@ -32,7 +56,16 @@ public struct GroceryItemEditPayload: Codable, Equatable, Sendable {
             "quantity_text": quantityText ?? NSNull(),
             "note": note ?? NSNull(),
             "category_id": categoryID?.uuidString ?? NSNull(),
+            "sale_starts_at": Self.jsonDate(saleStartsAt),
+            "sale_ends_at": Self.jsonDate(saleEndsAt),
         ]
+    }
+
+    private static func jsonDate(_ date: Date?) -> Any {
+        guard let date else { return NSNull() }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 
     private static func normalizedOptionalText(_ value: String?) -> String? {
@@ -217,6 +250,8 @@ public extension GroceryItemRecord {
             checked: checked,
             checkedAt: checkedAt,
             hiddenUntil: hiddenUntil,
+            saleStartsAt: payload.saleStartsAt,
+            saleEndsAt: payload.saleEndsAt,
             sortOrder: sortOrder
         )
     }
@@ -231,6 +266,9 @@ public extension GroceryItemRecord {
             categoryID: categoryID,
             checked: checked,
             checkedAt: checkedAt,
+            hiddenUntil: hiddenUntil,
+            saleStartsAt: saleStartsAt,
+            saleEndsAt: saleEndsAt,
             sortOrder: sortOrder
         )
     }
@@ -245,6 +283,9 @@ public extension GroceryItemRecord {
             categoryID: categoryID,
             checked: checked,
             checkedAt: checked ? recordedAt : nil,
+            hiddenUntil: hiddenUntil,
+            saleStartsAt: saleStartsAt,
+            saleEndsAt: saleEndsAt,
             sortOrder: sortOrder
         )
     }

@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -56,11 +57,12 @@ def _fixture_payload() -> dict[str, object]:
                 "owner_email": "owner@example.com",
                 "members": [
                     {"email": "owner@example.com", "role": "owner"},
-                    {"email": "member@example.com", "role": "member"},
+                    {"email": "member@example.com", "role": "editor"},
                 ],
                 "lists": [
                     {
                         "name": "Weekly shop",
+                        "accent_color": "#3b82f6",
                         "created_by_email": "owner@example.com",
                         "category_order": ["Produce", "Frozen"],
                         "items": [
@@ -68,6 +70,8 @@ def _fixture_payload() -> dict[str, object]:
                                 "name": "Apples",
                                 "category": "Produce",
                                 "quantity_text": "6",
+                                "sale_starts_at": "2026-07-23T10:00:00+02:00",
+                                "sale_ends_at": "2026-07-24T10:00:00+02:00",
                                 "created_by_email": "owner@example.com",
                             },
                             {
@@ -89,6 +93,7 @@ def _fixture_payload() -> dict[str, object]:
                 "lists": [
                     {
                         "name": "Weekend",
+                        "accent_color": "#22c55e",
                         "created_by_email": "member@example.com",
                         "category_order": ["Cleaning"],
                         "items": [
@@ -163,6 +168,10 @@ def test_seed_data_populates_real_database_and_passkeys(tmp_path) -> None:
                 "Weekend",
                 "Weekly shop",
             ]
+            assert [grocery_list.accent_color for grocery_list in grocery_lists] == [
+                "#22c55e",
+                "#3b82f6",
+            ]
 
             items = (
                 (await session.execute(select(GroceryItem).order_by(GroceryItem.name.asc())))
@@ -170,6 +179,15 @@ def test_seed_data_populates_real_database_and_passkeys(tmp_path) -> None:
                 .all()
             )
             assert [item.name for item in items] == ["Apples", "Peas", "Soap"]
+            sale_item = next(item for item in items if item.name == "Apples")
+            assert sale_item.sale_starts_at is not None
+            assert sale_item.sale_ends_at is not None
+            assert sale_item.sale_starts_at.replace(tzinfo=UTC) == datetime(
+                2026, 7, 23, 8, 0, tzinfo=UTC
+            )
+            assert sale_item.sale_ends_at.replace(tzinfo=UTC) == datetime(
+                2026, 7, 24, 8, 0, tzinfo=UTC
+            )
             checked_item = next(item for item in items if item.name == "Peas")
             assert checked_item.checked is True
             assert checked_item.checked_by is not None
@@ -259,7 +277,7 @@ def test_seed_data_enforces_preview_member_and_admin_membership_rules(tmp_path) 
                     {
                         "name": "Home",
                         "owner_email": "planini@schaedler.rocks",
-                        "members": [{"email": "planini_admin@schaedler.rocks", "role": "member"}],
+                        "members": [{"email": "planini_admin@schaedler.rocks", "role": "editor"}],
                         "lists": [],
                     },
                     {
@@ -343,6 +361,7 @@ def test_seed_data_updates_existing_rows_and_removes_stale_items(tmp_path) -> No
                 "lists": [
                     {
                         "name": "Weekly shop",
+                        "accent_color": None,
                         "created_by_email": "member@example.com",
                         "category_order": ["Produce"],
                         "items": [
@@ -448,6 +467,11 @@ def test_seed_data_updates_existing_rows_and_removes_stale_items(tmp_path) -> No
             weekly_list = (
                 await session.execute(select(GroceryList).where(GroceryList.name == "Weekly shop"))
             ).scalar_one()
+            weekend_list = (
+                await session.execute(select(GroceryList).where(GroceryList.name == "Weekend"))
+            ).scalar_one()
+            assert weekly_list.accent_color is None
+            assert weekend_list.accent_color == "#22c55e"
             items = (
                 (
                     await session.execute(

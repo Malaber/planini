@@ -5,7 +5,7 @@ This folder contains a universal SwiftUI iPhone and iPad client for Planini plus
 ## Folder layout
 
 - `Package.swift` builds the reusable `PlaniniCore` module and its test suite
-- `Sources/PlaniniCore/` contains the backend URL persistence, passkey scaffolding, and authentication view model logic
+- `Sources/PlaniniCore/` contains backend URL persistence, reusable passkey-management workflows, and authentication view model logic
 - `App/` contains the SwiftUI application shell and the Apple passkey bridge for Xcode app targets
 - `Tests/PlaniniCoreTests/` contains high-coverage tests for the app's core behavior
 
@@ -23,6 +23,7 @@ Useful native iOS Invoke targets:
 - `.venv/bin/inv check-ios-package`
 - `.venv/bin/inv run-ios-e2e`
 - `.venv/bin/inv check-ios-e2e`
+- `.venv/bin/inv check-ios-marketing-screenshots`
 - `.venv/bin/inv generate-ios-project`
 - `.venv/bin/inv build-ios-simulator`
 - `.venv/bin/inv run-ios-simulators-fresh`
@@ -68,6 +69,7 @@ compatibility mode.
 
 - build-time configured backend URL with `https://planini.malaber.de` as the default
 - passkey login against `/api/v1/auth/login/options` and `/api/v1/auth/login/verify`
+- authenticated passkey listing, creation, renaming, and safe deletion from Settings
 - bearer-token authenticated loading of households, lists, and list items
 - list switching plus add, remove, check/uncheck, and edit item details
 - liquid-glass inspired SwiftUI styling using material cards and gradients
@@ -86,7 +88,8 @@ compatibility mode.
    - starts the FastAPI backend with `app/fixtures/review_seed_e2e.json`
    - keeps the backend session cookie for `/auth/login/options` and `/auth/login/verify`
    - signs a real WebAuthn assertion from the seeded private key fixture
-   - verifies passkey login, list loading, add/edit/check/uncheck/delete item flows
+   - verifies passkey login and a complete reusable passkey-management lifecycle
+   - verifies list loading and add/edit/check/uncheck/delete item flows
 3. **Generate the Xcode project if you need to regenerate it (macOS):**
    ```bash
    .venv/bin/inv generate-ios-project
@@ -107,7 +110,14 @@ compatibility mode.
    - installs the iPhone app and watch app
    - launches the iPhone app with the local backend/bootstrap env vars
    - launches the watch app after the iPhone app starts
-6. Launch from Xcode and verify:
+6. **Capture repeatable App Store screenshots (macOS):**
+   ```bash
+   .venv/bin/inv check-ios-marketing-screenshots
+   ```
+   This uses a fresh polished fixture to capture matching English and German sets
+   under `iphone/`, `ipad/`, and `watchos/`. It verifies the App Store-ready sizes:
+   iPhone 14 Plus `1284x2778`, 13-inch iPad `2064x2752`, and 49mm Watch `422x514`.
+7. Launch from Xcode and verify:
    - the configured backend matches the build settings you generated the app with
    - passkey login succeeds for the selected backend
    - list switching works
@@ -144,6 +154,7 @@ That derives `WEBAUTHN_RP_ID` from the configured backend host automatically.
 
 - The native app now accepts the backend's current `/api/v1/auth/login/options` response shape directly, whether the WebAuthn options are top-level or nested under `publicKey`.
 - The app relies on the `Set-Cookie` session from `/api/v1/auth/login/options` to complete `/api/v1/auth/login/verify`, so login tests should always use the same session between both requests.
+- Passkey add, rename, and delete management ceremonies also keep one session between each `/options` and `/verify` request. Deletion requires proof with a different remaining passkey.
 - For local native passkey checks, use `localhost` as the browser-facing host and RP ID. `127.0.0.1` is not valid for WebAuthn passkey UX in Apple and Chromium clients.
 - The app target now includes the Associated Domains entitlement for `webcredentials:planini.malaber.de`.
 - Production passkey login still requires a real Apple team ID and bundle identifier that match the `appID` entries served by `https://planini.malaber.de/.well-known/apple-app-site-association`.
@@ -226,8 +237,8 @@ for only the individual `pr-<PR>` app host to serve the AASA response.
 - The universal iPhone/iPad app uses the existing App ID, bundle identifier, signing certificate,
   provisioning profile, associated domains, App Group, and watch App IDs. No new Apple Developer
   group or capability is required solely for iPad support.
-- App Store Connect requires iPad screenshots for a version that supports iPad. Capture and upload
-  the required current iPad display-size screenshots before submitting the next version.
+- App Store Connect requires iPad screenshots for a version that supports iPad. The
+  `check-ios-marketing-screenshots` task captures the required 13-inch iPad set.
 - Ad-hoc installation on a physical iPad requires registering that iPad UDID and regenerating the
   ad-hoc provisioning profile, exactly like adding another physical iPhone test device.
 - Test passkeys, keyboard behavior, rotation, split view, and Stage Manager on a physical iPad
@@ -286,6 +297,7 @@ Set these GitHub Actions secrets before dispatching the TestFlight upload workfl
 - `BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`
 - `BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64`
 - `IOS_REVIEW_BUNDLE_IDENTIFIER` (optional; defaults to `IOS_BUNDLE_IDENTIFIER`)
+- `IOS_REVIEW_APP_STORE_CONNECT_APP_ID` (optional; defaults to the production App Store Connect app ID)
 - `BUILD_REVIEW_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_PROVISION_PROFILE_BASE64`)
 - `BUILD_REVIEW_WIDGET_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WIDGET_PROVISION_PROFILE_BASE64`)
 - `BUILD_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WATCH_APP_PROVISION_PROFILE_BASE64`)
@@ -301,6 +313,10 @@ The workflow commits these non-secret signing constants directly:
 
 - Apple team ID: `VWKG94374J`
 - production bundle ID: `de.malaber.planini`
+- production App Store Connect app ID: `6762043307`
+
+The upload command passes the numeric App Store Connect app ID explicitly because Xcode 26
+can fail to resolve it from the bundle ID when multiple matching app IDs exist.
 
 Each app extension and watch target needs its own profile because Apple provisioning profiles are bound to one App ID. Create App Store distribution profiles for:
 
