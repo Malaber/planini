@@ -3,6 +3,20 @@ import Foundation
 import ActivityKit
 #endif
 
+public struct ShoppingChecklistItem: Codable, Hashable, Identifiable, Sendable {
+    public let id: UUID
+    public let name: String
+    public let quantity: String?
+    public let checked: Bool
+
+    public init(item: GroceryItemRecord) {
+        id = item.id
+        name = String(item.name.prefix(32))
+        quantity = item.quantityText.map { String($0.prefix(12)) }
+        checked = item.checked
+    }
+}
+
 public struct ShoppingListSnapshot: Codable, Equatable, Sendable {
     public static let liveActivityDuration: TimeInterval = 3 * 60 * 60
 
@@ -14,6 +28,7 @@ public struct ShoppingListSnapshot: Codable, Equatable, Sendable {
     public let quickAddItemName: String
     public let startedAt: Date
     public let expiresAt: Date
+    public var checklistItems: [ShoppingChecklistItem]? = nil
 
     public init(
         listID: UUID,
@@ -156,11 +171,11 @@ public struct SharedAppState: Codable, Equatable, Sendable {
         duration: TimeInterval = ShoppingListSnapshot.liveActivityDuration
     ) -> ShoppingListSnapshot? {
         guard let list = list(id: listID) else { return nil }
-        let listItems = items(for: listID)
+        let listItems = items(for: listID).filter { !$0.isHiddenForLater() }
         let uncheckedNames = listItems
             .filter { $0.checked == false }
             .map(\.name)
-        return ShoppingListSnapshot(
+        var snapshot = ShoppingListSnapshot(
             listID: listID,
             listName: list.name,
             totalItemCount: listItems.count,
@@ -170,6 +185,8 @@ public struct SharedAppState: Codable, Equatable, Sendable {
             startedAt: startedAt,
             expiresAt: startedAt.addingTimeInterval(duration)
         )
+        snapshot.checklistItems = listItems.prefix(6).map(ShoppingChecklistItem.init)
+        return snapshot
     }
 }
 
@@ -182,6 +199,7 @@ public struct PlaniniShoppingActivityAttributes: ActivityAttributes {
         public let uncheckedItemNames: [String]
         public let quickAddItemName: String
         public let expiresAt: Date
+        public var checklistItems: [ShoppingChecklistItem]? = nil
 
         public init(
             checkedItemCount: Int,
@@ -201,10 +219,11 @@ public struct PlaniniShoppingActivityAttributes: ActivityAttributes {
             self.init(
                 checkedItemCount: snapshot.checkedItemCount,
                 totalItemCount: snapshot.totalItemCount,
-                uncheckedItemNames: snapshot.uncheckedItemNames,
-                quickAddItemName: snapshot.quickAddItemName,
+                uncheckedItemNames: snapshot.uncheckedItemNames.prefix(3).map { String($0.prefix(32)) },
+                quickAddItemName: String(snapshot.quickAddItemName.prefix(32)),
                 expiresAt: snapshot.expiresAt
             )
+            checklistItems = snapshot.checklistItems
         }
 
         public var remainingItemCount: Int {

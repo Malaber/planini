@@ -14,6 +14,20 @@ final class ShoppingActivityController {
         ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
+    var activeListID: UUID? {
+        Activity<PlaniniShoppingActivityAttributes>.activities.first {
+            $0.activityState == .active && $0.content.state.expiresAt > Date()
+        }?.attributes.listID
+    }
+
+    func stop() async {
+        for activity in Activity<PlaniniShoppingActivityAttributes>.activities {
+            expirationTasks[activity.id]?.cancel()
+            expirationTasks[activity.id] = nil
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+    }
+
     func start(listID: UUID, using state: SharedAppState) async throws -> ShoppingListSnapshot {
         guard let snapshot = state.shoppingSnapshot(for: listID) else {
             throw ShoppingActivityError.missingList
@@ -22,11 +36,11 @@ final class ShoppingActivityController {
             throw ShoppingActivityError.disabled
         }
 
-        await endActivities(for: listID)
+        await stop()
 
         let attributes = PlaniniShoppingActivityAttributes(
             listID: snapshot.listID,
-            listName: snapshot.listName,
+            listName: String(snapshot.listName.prefix(64)),
             startedAt: snapshot.startedAt
         )
         let content = ActivityContent(

@@ -147,13 +147,13 @@ jobs:
 
   ios_native_ui_e2e:
     name: Native ${{ matrix.platform }} UI e2e
-    runs-on: macos-26
+    runs-on: xcode-27
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: iPhone
-            device_name: iPhone 17 Pro
+            device_name: iPhone 18 Pro
             database_url: sqlite+aiosqlite:///./tmp-ios-ui-e2e.db
             artifact_dir: e2e-artifacts/ios-ui-e2e
             artifact_name: ios-native-ui-e2e

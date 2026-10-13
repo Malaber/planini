@@ -209,9 +209,35 @@ struct SharedAppStateTests {
         #expect(snapshot.checkedItemCount == 1)
         #expect(snapshot.remainingItemCount == 1)
         #expect(snapshot.uncheckedItemNames == ["Eggs"])
+        #expect(snapshot.checklistItems?.map(\.name) == ["Eggs", "Butter"])
+        #expect(snapshot.checklistItems?.map(\.checked) == [false, true])
         #expect(snapshot.quickAddItemName == "Coffee")
         #expect(snapshot.expiresAt == start.addingTimeInterval(ShoppingListSnapshot.liveActivityDuration))
         #expect(snapshot.isExpired(at: start.addingTimeInterval(ShoppingListSnapshot.liveActivityDuration)) == true)
+    }
+
+    @Test func shoppingChecklistBoundsPayloadAndExcludesHiddenItems() throws {
+        let listID = UUID()
+        let items = (0..<20).map { index in
+            GroceryItemRecord(
+                id: UUID(), listID: listID, name: String(repeating: "Apple", count: 100),
+                quantityText: String(repeating: "1", count: 100), note: nil, categoryID: nil,
+                checked: false, checkedAt: nil,
+                hiddenUntil: index == 0 ? Date.distantFuture : nil, sortOrder: index
+            )
+        }
+        let state = SharedAppState(
+            syncedListID: listID,
+            lists: [.init(id: listID, householdID: UUID(), householdName: "Home", name: "Shop", archived: false)],
+            items: items
+        )
+        let snapshot = try #require(state.shoppingSnapshot(for: listID))
+        let checklist = try #require(snapshot.checklistItems)
+        #expect(snapshot.totalItemCount == 19)
+        #expect(checklist.count == 6)
+        #expect(checklist.first?.id == items[1].id)
+        #expect(checklist.allSatisfy { $0.name.count == 32 && $0.quantity?.count == 12 })
+        #expect(try JSONDecoder().decode([ShoppingChecklistItem].self, from: JSONEncoder().encode(checklist)) == checklist)
     }
 
     @Test func storeLoadsDefaultWhenMissingOrInvalid() {

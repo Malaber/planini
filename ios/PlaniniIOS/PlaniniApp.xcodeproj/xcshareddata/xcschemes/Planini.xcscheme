@@ -43,20 +43,6 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "DEBF93F3E0CDE651B6065A38"
-               BuildableName = "PlaniniWatchExtension.appex"
-               BlueprintName = "PlaniniWatchExtension"
-               ReferencedContainer = "container:PlaniniApp.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
                BlueprintIdentifier = "3180F3469A0A460B5E6E607B"
                BuildableName = "PlaniniWatchWidgetExtension.appex"
                BlueprintName = "PlaniniWatchWidgetExtension"

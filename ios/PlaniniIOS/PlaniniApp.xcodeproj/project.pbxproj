@@ -7,46 +7,50 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		142B222D9AF4456A414702B8 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DD17D440ED10778295E1855 /* WatchRootView.swift */; };
+		0EE0CFEE1F6663315716BAC7 /* ShoppingActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D26EE650B3DA11BFBA5B441A /* ShoppingActivityIntents.swift */; };
+		10226B65B95FB7C9A800D3AF /* ShoppingActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D26EE650B3DA11BFBA5B441A /* ShoppingActivityIntents.swift */; };
 		1762001ECBF396E6038B3335 /* de.json in Resources */ = {isa = PBXBuildFile; fileRef = 0B9F178CF03EA47741BB75CC /* de.json */; };
 		1D2A1C7E4CD44D0541004266 /* CategorySuggestionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CE25571DA7AC986896938D /* CategorySuggestionService.swift */; };
-		1EE4C0BA89B1304ABB8EF270 /* AppGroupSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FA6FAB5BF0777FEBF85FFD /* AppGroupSupport.swift */; };
 		22ABDECD56E908533F61F12B /* PlaniniUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC0DDEFF1265803A638BC83 /* PlaniniUITests.swift */; };
+		232C0A4EC7ACF2AA9379A997 /* WatchConnectivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 433DDB21F328F1A21559B5CF /* WatchConnectivityBridge.swift */; };
 		250FF99C2969A78D7407C4FE /* PlaniniWatchWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C49069FE00F2CBEEBA975C11 /* PlaniniWatchWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		26F3175331CF506397C9873A /* ShoppingActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D26EE650B3DA11BFBA5B441A /* ShoppingActivityIntents.swift */; };
 		291ACD3C50DB72E04C89694B /* WatchBackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6AB6DEC64D1F5BD03FCCF1 /* WatchBackendClient.swift */; };
 		2AA655CFC7545A958443A348 /* AppGroupSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FA6FAB5BF0777FEBF85FFD /* AppGroupSupport.swift */; };
-		30C2D2674B145101CF523E82 /* PlaniniWatchExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CA8DB980F61CE9F26FAD8E21 /* PlaniniWatchExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		495188AEDCE06D4F6912A537 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 835F29EE45FA1D48D4CAACD4 /* AppIcon.icon */; };
 		4BB5C438EF3ED68BA3375078 /* ShoppingActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F394DB8C34D91D9555C57AF7 /* ShoppingActivityController.swift */; };
 		4E1F9A68D9324BA591514A9C /* PlaniniWatchWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1FEC963E9A630C6DAF6BF6E /* PlaniniWatchWidget.swift */; };
 		577D3C1135BA6D7407B8A0AA /* PlaniniWatchApp.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 37808C13EE8980C6D7EB5E3F /* PlaniniWatchApp.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		5D844E1AC4837B05434646D1 /* WatchAppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C9901FC6B3FC621A6B229A /* WatchAppViewModel.swift */; };
 		5E09D5479AB378CFC658DF40 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DEEA95181710CC9F8714BAF /* AppLocalization.swift */; };
+		6608C4110CA41EA52A6855A9 /* WatchBackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6AB6DEC64D1F5BD03FCCF1 /* WatchBackendClient.swift */; };
 		794A4049619ECF3AD11F3EF3 /* AppShortcuts.strings in Resources */ = {isa = PBXBuildFile; fileRef = 9512EB31655E3ABDF90E0715 /* AppShortcuts.strings */; };
 		82C3C88EAB55297D30D73734 /* PlaniniCore in Frameworks */ = {isa = PBXBuildFile; productRef = 10FC01866A6D00903EC66B9A /* PlaniniCore */; };
 		85437EE99A15ADA6C78CBFED /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 17D969652DA1487FA75B16E8 /* Localizable.strings */; };
-		88E8657361C1AB37B5714935 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 17D969652DA1487FA75B16E8 /* Localizable.strings */; };
+		8B9E5096CDE425286231171C /* AppGroupSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FA6FAB5BF0777FEBF85FFD /* AppGroupSupport.swift */; };
 		8DCFC53928E38080B5E5BD87 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 560BCFBB3415FB0A326907AA /* Assets.xcassets */; };
-		91F9EBCE9439F40E96C581E7 /* PlaniniCore in Frameworks */ = {isa = PBXBuildFile; productRef = 08CDF818F45A22289EF0AD81 /* PlaniniCore */; };
 		924899E2361A029D256814CD /* AppGroupSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FA6FAB5BF0777FEBF85FFD /* AppGroupSupport.swift */; };
 		92C2FE7F0F7558D9F5827AEF /* en.json in Resources */ = {isa = PBXBuildFile; fileRef = 5F163107B1A440953DF748B8 /* en.json */; };
 		9A2B90D8BBBDFB0D096A7B23 /* WatchBackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6AB6DEC64D1F5BD03FCCF1 /* WatchBackendClient.swift */; };
-		A1FA5501E23CE80CE82DA8E9 /* PlaniniWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F02701FC01526A4FEE42211 /* PlaniniWatchApp.swift */; };
-		A4E6FD246C4225C71AEC2BB5 /* WatchBackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6AB6DEC64D1F5BD03FCCF1 /* WatchBackendClient.swift */; };
+		A00F9605C6A663E7571232D8 /* PlaniniWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F02701FC01526A4FEE42211 /* PlaniniWatchApp.swift */; };
 		A779CDB8931E1EA01F2246CA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 560BCFBB3415FB0A326907AA /* Assets.xcassets */; };
 		AC437810451B5D89D3EAF270 /* PlaniniApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2403081BBCE4A9CDD0BB942C /* PlaniniApp.swift */; };
 		AC5D4AD62F388A35CB4ACC27 /* MobileAppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D8F0E8983062553D42950A /* MobileAppViewModel.swift */; };
 		AF4FF1CC688E882E6C9A324F /* WatchSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42F32AEF35DE46D54986B691 /* WatchSyncCoordinator.swift */; };
 		B7824E600DCD0D89BE4892AE /* PlaniniWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FE3FC36F94E48084060315E /* PlaniniWidget.swift */; };
-		B9178840709BB2B133A77811 /* WatchConnectivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 433DDB21F328F1A21559B5CF /* WatchConnectivityBridge.swift */; };
 		BCF7B2579B0B14F507B32FA0 /* PlaniniCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0ADBEB713CEB7C21A34B8EC0 /* PlaniniCore */; };
+		C5E0873D34F6BB65755C9A67 /* ShoppingActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D26EE650B3DA11BFBA5B441A /* ShoppingActivityIntents.swift */; };
 		CAD0D61C08D5E9E772F22CE9 /* AppearanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4978A019F11BDE53315B6469 /* AppearanceSettings.swift */; };
 		CAE42039FBCEE229EF99CCDB /* PlaniniWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F68962C09EA7B08A349DF7F9 /* PlaniniWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CBE7F3B5C9F2DAB5D82BE34E /* WatchAppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C9901FC6B3FC621A6B229A /* WatchAppViewModel.swift */; };
+		CDCD16F6FB1A2F9BA4A64E6F /* PlaniniCore in Frameworks */ = {isa = PBXBuildFile; productRef = C4B18B0935DB8BB9FB5F5663 /* PlaniniCore */; };
 		CFC80BB6E33B0D9C72BA73C5 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BCE483AB7F4F77593152B5D /* RootView.swift */; };
+		D1A29E17C0007EBD1EE4CB57 /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DD17D440ED10778295E1855 /* WatchRootView.swift */; };
 		D5800F3309DEA622AA24ADC4 /* ApplePasskeyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D9440F383C21A058EA39C13 /* ApplePasskeyClient.swift */; };
 		DCB27E8D3E2198AB4B77B761 /* PlaniniCore in Frameworks */ = {isa = PBXBuildFile; productRef = 22433296D233CD7AD37572E7 /* PlaniniCore */; };
+		DD265C3645CB92F71B9DD3BB /* WatchBackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6AB6DEC64D1F5BD03FCCF1 /* WatchBackendClient.swift */; };
 		E5C536B66A3D79943044C922 /* PlaniniAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C6A4A1B26659AAC9C30B23 /* PlaniniAppIntents.swift */; };
 		E7125FFF5A789C74DCBFFDE6 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 835F29EE45FA1D48D4CAACD4 /* AppIcon.icon */; };
+		E772D3F965D3193DB8854EDA /* AppGroupSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FA6FAB5BF0777FEBF85FFD /* AppGroupSupport.swift */; };
 		F3A245BA428BCA7DD2FECEEF /* BuildConfiguration.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B83DD3FDFA519C2128AC67 /* BuildConfiguration.generated.swift */; };
 /* End PBXBuildFile section */
 
@@ -64,13 +68,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = 3180F3469A0A460B5E6E607B;
 			remoteInfo = PlaniniWatchWidgetExtension;
-		};
-		641CBB70FC5504315C0C70FC /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 9FF9DF6FAFBBE02FA76603CF /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = DEBF93F3E0CDE651B6065A38;
-			remoteInfo = PlaniniWatchExtension;
 		};
 		6DD656E39CCAF70201514095 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -106,7 +103,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				30C2D2674B145101CF523E82 /* PlaniniWatchExtension.appex in Embed Foundation Extensions */,
 				250FF99C2969A78D7407C4FE /* PlaniniWatchWidgetExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
@@ -127,6 +123,7 @@
 
 /* Begin PBXFileReference section */
 		06CE25571DA7AC986896938D /* CategorySuggestionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategorySuggestionService.swift; sourceTree = "<group>"; };
+		0B2C5E4DAA25266D85C38585 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0B9F178CF03EA47741BB75CC /* de.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = de.json; sourceTree = "<group>"; };
 		1F02701FC01526A4FEE42211 /* PlaniniWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaniniWatchApp.swift; sourceTree = "<group>"; };
 		20B83DD3FDFA519C2128AC67 /* BuildConfiguration.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildConfiguration.generated.swift; sourceTree = "<group>"; };
@@ -156,11 +153,10 @@
 		A6C9901FC6B3FC621A6B229A /* WatchAppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAppViewModel.swift; sourceTree = "<group>"; };
 		B398FAB562EB897F7FED2897 /* PlaniniIOS */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PlaniniIOS; path = .; sourceTree = SOURCE_ROOT; };
 		C49069FE00F2CBEEBA975C11 /* PlaniniWatchWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PlaniniWatchWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		CA8DB980F61CE9F26FAD8E21 /* PlaniniWatchExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PlaniniWatchExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE6AB6DEC64D1F5BD03FCCF1 /* WatchBackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBackendClient.swift; sourceTree = "<group>"; };
+		D26EE650B3DA11BFBA5B441A /* ShoppingActivityIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShoppingActivityIntents.swift; sourceTree = "<group>"; };
 		E1FEC963E9A630C6DAF6BF6E /* PlaniniWatchWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaniniWatchWidget.swift; sourceTree = "<group>"; };
 		E2A3999D044DFBCC8032549E /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/Localizable.strings; sourceTree = "<group>"; };
-		EC0D0DADD9B0BB3D0465CB25 /* PlaniniWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PlaniniWatch.entitlements; sourceTree = "<group>"; };
 		F394DB8C34D91D9555C57AF7 /* ShoppingActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShoppingActivityController.swift; sourceTree = "<group>"; };
 		F68962C09EA7B08A349DF7F9 /* PlaniniWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = PlaniniWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -182,19 +178,19 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		79E4C0F27F6BD5CD28305AED /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CDCD16F6FB1A2F9BA4A64E6F /* PlaniniCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CCF1640F24E6D31605B43FDF /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				82C3C88EAB55297D30D73734 /* PlaniniCore in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		E42B7C3AD47C8451A0F37E57 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				91F9EBCE9439F40E96C581E7 /* PlaniniCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -207,7 +203,6 @@
 				905E5C36A0321D88D618675F /* Planini.app */,
 				2644EEF483834EDF9B04BFF3 /* PlaniniUITests.xctest */,
 				37808C13EE8980C6D7EB5E3F /* PlaniniWatchApp.app */,
-				CA8DB980F61CE9F26FAD8E21 /* PlaniniWatchExtension.appex */,
 				C49069FE00F2CBEEBA975C11 /* PlaniniWatchWidgetExtension.appex */,
 				F68962C09EA7B08A349DF7F9 /* PlaniniWidgetExtension.appex */,
 			);
@@ -233,7 +228,6 @@
 		50A4E55A2074DE676B6FD0A2 /* WatchApp */ = {
 			isa = PBXGroup;
 			children = (
-				EC0D0DADD9B0BB3D0465CB25 /* PlaniniWatch.entitlements */,
 				1F02701FC01526A4FEE42211 /* PlaniniWatchApp.swift */,
 				A6C9901FC6B3FC621A6B229A /* WatchAppViewModel.swift */,
 				433DDB21F328F1A21559B5CF /* WatchConnectivityBridge.swift */,
@@ -295,6 +289,7 @@
 				9DEEA95181710CC9F8714BAF /* AppLocalization.swift */,
 				20B83DD3FDFA519C2128AC67 /* BuildConfiguration.generated.swift */,
 				06CE25571DA7AC986896938D /* CategorySuggestionService.swift */,
+				0B2C5E4DAA25266D85C38585 /* Info.plist */,
 				53D8F0E8983062553D42950A /* MobileAppViewModel.swift */,
 				976E7E216506A44F10DDD3A5 /* Planini.entitlements */,
 				2403081BBCE4A9CDD0BB942C /* PlaniniApp.swift */,
@@ -310,6 +305,7 @@
 			isa = PBXGroup;
 			children = (
 				60FA6FAB5BF0777FEBF85FFD /* AppGroupSupport.swift */,
+				D26EE650B3DA11BFBA5B441A /* ShoppingActivityIntents.swift */,
 				CE6AB6DEC64D1F5BD03FCCF1 /* WatchBackendClient.swift */,
 			);
 			path = WatchShared;
@@ -391,21 +387,23 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = BDD29B060D3A2C6951A859AD /* Build configuration list for PBXNativeTarget "PlaniniWatchApp" */;
 			buildPhases = (
+				F0755DC62FE530D39809F991 /* Sources */,
 				F09E2F8C027086EFC9C1247C /* Resources */,
+				79E4C0F27F6BD5CD28305AED /* Frameworks */,
 				70D52D9AD9D8ACBC84054593 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				574471E4ADC04E7BFA9EE1C5 /* PBXTargetDependency */,
 				E4A1F268C741E46198EC5076 /* PBXTargetDependency */,
 			);
 			name = PlaniniWatchApp;
 			packageProductDependencies = (
+				C4B18B0935DB8BB9FB5F5663 /* PlaniniCore */,
 			);
 			productName = PlaniniWatchApp;
 			productReference = 37808C13EE8980C6D7EB5E3F /* PlaniniWatchApp.app */;
-			productType = "com.apple.product-type.application.watchapp2";
+			productType = "com.apple.product-type.application";
 		};
 		DDB44EA4E3760B3B45CC1F6C /* PlaniniWidgetExtension */ = {
 			isa = PBXNativeTarget;
@@ -425,26 +423,6 @@
 			productName = PlaniniWidgetExtension;
 			productReference = F68962C09EA7B08A349DF7F9 /* PlaniniWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
-		};
-		DEBF93F3E0CDE651B6065A38 /* PlaniniWatchExtension */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = BA352095C43D7004896D9EE4 /* Build configuration list for PBXNativeTarget "PlaniniWatchExtension" */;
-			buildPhases = (
-				673535D08171A13736FA0CBF /* Sources */,
-				62966CA1C481494BCB9CA325 /* Resources */,
-				E42B7C3AD47C8451A0F37E57 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = PlaniniWatchExtension;
-			packageProductDependencies = (
-				08CDF818F45A22289EF0AD81 /* PlaniniCore */,
-			);
-			productName = PlaniniWatchExtension;
-			productReference = CA8DB980F61CE9F26FAD8E21 /* PlaniniWatchExtension.appex */;
-			productType = "com.apple.product-type.watchkit2-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -471,9 +449,6 @@
 					DDB44EA4E3760B3B45CC1F6C = {
 						DevelopmentTeam = VWKG94374J;
 					};
-					DEBF93F3E0CDE651B6065A38 = {
-						DevelopmentTeam = VWKG94374J;
-					};
 				};
 			};
 			buildConfigurationList = E29CC34FC46802E8F17F7E3C /* Build configuration list for PBXProject "PlaniniApp" */;
@@ -496,7 +471,6 @@
 			targets = (
 				6E903985EFEC0F724E79D572 /* Planini */,
 				7A3ABE956F63693B9585D08D /* PlaniniWatchApp */,
-				DEBF93F3E0CDE651B6065A38 /* PlaniniWatchExtension */,
 				3180F3469A0A460B5E6E607B /* PlaniniWatchWidgetExtension */,
 				DDB44EA4E3760B3B45CC1F6C /* PlaniniWidgetExtension */,
 				2DDAD55DE417376D7015B238 /* PlaniniUITests */,
@@ -505,14 +479,6 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		62966CA1C481494BCB9CA325 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				88E8657361C1AB37B5714935 /* Localizable.strings in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		906EB4DF839B14F4B265C7ED /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -546,25 +512,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		673535D08171A13736FA0CBF /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				1EE4C0BA89B1304ABB8EF270 /* AppGroupSupport.swift in Sources */,
-				A1FA5501E23CE80CE82DA8E9 /* PlaniniWatchApp.swift in Sources */,
-				5D844E1AC4837B05434646D1 /* WatchAppViewModel.swift in Sources */,
-				A4E6FD246C4225C71AEC2BB5 /* WatchBackendClient.swift in Sources */,
-				B9178840709BB2B133A77811 /* WatchConnectivityBridge.swift in Sources */,
-				142B222D9AF4456A414702B8 /* WatchRootView.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		82091FE34380E0B9F9D82433 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				2AA655CFC7545A958443A348 /* AppGroupSupport.swift in Sources */,
 				4E1F9A68D9324BA591514A9C /* PlaniniWatchWidget.swift in Sources */,
+				0EE0CFEE1F6663315716BAC7 /* ShoppingActivityIntents.swift in Sources */,
 				291ACD3C50DB72E04C89694B /* WatchBackendClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -575,6 +529,7 @@
 			files = (
 				924899E2361A029D256814CD /* AppGroupSupport.swift in Sources */,
 				B7824E600DCD0D89BE4892AE /* PlaniniWidget.swift in Sources */,
+				C5E0873D34F6BB65755C9A67 /* ShoppingActivityIntents.swift in Sources */,
 				9A2B90D8BBBDFB0D096A7B23 /* WatchBackendClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -583,6 +538,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E772D3F965D3193DB8854EDA /* AppGroupSupport.swift in Sources */,
 				5E09D5479AB378CFC658DF40 /* AppLocalization.swift in Sources */,
 				CAD0D61C08D5E9E772F22CE9 /* AppearanceSettings.swift in Sources */,
 				D5800F3309DEA622AA24ADC4 /* ApplePasskeyClient.swift in Sources */,
@@ -593,18 +549,29 @@
 				E5C536B66A3D79943044C922 /* PlaniniAppIntents.swift in Sources */,
 				CFC80BB6E33B0D9C72BA73C5 /* RootView.swift in Sources */,
 				4BB5C438EF3ED68BA3375078 /* ShoppingActivityController.swift in Sources */,
+				26F3175331CF506397C9873A /* ShoppingActivityIntents.swift in Sources */,
+				DD265C3645CB92F71B9DD3BB /* WatchBackendClient.swift in Sources */,
 				AF4FF1CC688E882E6C9A324F /* WatchSyncCoordinator.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F0755DC62FE530D39809F991 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8B9E5096CDE425286231171C /* AppGroupSupport.swift in Sources */,
+				A00F9605C6A663E7571232D8 /* PlaniniWatchApp.swift in Sources */,
+				10226B65B95FB7C9A800D3AF /* ShoppingActivityIntents.swift in Sources */,
+				CBE7F3B5C9F2DAB5D82BE34E /* WatchAppViewModel.swift in Sources */,
+				6608C4110CA41EA52A6855A9 /* WatchBackendClient.swift in Sources */,
+				232C0A4EC7ACF2AA9379A997 /* WatchConnectivityBridge.swift in Sources */,
+				D1A29E17C0007EBD1EE4CB57 /* WatchRootView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		574471E4ADC04E7BFA9EE1C5 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = DEBF93F3E0CDE651B6065A38 /* PlaniniWatchExtension */;
-			targetProxy = 641CBB70FC5504315C0C70FC /* PBXContainerItemProxy */;
-		};
 		6ACFA297762113D1E4A20625 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 6E903985EFEC0F724E79D572 /* Planini */;
@@ -658,6 +625,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = VWKG94374J;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Planini;
 				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -668,7 +636,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -684,39 +652,13 @@
 			};
 			name = Release;
 		};
-		666952E80CDC9A00E7E87BEE /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_COMPLICATION_NAME = Complication;
-				CODE_SIGN_ENTITLEMENTS = WatchApp/PlaniniWatch.entitlements;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = VWKG94374J;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = WatchApp/ExtensionInfo.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = de.malaber.planini.watchkitapp.watchkitextension;
-				PRODUCT_NAME = "Planini Watch Extension";
-				PROVISIONING_PROFILE_SPECIFIER = "$(PLANINI_WATCH_EXTENSION_PROFILE_NAME)";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.1;
-				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
-			};
-			name = Release;
-		};
 		67342ED705990D32A1DF3B01 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = VWKG94374J;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -737,7 +679,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = VWKG94374J;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -751,32 +693,6 @@
 				TEST_TARGET_NAME = Planini;
 			};
 			name = Release;
-		};
-		802CEC0D12846389D4795CCA /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_COMPLICATION_NAME = Complication;
-				CODE_SIGN_ENTITLEMENTS = WatchApp/PlaniniWatch.entitlements;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = VWKG94374J;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = WatchApp/ExtensionInfo.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = de.malaber.planini.watchkitapp.watchkitextension;
-				PRODUCT_NAME = "Planini Watch Extension";
-				PROVISIONING_PROFILE_SPECIFIER = "$(PLANINI_WATCH_EXTENSION_PROFILE_NAME)";
-				SDKROOT = watchos;
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.1;
-				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
-			};
-			name = Debug;
 		};
 		8057F0678CCF455979FB826E /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -799,7 +715,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.1;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 27.0;
 			};
 			name = Debug;
 		};
@@ -807,6 +723,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = WatchApp/PlaniniWatch.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = VWKG94374J;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -819,7 +736,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.1;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 27.0;
 			};
 			name = Release;
 		};
@@ -886,6 +803,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = VWKG94374J;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Planini;
 				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -896,7 +814,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -920,7 +838,7 @@
 				DEVELOPMENT_TEAM = VWKG94374J;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Widget/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -957,7 +875,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.1;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 27.0;
 			};
 			name = Release;
 		};
@@ -965,6 +883,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = WatchApp/PlaniniWatch.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = VWKG94374J;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -977,7 +896,7 @@
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.1;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+				WATCHOS_DEPLOYMENT_TARGET = 27.0;
 			};
 			name = Debug;
 		};
@@ -1050,7 +969,7 @@
 				DEVELOPMENT_TEAM = VWKG94374J;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Widget/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1096,15 +1015,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		BA352095C43D7004896D9EE4 /* Build configuration list for PBXNativeTarget "PlaniniWatchExtension" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				802CEC0D12846389D4795CCA /* Debug */,
-				666952E80CDC9A00E7E87BEE /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
 		BC519925BA5C76357C910C2E /* Build configuration list for PBXNativeTarget "PlaniniWidgetExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1142,10 +1052,6 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		08CDF818F45A22289EF0AD81 /* PlaniniCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = PlaniniCore;
-		};
 		0ADBEB713CEB7C21A34B8EC0 /* PlaniniCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PlaniniCore;
@@ -1155,6 +1061,10 @@
 			productName = PlaniniCore;
 		};
 		22433296D233CD7AD37572E7 /* PlaniniCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PlaniniCore;
+		};
+		C4B18B0935DB8BB9FB5F5663 /* PlaniniCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PlaniniCore;
 		};

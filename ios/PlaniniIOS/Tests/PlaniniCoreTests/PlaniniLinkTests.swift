@@ -54,6 +54,8 @@ struct PlaniniLinkTests {
 
         #expect(PlaniniLinkParser.parse("planini://invite/token-1") == .invite(token: "token-1"))
         #expect(PlaniniLinkParser.parse("planini://lists/\(listID.uuidString)") == .list(id: listID))
+        #expect(PlaniniLinkParser.parse("planini://lists/\(listID.uuidString)/add") == .addItem(listID: listID))
+        #expect(PlaniniLinkParser.parse("planini://lists/invalid/add") == nil)
         #expect(
             PlaniniLinkParser.parse("planini://public/lists/public-token")
                 == .publicList(token: "public-token")

@@ -103,33 +103,6 @@ struct TogglePlaniniWidgetItemIntent: AppIntent {
     }
 }
 
-struct AddPlaniniWidgetItemIntent: AppIntent {
-    static let title: LocalizedStringResource = "Add Planini Item"
-    static let openAppWhenRun = false
-
-    @Parameter(title: "List ID")
-    var listID: String
-
-    init() {}
-
-    init(listID: UUID) {
-        self.listID = listID.uuidString
-    }
-
-    func perform() async throws -> some IntentResult {
-        let listID = try uuid(from: listID)
-        let store = WatchSharedContainer.stateStore
-        let state = store.load()
-        let updatedState = try await WatchBackendClient().addItem(
-            named: state.quickAddItemName,
-            to: listID,
-            using: state
-        )
-        store.save(updatedState)
-        WidgetCenter.shared.reloadAllTimelines()
-        return .result()
-    }
-}
 
 private enum PlaniniWidgetIntentError: LocalizedError {
     case invalidID
@@ -307,8 +280,8 @@ struct PlaniniListWidgetEntryView: View {
             Spacer(minLength: 0)
 
             if let listID = entry.selectedList?.id, entry.state.hasAuthenticatedSession {
-                Button(intent: AddPlaniniWidgetItemIntent(listID: listID)) {
-                    Label(entry.state.quickAddItemName, systemImage: "plus.circle.fill")
+                Link(destination: URL(string: "planini://lists/\(listID.uuidString)/add")!) {
+                    Label("Add item", systemImage: "plus.circle.fill")
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
                 }
@@ -408,7 +381,7 @@ private struct ShoppingActivityLockScreenView: View {
     let state: PlaniniShoppingActivityAttributes.ContentState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Image(systemName: "cart.fill")
                     .foregroundStyle(.tint)
@@ -421,22 +394,47 @@ private struct ShoppingActivityLockScreenView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text(state.nextItemsText)
-                .font(.subheadline)
-                .lineLimit(2)
+            if let items = state.checklistItems, !items.isEmpty {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 2) {
+                    ForEach(items) { item in
+                        Button(intent: CheckShoppingActivityItemIntent(listID: attributes.listID, item: item)) {
+                            HStack(spacing: 6) {
+                                Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(item.checked ? .green : .secondary)
+                                Text(item.name)
+                                    .strikethrough(item.checked)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                                if let quantity = item.quantity, !quantity.isEmpty {
+                                    Text(quantity).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            .font(.caption)
+                            .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(item.checked ? "Uncheck" : "Check") \(item.name)")
+                    }
+                }
+            } else {
+                Text(state.nextItemsText).font(.subheadline).lineLimit(2)
+            }
 
             HStack {
-                Text(timerInterval: Date()...state.expiresAt, countsDown: true)
+                Text(timerInterval: attributes.startedAt...state.expiresAt, countsDown: true)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("Add \(state.quickAddItemName)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tint)
-                    .lineLimit(1)
+                Link(destination: URL(string: "planini://lists/\(attributes.listID.uuidString)/add")!) {
+                    Label("Add item", systemImage: "plus.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                }
             }
         }
-        .padding()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 }
 

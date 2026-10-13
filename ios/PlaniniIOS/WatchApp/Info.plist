@@ -24,7 +24,7 @@
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>de.malaber.planini</string>
-	<key>WKWatchKitApp</key>
+	<key>WKApplication</key>
 	<true/>
 </dict>
 </plist>

@@ -154,6 +154,7 @@ final class MobileAppViewModel: ObservableObject {
     @Published var selectedListID: UUID?
     @Published private(set) var favoriteListID: UUID?
     @Published private(set) var shoppingModeListID: UUID?
+    @Published var widgetAddItemListID: UUID?
     @Published var quickAddItemName: String
     @Published var errorMessage: String?
     @Published var offlineStatusMessage: String?
@@ -272,6 +273,7 @@ final class MobileAppViewModel: ObservableObject {
                 guard self?.shoppingModeListID == listID else { return }
                 self?.shoppingModeListID = nil
             }
+            shoppingModeListID = controller.activeListID
         }
         #endif
         if processInfo.environment["PLANINI_UI_TEST_RESET_PUBLIC_LISTS"] == "1" {
@@ -441,7 +443,7 @@ final class MobileAppViewModel: ObservableObject {
             switch link {
             case .passkeyAdd:
                 break
-            case .invite, .list:
+            case .invite, .list, .addItem:
                 requestLocalModeAccountCreation()
                 return
             case .publicList:
@@ -456,6 +458,8 @@ final class MobileAppViewModel: ObservableObject {
             await acceptInviteFromLink(token: token)
         case let .list(id):
             await openListFromLink(id: id)
+        case let .addItem(listID):
+            await openListFromLink(id: listID, addingItem: true)
         case let .publicList(token):
             await openPublicListFromLink(token: token)
         }
@@ -1441,6 +1445,8 @@ final class MobileAppViewModel: ObservableObject {
             await acceptInviteFromLink(token: token)
         case let .list(id):
             await openListFromLink(id: id)
+        case let .addItem(listID):
+            await openListFromLink(id: listID, addingItem: true)
         case let .publicList(token):
             await openPublicListFromLink(token: token)
         }
@@ -1495,13 +1501,13 @@ final class MobileAppViewModel: ObservableObject {
         }
     }
 
-    private func openListFromLink(id: UUID) async {
+    private func openListFromLink(id: UUID, addingItem: Bool = false) async {
         if isLocalMode {
             requestLocalModeAccountCreation()
             return
         }
         guard authToken != nil else {
-            pendingPlaniniLink = .list(id: id)
+            pendingPlaniniLink = addingItem ? .addItem(listID: id) : .list(id: id)
             errorMessage = "Sign in to open that list."
             return
         }
@@ -1514,6 +1520,7 @@ final class MobileAppViewModel: ObservableObject {
             }
             await selectList(id: id)
             linkedListNavigationRequest = LinkedListNavigationRequest(listID: id)
+            if addingItem { widgetAddItemListID = id }
             errorMessage = nil
             watchSyncCoordinator.publishCurrentState()
         } catch {
@@ -2245,6 +2252,15 @@ final class MobileAppViewModel: ObservableObject {
 
         errorMessage = "Shopping mode needs iOS 16.2 or newer."
         return false
+    }
+
+    func stopShoppingMode() async {
+        #if canImport(ActivityKit)
+        if let controller = shoppingActivityController as? ShoppingActivityController {
+            await controller.stop()
+        }
+        #endif
+        shoppingModeListID = nil
     }
 
     private func updateShoppingActivityIfNeeded() async {

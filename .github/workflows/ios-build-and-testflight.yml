@@ -110,7 +110,7 @@ jobs:
         ) ||
         (github.event_name == 'workflow_dispatch' && inputs.upload_to_testflight)
       )
-    runs-on: macos-26
+    runs-on: xcode-27
     environment: testflight
     strategy:
       fail-fast: false
@@ -136,22 +136,18 @@ jobs:
       BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
       BUILD_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_WIDGET_PROVISION_PROFILE_BASE64 }}
       BUILD_WATCH_APP_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_WATCH_APP_PROVISION_PROFILE_BASE64 }}
-      BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64 }}
       BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64 }}
       BUILD_REVIEW_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_REVIEW_PROVISION_PROFILE_BASE64 }}
       BUILD_REVIEW_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_REVIEW_WIDGET_PROVISION_PROFILE_BASE64 }}
       BUILD_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64 }}
-      BUILD_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64 }}
       BUILD_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64 }}
       AD_HOC_PROVISION_PROFILE_BASE64: ${{ secrets.AD_HOC_PROVISION_PROFILE_BASE64 }}
       AD_HOC_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.AD_HOC_WIDGET_PROVISION_PROFILE_BASE64 }}
       AD_HOC_WATCH_APP_PROVISION_PROFILE_BASE64: ${{ secrets.AD_HOC_WATCH_APP_PROVISION_PROFILE_BASE64 }}
-      AD_HOC_WATCH_EXTENSION_PROVISION_PROFILE_BASE64: ${{ secrets.AD_HOC_WATCH_EXTENSION_PROVISION_PROFILE_BASE64 }}
       AD_HOC_WATCH_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.AD_HOC_WATCH_WIDGET_PROVISION_PROFILE_BASE64 }}
       AD_HOC_REVIEW_PROVISION_PROFILE_BASE64: ${{ secrets.AD_HOC_REVIEW_PROVISION_PROFILE_BASE64 }}
       AD_HOC_REVIEW_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.AD_HOC_REVIEW_WIDGET_PROVISION_PROFILE_BASE64 }}
       AD_HOC_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64: ${{ secrets.AD_HOC_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64 }}
-      AD_HOC_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64: ${{ secrets.AD_HOC_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64 }}
       AD_HOC_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64: ${{ secrets.AD_HOC_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64 }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -232,14 +228,12 @@ jobs:
               profile_base64="$BUILD_PROVISION_PROFILE_BASE64"
               widget_profile_base64="$BUILD_WIDGET_PROVISION_PROFILE_BASE64"
               watch_app_profile_base64="$BUILD_WATCH_APP_PROVISION_PROFILE_BASE64"
-              watch_extension_profile_base64="$BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64"
               watch_widget_profile_base64="$BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64"
               ;;
             review)
               profile_base64="${BUILD_REVIEW_PROVISION_PROFILE_BASE64:-$BUILD_PROVISION_PROFILE_BASE64}"
               widget_profile_base64="${BUILD_REVIEW_WIDGET_PROVISION_PROFILE_BASE64:-$BUILD_WIDGET_PROVISION_PROFILE_BASE64}"
               watch_app_profile_base64="${BUILD_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64:-$BUILD_WATCH_APP_PROVISION_PROFILE_BASE64}"
-              watch_extension_profile_base64="${BUILD_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64:-$BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64}"
               watch_widget_profile_base64="${BUILD_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64:-$BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64}"
               ;;
           esac
@@ -253,10 +247,6 @@ jobs:
           fi
           if [ -z "$watch_app_profile_base64" ]; then
             echo "Missing App Store watch app provisioning profile for $IOS_VARIANT" >&2
-            missing=1
-          fi
-          if [ -z "$watch_extension_profile_base64" ]; then
-            echo "Missing App Store watch extension provisioning profile for $IOS_VARIANT" >&2
             missing=1
           fi
           if [ -z "$watch_widget_profile_base64" ]; then
@@ -323,21 +313,18 @@ jobs:
               app_profile_base64="$BUILD_PROVISION_PROFILE_BASE64"
               widget_profile_base64="$BUILD_WIDGET_PROVISION_PROFILE_BASE64"
               watch_app_profile_base64="$BUILD_WATCH_APP_PROVISION_PROFILE_BASE64"
-              watch_extension_profile_base64="$BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64"
               watch_widget_profile_base64="$BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64"
               ;;
             review)
               app_profile_base64="${BUILD_REVIEW_PROVISION_PROFILE_BASE64:-$BUILD_PROVISION_PROFILE_BASE64}"
               widget_profile_base64="${BUILD_REVIEW_WIDGET_PROVISION_PROFILE_BASE64:-$BUILD_WIDGET_PROVISION_PROFILE_BASE64}"
               watch_app_profile_base64="${BUILD_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64:-$BUILD_WATCH_APP_PROVISION_PROFILE_BASE64}"
-              watch_extension_profile_base64="${BUILD_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64:-$BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64}"
               watch_widget_profile_base64="${BUILD_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64:-$BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64}"
               ;;
           esac
           install_profile "$app_profile_base64" "planini-$IOS_VARIANT-app" "app_profile_name"
           install_profile "$widget_profile_base64" "planini-$IOS_VARIANT-widget" "widget_profile_name"
           install_profile "$watch_app_profile_base64" "planini-$IOS_VARIANT-watch-app" "watch_app_profile_name"
-          install_profile "$watch_extension_profile_base64" "planini-$IOS_VARIANT-watch-extension" "watch_extension_profile_name"
           install_profile "$watch_widget_profile_base64" "planini-$IOS_VARIANT-watch-widget" "watch_widget_profile_name"
       - name: Write App Store Connect API key
         if: steps.variant.outputs.skip != 'true'
@@ -366,7 +353,6 @@ jobs:
             PLANINI_APP_PROFILE_NAME="${{ steps.profiles.outputs.app_profile_name }}" \
             PLANINI_WIDGET_PROFILE_NAME="${{ steps.profiles.outputs.widget_profile_name }}" \
             PLANINI_WATCH_APP_PROFILE_NAME="${{ steps.profiles.outputs.watch_app_profile_name }}" \
-            PLANINI_WATCH_EXTENSION_PROFILE_NAME="${{ steps.profiles.outputs.watch_extension_profile_name }}" \
             PLANINI_WATCH_WIDGET_PROFILE_NAME="${{ steps.profiles.outputs.watch_widget_profile_name }}" \
             archive
       - name: Export App Store IPA
@@ -391,8 +377,6 @@ jobs:
               <string>${{ steps.profiles.outputs.widget_profile_name }}</string>
               <key>de.malaber.planini.watchkitapp</key>
               <string>${{ steps.profiles.outputs.watch_app_profile_name }}</string>
-              <key>de.malaber.planini.watchkitapp.watchkitextension</key>
-              <string>${{ steps.profiles.outputs.watch_extension_profile_name }}</string>
               <key>de.malaber.planini.watchkitapp.widget</key>
               <string>${{ steps.profiles.outputs.watch_widget_profile_name }}</string>
             </dict>
@@ -421,21 +405,18 @@ jobs:
               ad_hoc_profile_base64="$AD_HOC_PROVISION_PROFILE_BASE64"
               ad_hoc_widget_profile_base64="$AD_HOC_WIDGET_PROVISION_PROFILE_BASE64"
               ad_hoc_watch_app_profile_base64="$AD_HOC_WATCH_APP_PROVISION_PROFILE_BASE64"
-              ad_hoc_watch_extension_profile_base64="$AD_HOC_WATCH_EXTENSION_PROVISION_PROFILE_BASE64"
               ad_hoc_watch_widget_profile_base64="$AD_HOC_WATCH_WIDGET_PROVISION_PROFILE_BASE64"
               ;;
             review)
               ad_hoc_profile_base64="${AD_HOC_REVIEW_PROVISION_PROFILE_BASE64:-$AD_HOC_PROVISION_PROFILE_BASE64}"
               ad_hoc_widget_profile_base64="${AD_HOC_REVIEW_WIDGET_PROVISION_PROFILE_BASE64:-$AD_HOC_WIDGET_PROVISION_PROFILE_BASE64}"
               ad_hoc_watch_app_profile_base64="${AD_HOC_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64:-$AD_HOC_WATCH_APP_PROVISION_PROFILE_BASE64}"
-              ad_hoc_watch_extension_profile_base64="${AD_HOC_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64:-$AD_HOC_WATCH_EXTENSION_PROVISION_PROFILE_BASE64}"
               ad_hoc_watch_widget_profile_base64="${AD_HOC_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64:-$AD_HOC_WATCH_WIDGET_PROVISION_PROFILE_BASE64}"
               ;;
           esac
           if [ -z "$ad_hoc_profile_base64" ] || \
              [ -z "$ad_hoc_widget_profile_base64" ] || \
              [ -z "$ad_hoc_watch_app_profile_base64" ] || \
-             [ -z "$ad_hoc_watch_extension_profile_base64" ] || \
              [ -z "$ad_hoc_watch_widget_profile_base64" ]; then
             echo "Missing ad-hoc profile for $IOS_VARIANT" >&2
             exit 1
@@ -458,7 +439,6 @@ jobs:
           ad_hoc_profile_name="$(install_profile "$ad_hoc_profile_base64" "planini-$IOS_VARIANT-adhoc-app")"
           ad_hoc_widget_profile_name="$(install_profile "$ad_hoc_widget_profile_base64" "planini-$IOS_VARIANT-adhoc-widget")"
           ad_hoc_watch_app_profile_name="$(install_profile "$ad_hoc_watch_app_profile_base64" "planini-$IOS_VARIANT-adhoc-watch-app")"
-          ad_hoc_watch_extension_profile_name="$(install_profile "$ad_hoc_watch_extension_profile_base64" "planini-$IOS_VARIANT-adhoc-watch-extension")"
           ad_hoc_watch_widget_profile_name="$(install_profile "$ad_hoc_watch_widget_profile_base64" "planini-$IOS_VARIANT-adhoc-watch-widget")"
 
           cat > $RUNNER_TEMP/ExportOptions-ad-hoc.plist <<PLIST
@@ -480,8 +460,6 @@ jobs:
               <string>${ad_hoc_widget_profile_name}</string>
               <key>de.malaber.planini.watchkitapp</key>
               <string>${ad_hoc_watch_app_profile_name}</string>
-              <key>de.malaber.planini.watchkitapp.watchkitextension</key>
-              <string>${ad_hoc_watch_extension_profile_name}</string>
               <key>de.malaber.planini.watchkitapp.widget</key>
               <string>${ad_hoc_watch_widget_profile_name}</string>
             </dict>

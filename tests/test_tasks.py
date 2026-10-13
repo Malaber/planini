@@ -671,6 +671,31 @@ def test_ios_simulator_destination_pins_latest_os_and_arm64_on_apple_silicon(
     )
 
 
+def test_simulator_selection_excludes_pre_27_runtimes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        tasks,
+        "_simctl_json",
+        lambda *args: {
+            "devices": {
+                "com.apple.CoreSimulator.SimRuntime.iOS-26-2": [
+                    {"udid": "old", "name": "iPhone 17 Pro", "state": "Booted"}
+                ],
+                "com.apple.CoreSimulator.SimRuntime.iOS-27-0": [
+                    {"udid": "new", "name": "iPhone 17 Pro", "state": "Shutdown"}
+                ],
+                "com.apple.CoreSimulator.SimRuntime.watchOS-26-2": [
+                    {"udid": "old-watch", "name": "Watch"}
+                ],
+                "com.apple.CoreSimulator.SimRuntime.watchOS-27-0": [
+                    {"udid": "new-watch", "name": "Watch"}
+                ],
+            }
+        },
+    )
+    assert tasks._find_simulator_udid({}, "iPhone 17 Pro") == "new"
+    assert tasks._find_simulator_udid({}, "Watch") == "new-watch"
+
+
 def test_ensure_ios_simulator_device_reuses_existing_or_creates_missing(monkeypatch) -> None:
     env = {"DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"}
     boots: list[tuple[dict[str, str], str]] = []
@@ -1093,7 +1118,7 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
     assert "path: ios/PlaniniIOS/.build" in ci_workflow
     assert "hashFiles('ios/PlaniniIOS/Package.resolved')" in ci_workflow
     assert (
-        "ios_native_ui_e2e:\n    name: Native ${{ matrix.platform }} UI e2e\n    runs-on: macos-26"
+        "ios_native_ui_e2e:\n    name: Native ${{ matrix.platform }} UI e2e\n    runs-on: xcode-27"
         in ci_workflow
     )
     assert ci_workflow.count("check-ios-e2e") == 2
@@ -1107,7 +1132,9 @@ def test_workflows_keep_portable_ios_e2e_on_linux_and_native_ui_in_ci() -> None:
     )
     assert "python -m invoke check-container-smoke" in ci_workflow
     assert "--legacy-revision=0021_add_list_history" in ci_workflow
-    assert "timeout-minutes: 45" in screenshot_workflow
+    assert "timeout-minutes: 90" in screenshot_workflow
+    assert "runs-on: xcode-27" in screenshot_workflow
+    assert "runs-on: xcode-27" in testflight_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/**/*.png" in screenshot_workflow
     assert "e2e-artifacts/ios-marketing-screenshots/summary.md" in screenshot_workflow
     assert "check-ios-e2e" not in testflight_workflow
@@ -1667,6 +1694,23 @@ def test_generate_ios_project_invokes_xcodegen() -> None:
                 "pty": False,
                 "shell": "/bin/bash",
             },
+        )
+    ]
+
+
+def test_upload_testflight_uses_local_account_and_quotes_versions(monkeypatch) -> None:
+    calls = []
+
+    class Context:
+        def run(self, command, **kwargs):
+            calls.append((command, kwargs))
+
+    monkeypatch.setattr(tasks, "_ios_toolchain_env", lambda: {"DEVELOPER_DIR": "/Xcode"})
+    tasks.upload_testflight.body(Context(), marketing_version="0.2.92; false", build_number=775)
+    assert calls == [
+        (
+            "bash ios/PlaniniIOS/Scripts/upload_testflight.sh '0.2.92; false' 775",
+            {"env": {"DEVELOPER_DIR": "/Xcode"}, "pty": False, "shell": "/bin/bash"},
         )
     ]
 
@@ -2541,8 +2585,8 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
             "language": "en",
             "locale": "en-US",
             "artifact_dir": "e2e-artifacts/ios-marketing-screenshots/watchos/en-US",
-            "phone_device": "iPhone 17 Pro",
-            "watch_device": "Apple Watch Ultra 3 (49mm)",
+            "phone_device": "iPhone 18 Pro",
+            "watch_device": "Apple Watch Ultra 4 (49mm)",
             "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
         },
         {
@@ -2552,8 +2596,8 @@ def test_check_ios_marketing_screenshots_uses_polished_fixture_and_app_store_siz
             "language": "de",
             "locale": "de-DE",
             "artifact_dir": "e2e-artifacts/ios-marketing-screenshots/watchos/de-DE",
-            "phone_device": "iPhone 17 Pro",
-            "watch_device": "Apple Watch Ultra 3 (49mm)",
+            "phone_device": "iPhone 18 Pro",
+            "watch_device": "Apple Watch Ultra 4 (49mm)",
             "derived_data_path": "ios/PlaniniIOS/.derived-marketing-screenshots",
         },
     ]
