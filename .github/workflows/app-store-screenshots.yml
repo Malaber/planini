@@ -10,17 +10,16 @@ env:
 jobs:
   capture:
     name: Capture upload bundle
-    runs-on: macos-26
-    # The two simulator passes can consume almost 35 minutes on hosted runners;
-    # leave enough time for artifact upload and action cleanup.
-    timeout-minutes: 45
+    runs-on: xcode-27
+    # Include iPhone/iPad retries, paired Watch capture, and artifact cleanup.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - name: Restore marketing Xcode cache
         uses: actions/cache@v6
         with:
           path: ios/PlaniniIOS/.derived-marketing-screenshots
-          key: ios-marketing-${{ runner.os }}-${{ runner.arch }}-xcode26-${{ hashFiles('ios/PlaniniIOS/Package.resolved') }}
+          key: ios-marketing-${{ runner.os }}-${{ runner.arch }}-xcode27-${{ hashFiles('ios/PlaniniIOS/Package.resolved') }}
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}

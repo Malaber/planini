@@ -513,7 +513,7 @@ struct RootView: View {
             NavigationStack(path: $listNavigationPath) {
                 ListsTab(selectedTab: $selectedTab, onOpenPublicList: openPublicList)
                     .navigationDestination(for: UUID.self) { listID in
-                        ListDetailScreen(listID: listID, showsFavoriteButton: true)
+                        ListDetailScreen(listID: listID, showsFavoriteButton: true, handlesWidgetAddItem: true)
                     }
             }
             .tabItem {
@@ -2186,10 +2186,13 @@ private struct ListDetailScreen: View {
     let showsFavoriteButton: Bool
     let onListSwitch: ((UUID) -> Void)?
     let publicList: PublicListReference?
+    let handlesWidgetAddItem: Bool
 
     @State private var displayedListID: UUID
     @State private var editingItem: GroceryItemRecord?
     @State private var addItemPresentation: AddItemPresentation?
+    @State private var isStartingShoppingMode = false
+    @State private var shoppingModeNotice: String?
     @State private var highlightedItemID: UUID?
     @State private var moveNotice: ItemMoveNotice?
     @State private var moveNoticeDismissTask: Task<Void, Never>?
@@ -2204,12 +2207,14 @@ private struct ListDetailScreen: View {
         listID: UUID,
         showsFavoriteButton: Bool,
         onListSwitch: ((UUID) -> Void)? = nil,
-        publicList: PublicListReference? = nil
+        publicList: PublicListReference? = nil,
+        handlesWidgetAddItem: Bool = false
     ) {
         self.listID = listID
         self.showsFavoriteButton = showsFavoriteButton
         self.onListSwitch = onListSwitch
         self.publicList = publicList
+        self.handlesWidgetAddItem = handlesWidgetAddItem
         _displayedListID = State(initialValue: listID)
     }
 
@@ -2325,6 +2330,7 @@ private struct ListDetailScreen: View {
                         Text(list.householdName)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
                     }
                     .listRowInsets(CompactListLayout.summaryInsets)
                 }
@@ -2401,6 +2407,29 @@ private struct ListDetailScreen: View {
         .navigationTitle(currentList?.name ?? l10n.t("ios.list.fallback_title"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if publicList == nil, currentList != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        isStartingShoppingMode = true
+                        Task {
+                            if viewModel.shoppingModeListID == displayedListID {
+                                await viewModel.stopShoppingMode()
+                                shoppingModeNotice = "Shopping mode off"
+                            } else if await viewModel.startShoppingMode(listID: displayedListID) {
+                                shoppingModeNotice = "Shopping mode on. Your checklist is on the Lock Screen."
+                            }
+                            isStartingShoppingMode = false
+                        }
+                    } label: {
+                        Image(systemName: viewModel.shoppingModeListID == displayedListID ? "cart.fill" : "cart")
+                    }
+                    .disabled(isStartingShoppingMode)
+                    .accessibilityLabel("Shopping mode")
+                    .accessibilityValue(viewModel.shoppingModeListID == displayedListID ? "On" : "Off")
+                    .accessibilityHint("Show or hide this checklist on the Lock Screen")
+                    .accessibilityIdentifier("shopping-mode-button")
+                }
+            }
             if publicList == nil && viewModel.lists.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -2504,6 +2533,34 @@ private struct ListDetailScreen: View {
             AddItemSheet(initialCategoryID: presentation.categoryID) { message, action in
                 showUndoToast(message: message, action: action)
             }
+        }
+        .task(id: viewModel.widgetAddItemListID) {
+            if handlesWidgetAddItem, viewModel.widgetAddItemListID == displayedListID, canEdit {
+                addItemPresentation = AddItemPresentation(categoryID: nil)
+                viewModel.widgetAddItemListID = nil
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if let shoppingModeNotice {
+                HStack {
+                    Text(shoppingModeNotice).font(.subheadline)
+                    Spacer(minLength: 8)
+                    Button { self.shoppingModeNotice = nil } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Dismiss")
+                }
+                .padding(12)
+                .background(.regularMaterial)
+                .accessibilityIdentifier("shopping-mode-notice")
+            }
+        }
+        .task(id: shoppingModeNotice) {
+            guard shoppingModeNotice != nil else { return }
+            do {
+                try await Task.sleep(for: .seconds(5))
+                shoppingModeNotice = nil
+            } catch {}
         }
         .overlay(alignment: .bottom) {
             if let undoToast {

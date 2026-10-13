@@ -4,6 +4,7 @@ public enum PlaniniLink: Equatable, Sendable {
     case passkeyAdd(token: String)
     case invite(token: String)
     case list(id: UUID)
+    case addItem(listID: UUID)
     case publicList(token: String)
 }
 
@@ -95,6 +96,9 @@ public enum PlaniniLinkParser {
         case "invite":
             return normalizedToken(segments[1]).map { .invite(token: $0) }
         case "lists":
+            if segments.count == 3, segments[2] == "add" {
+                return UUID(uuidString: segments[1]).map { .addItem(listID: $0) }
+            }
             return UUID(uuidString: segments[1]).map { .list(id: $0) }
         default:
             return nil

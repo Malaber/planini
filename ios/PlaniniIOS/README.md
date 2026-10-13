@@ -56,7 +56,7 @@ Apple passkeys still validate against the shared review host.
 
 ## Project setup in Xcode
 
-1. Open Xcode 16 or newer on macOS.
+1. Open Xcode 27 or newer on macOS.
 2. Open `ios/PlaniniIOS/PlaniniApp.xcodeproj`.
 3. Use the `Planini` scheme to build and run the native app on an iPhone or iPad simulator or device.
 4. Open `ios/PlaniniIOS/Package.swift` in Xcode as needed to inspect or run the Swift package tests for `PlaniniCore`.
@@ -292,14 +292,14 @@ Set these GitHub Actions secrets before dispatching the TestFlight upload workfl
 - `BUILD_CERTIFICATE_BASE64`
 - `P12_PASSWORD`
 - `BUILD_PROVISION_PROFILE_BASE64`
+- `BUILD_WIDGET_PROVISION_PROFILE_BASE64`
 - `BUILD_WATCH_APP_PROVISION_PROFILE_BASE64`
-- `BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`
 - `BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64`
 - `IOS_REVIEW_BUNDLE_IDENTIFIER` (optional; defaults to `IOS_BUNDLE_IDENTIFIER`)
 - `IOS_REVIEW_APP_STORE_CONNECT_APP_ID` (optional; defaults to the production App Store Connect app ID)
 - `BUILD_REVIEW_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_PROVISION_PROFILE_BASE64`)
+- `BUILD_REVIEW_WIDGET_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WIDGET_PROVISION_PROFILE_BASE64`)
 - `BUILD_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WATCH_APP_PROVISION_PROFILE_BASE64`)
-- `BUILD_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`)
 - `BUILD_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64` (optional; defaults to `BUILD_WATCH_WIDGET_PROVISION_PROFILE_BASE64`)
 - `APP_STORE_CONNECT_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
@@ -316,11 +316,11 @@ The workflow commits these non-secret signing constants directly:
 The upload command passes the numeric App Store Connect app ID explicitly because Xcode 26
 can fail to resolve it from the bundle ID when multiple matching app IDs exist.
 
-Each watch target needs its own profile because Apple provisioning profiles are bound to one App ID. Create App Store distribution profiles for:
+Each app extension and watch target needs its own profile because Apple provisioning profiles are bound to one App ID. Create App Store distribution profiles for:
 
 - `de.malaber.planini`
+- `de.malaber.planini.widget`
 - `de.malaber.planini.watchkitapp`
-- `de.malaber.planini.watchkitapp.watchkitextension`
 - `de.malaber.planini.watchkitapp.widget`
 
 The upload job uses the GitHub Actions environment named `testflight`, so the secrets above should be configured as environment secrets on that environment.
@@ -336,12 +336,12 @@ Set these optional GitHub Actions variables to override default domains:
 App Store signed IPAs should be installed through TestFlight. To test a CI-built IPA directly on a registered iPhone without TestFlight, create an Ad Hoc provisioning profile that includes the device UDID and the same bundle identifier/capabilities, then set:
 
 - `AD_HOC_PROVISION_PROFILE_BASE64`
+- `AD_HOC_WIDGET_PROVISION_PROFILE_BASE64`
 - `AD_HOC_WATCH_APP_PROVISION_PROFILE_BASE64`
-- `AD_HOC_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`
 - `AD_HOC_WATCH_WIDGET_PROVISION_PROFILE_BASE64`
 - `AD_HOC_REVIEW_PROVISION_PROFILE_BASE64` (optional; defaults to `AD_HOC_PROVISION_PROFILE_BASE64`)
+- `AD_HOC_REVIEW_WIDGET_PROVISION_PROFILE_BASE64` (optional; defaults to `AD_HOC_WIDGET_PROVISION_PROFILE_BASE64`)
 - `AD_HOC_REVIEW_WATCH_APP_PROVISION_PROFILE_BASE64` (optional; defaults to `AD_HOC_WATCH_APP_PROVISION_PROFILE_BASE64`)
-- `AD_HOC_REVIEW_WATCH_EXTENSION_PROVISION_PROFILE_BASE64` (optional; defaults to `AD_HOC_WATCH_EXTENSION_PROVISION_PROFILE_BASE64`)
 - `AD_HOC_REVIEW_WATCH_WIDGET_PROVISION_PROFILE_BASE64` (optional; defaults to `AD_HOC_WATCH_WIDGET_PROVISION_PROFILE_BASE64`)
 
 Run the workflow manually with `export_ad_hoc = true`. It uploads `*-ad-hoc.ipa` artifacts that can be installed with Apple Configurator or Xcode's Devices and Simulators window.
@@ -352,3 +352,39 @@ Run the workflow manually with `export_ad_hoc = true`. It uploads `*-ad-hoc.ipa`
 2. For a manual dry run, run the workflow with `upload_to_testflight = false`.
 3. For a manual upload, run it with `upload_to_testflight = true`.
 4. For local device sanity checks without TestFlight, also set `export_ad_hoc = true`, download the ad-hoc artifact, and install it on a device included in the ad-hoc profile.
+
+
+### iOS 27 and local TestFlight upload
+
+The app and widgets require iOS 27; the companion and its widgets require watchOS 27.
+The watch app is a single executable target, with its original bundle ID preserved.
+Its App ID `de.malaber.planini.watchkitapp` now needs the App Groups capability for
+`group.de.malaber.planini.watch`. Regenerate its distribution profile for CI.
+The former WatchKit extension profile is no longer used.
+
+With Xcode 27 and an Apple Developer account for team `VWKG94374J` configured:
+
+```bash
+.venv/bin/inv upload-testflight --marketing-version=0.2.93 --build-number=774110.10.3
+```
+
+This command uploads to App Store Connect using automatic signing, including widget
+profiles, through the local Xcode account. It uses the configured backend and bundle
+IDs; production defaults to `https://planini.top`. Xcode manages build-number
+collisions during upload. The signed archive remains in the printed temporary
+directory. Set `DEVELOPER_DIR` to select another compatible Xcode installation.
+Simulator UI tests require installed iOS 27 and watchOS 27 runtimes.
+
+### Shopping mode and widgets
+
+The cart button at the top left of a private list toggles shopping mode. A brief
+banner confirms activation or deactivation; the filled cart indicates an active
+Live Activity. The existing list title and list switcher remain available.
+
+The Lock Screen activity shows up to six items in two columns, with interactive
+check/uncheck buttons. Hidden items are excluded and outstanding items appear
+first. Checking an item updates the backend, activity counts, and widget data.
+The Home Screen widget and Live Activity both offer **Add item**, which opens
+the selected list's empty item composer in the app instead of adding preset milk.
+The `planini://lists/<list-id>/add` URL is registered by the app; no Developer
+Portal or App Store Connect configuration is required for this custom URL.

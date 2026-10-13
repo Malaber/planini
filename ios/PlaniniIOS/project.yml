@@ -8,9 +8,10 @@ targets:
   Planini:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "27.0"
     sources:
       - path: App
+      - path: WatchShared
       - path: Assets.xcassets
       - path: AppIcon.icon
         buildPhase: resources
@@ -21,6 +22,8 @@ targets:
         buildPhase: resources
     dependencies:
       - target: PlaniniWatchApp
+        embed: true
+      - target: PlaniniWidgetExtension
         embed: true
       - package: PlaniniCore
         product: PlaniniCore
@@ -42,26 +45,36 @@ targets:
         INFOPLIST_KEY_CFBundleIconName: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: Planini
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.food-and-drink
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes:
+          - CFBundleURLName: de.malaber.planini
+            CFBundleURLSchemes: [planini]
   PlaniniWatchApp:
-    type: com.apple.product-type.application.watchapp2
+    type: application
     platform: watchOS
-    deploymentTarget: "10.0"
+    deploymentTarget: "27.0"
     sources:
       - path: WatchApp
         excludes:
-          - "*.swift"
+          - "*.entitlements"
           - "*.plist"
+      - path: WatchShared
       - path: Assets.xcassets
       - path: AppIcon.icon
         buildPhase: resources
     dependencies:
-      - target: PlaniniWatchExtension
-        embed: true
+      - package: PlaniniCore
+        product: PlaniniCore
       - target: PlaniniWatchWidgetExtension
         embed: true
     settings:
@@ -75,36 +88,12 @@ targets:
         PROVISIONING_PROFILE_SPECIFIER: $(PLANINI_WATCH_APP_PROFILE_NAME)
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: WatchApp/Info.plist
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-  PlaniniWatchExtension:
-    type: com.apple.product-type.watchkit2-extension
-    platform: watchOS
-    deploymentTarget: "10.0"
-    sources:
-      - path: WatchApp
-        excludes:
-          - "*.entitlements"
-          - "*.plist"
-      - path: WatchShared
-    dependencies:
-      - package: PlaniniCore
-        product: PlaniniCore
-    settings:
-      base:
-        PRODUCT_NAME: Planini Watch Extension
-        PRODUCT_BUNDLE_IDENTIFIER: de.malaber.planini.watchkitapp.watchkitextension
-        DEVELOPMENT_TEAM: VWKG94374J
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 1
-        SWIFT_VERSION: 5.10
-        PROVISIONING_PROFILE_SPECIFIER: $(PLANINI_WATCH_EXTENSION_PROFILE_NAME)
-        GENERATE_INFOPLIST_FILE: NO
-        INFOPLIST_FILE: WatchApp/ExtensionInfo.plist
         CODE_SIGN_ENTITLEMENTS: WatchApp/PlaniniWatch.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   PlaniniWatchWidgetExtension:
     type: app-extension
     platform: watchOS
-    deploymentTarget: "10.0"
+    deploymentTarget: "27.0"
     sources:
       - path: WatchWidget
         excludes:
@@ -126,10 +115,35 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: WatchWidget/Info.plist
         CODE_SIGN_ENTITLEMENTS: WatchWidget/PlaniniWatchWidget.entitlements
+  PlaniniWidgetExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "27.0"
+    sources:
+      - path: Widget
+        excludes:
+          - "*.entitlements"
+          - "*.plist"
+      - path: WatchShared
+    dependencies:
+      - package: PlaniniCore
+        product: PlaniniCore
+    settings:
+      base:
+        PRODUCT_NAME: Planini Widgets
+        PRODUCT_BUNDLE_IDENTIFIER: de.malaber.planini.widget
+        DEVELOPMENT_TEAM: VWKG94374J
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: 5.10
+        PROVISIONING_PROFILE_SPECIFIER: $(PLANINI_WIDGET_PROFILE_NAME)
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Widget/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Widget/PlaniniWidget.entitlements
   PlaniniUITests:
     type: bundle.ui-testing
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "27.0"
     sources:
       - path: UITests
     dependencies:
@@ -148,8 +162,8 @@ schemes:
       targets:
         Planini: all
         PlaniniWatchApp: all
-        PlaniniWatchExtension: all
         PlaniniWatchWidgetExtension: all
+        PlaniniWidgetExtension: all
     test:
       gatherCoverageData: false
       environmentVariables:

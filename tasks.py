@@ -65,7 +65,7 @@ DEFAULT_IOS_UI_E2E_LOG_PATH = "ios-ui-e2e-server.log"
 DEFAULT_IOS_UI_E2E_PID_PATH = "ios-ui-e2e-server.pid"
 DEFAULT_IOS_UI_E2E_ARTIFACT_DIR = "e2e-artifacts/ios-ui-e2e"
 DEFAULT_IOS_UI_E2E_RESULT_BUNDLE = "PlaniniUITests.xcresult"
-DEFAULT_IOS_UI_E2E_DEVICE = "iPhone 17 Pro"
+DEFAULT_IOS_UI_E2E_DEVICE = "iPhone 18 Pro"
 DEFAULT_IOS_UI_E2E_INITIAL_LIST = "Browser Test Shop"
 DEFAULT_IOS_MARKETING_SCREENSHOT_PORT = 8019
 DEFAULT_IOS_MARKETING_SCREENSHOT_DATABASE_URL = (
@@ -78,8 +78,8 @@ DEFAULT_IOS_MARKETING_SCREENSHOT_DERIVED_DATA_PATH = "ios/PlaniniIOS/.derived-ma
 DEFAULT_IOS_MARKETING_SCREENSHOT_SEED_PATH = "app/fixtures/ios_marketing_seed.json"
 DEFAULT_IOS_MARKETING_SCREENSHOT_DEVICE = "iPhone 14 Plus"
 DEFAULT_IOS_MARKETING_SCREENSHOT_IPAD_DEVICE = "iPad Pro 13-inch (M5)"
-DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_PHONE_DEVICE = "iPhone 17 Pro"
-DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_DEVICE = "Apple Watch Ultra 3 (49mm)"
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_PHONE_DEVICE = "iPhone 18 Pro"
+DEFAULT_IOS_MARKETING_SCREENSHOT_WATCH_DEVICE = "Apple Watch Ultra 4 (49mm)"
 DEFAULT_IOS_MARKETING_SCREENSHOT_INITIAL_LIST = "Weekly groceries"
 DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_USER_EMAIL = "planini-de@schaedler.rocks"
 DEFAULT_IOS_MARKETING_SCREENSHOT_GERMAN_INITIAL_LIST = "Wocheneinkauf"
@@ -92,8 +92,8 @@ DEFAULT_IOS_APP_BACKEND_URL = "https://planini.malaber.de"
 DEFAULT_IOS_APP_BUNDLE_IDENTIFIER = "de.malaber.planini"
 DEFAULT_IOS_WATCH_APP_BUNDLE_IDENTIFIER = "de.malaber.planini.watchkitapp"
 DEFAULT_IOS_APP_DEVELOPMENT_TEAM = "VWKG94374J"
-DEFAULT_IOS_SIMULATOR_PHONE_DEVICE = "iPhone 17 Pro"
-DEFAULT_IOS_SIMULATOR_WATCH_DEVICE = "Apple Watch Ultra 2 (49mm)"
+DEFAULT_IOS_SIMULATOR_PHONE_DEVICE = "iPhone 18 Pro"
+DEFAULT_IOS_SIMULATOR_WATCH_DEVICE = "Apple Watch Ultra 4 (49mm)"
 IOS_PROJECT_YML_PATH = ROOT / "ios" / "PlaniniIOS" / "project.yml"
 IOS_ENTITLEMENTS_PATH = ROOT / "ios" / "PlaniniIOS" / "App" / "Planini.entitlements"
 IOS_GENERATED_CONFIG_PATH = (
@@ -998,7 +998,10 @@ def _run_command(command: list[str], *, env: dict[str, str]) -> None:
 def _list_available_simulators(env: dict[str, str]) -> dict[str, dict[str, object]]:
     payload = _simctl_json(env, "list", "devices", "available", "-j")
     devices: dict[str, dict[str, object]] = {}
-    for runtime_devices in payload.get("devices", {}).values():
+    for runtime, runtime_devices in payload.get("devices", {}).items():
+        version = re.search(r"SimRuntime\.(?:iOS|watchOS)-(\d+)", runtime)
+        if version and int(version.group(1)) < 27:
+            continue
         if not isinstance(runtime_devices, list):
             continue
         for device in runtime_devices:
@@ -1988,6 +1991,18 @@ def build_ios_simulator(
             ]
         ),
         env=env,
+        pty=False,
+        shell="/bin/bash",
+    )
+
+
+@task(pre=[generate_ios_project])
+def upload_testflight(c, marketing_version, build_number) -> None:
+    """Archive and upload using the signed-in Xcode Apple Developer account."""
+    c.run(
+        "bash ios/PlaniniIOS/Scripts/upload_testflight.sh "
+        f"{shlex.quote(marketing_version)} {shlex.quote(str(build_number))}",
+        env=_ios_toolchain_env(),
         pty=False,
         shell="/bin/bash",
     )

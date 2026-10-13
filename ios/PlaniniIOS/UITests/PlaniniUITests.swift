@@ -378,7 +378,6 @@ final class PlaniniUITests: XCTestCase {
             let suggestionUndoMessage = app.staticTexts["list-undo-message"]
             XCTAssertTrue(suggestionUndoButton.waitForExistence(timeout: 5))
             XCTAssertTrue(suggestionUndoMessage.label.contains("Brot added back to the list."))
-            captureScreenshot(named: "ios-ui-floating-undo-suggestion")
             tapElement(suggestionUndoButton)
         } else {
             tapCancelButton(in: app)
@@ -399,7 +398,6 @@ final class PlaniniUITests: XCTestCase {
             let rowUndoMessage = app.staticTexts["list-undo-message"]
             XCTAssertTrue(rowUndoButton.waitForExistence(timeout: 5))
             XCTAssertTrue(rowUndoMessage.label.contains("Brot unchecked."))
-            captureScreenshot(named: "ios-ui-floating-undo-suggestion")
             tapElement(rowUndoButton)
         }
         XCTAssertTrue(
@@ -2370,7 +2368,16 @@ final class PlaniniUITests: XCTestCase {
             app.launchEnvironment[key] = value
         }
         app.launch()
-        XCTAssertTrue(firstExistingElement(tabCandidates(for: "Lists", in: app), timeout: 10).exists)
+        let tabs = tabCandidates(for: "Lists", in: app)
+        let ready = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in tabs.contains { $0.exists } },
+            object: nil
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [ready], timeout: 30),
+            .completed,
+            "Expected authenticated app after launch. UI: \(app.debugDescription)"
+        )
         return app
     }
 
@@ -3538,8 +3545,12 @@ final class PlaniniUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
 
+        guard element.exists else {
+            XCTFail("Could not tap element: it disappeared before becoming hittable.")
+            return
+        }
         let frame = element.frame
-        guard element.exists, frame.isEmpty == false, frame.isNull == false else {
+        guard frame.isEmpty == false, frame.isNull == false else {
             XCTFail("Could not tap \(element.identifier): element never gained a valid frame.")
             return
         }
@@ -3689,6 +3700,12 @@ final class PlaniniUITests: XCTestCase {
             if waitForElementToDisappear(sheet, timeout: 2) {
                 return true
             }
+            if element.exists {
+                tapTrailingControl(in: element, app: app)
+            }
+            if waitForElementToDisappear(sheet, timeout: 2) {
+                return true
+            }
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
 
@@ -3818,6 +3835,78 @@ final class PlaniniUITests: XCTestCase {
         tapCancelButton(in: app)
         XCTAssertTrue(waitForElementToDisappear(onboardingSheet, timeout: 5))
         XCTAssertTrue(app.buttons["login-passkey-button"].waitForExistence(timeout: 3))
+    }
+
+    func testShoppingMode() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession {
+            injectedSession
+        } else {
+            try bootstrapSession(email: userEmail)
+        }
+        let app = launchedApp(session: session, initialListName: initialListName)
+        defer { terminateAndWait(app) }
+        let listTitle = app.staticTexts["list-detail-title"]
+        XCTAssertTrue(openInitialListDetail(in: app, listTitle: listTitle))
+        let shoppingModeButton = app.buttons["shopping-mode-button"]
+        XCTAssertTrue(shoppingModeButton.waitForExistence(timeout: 3))
+        captureScreenshot(named: "ios-ui-shopping-mode-button")
+        shoppingModeButton.tap()
+
+        let alert = app.alerts.firstMatch
+        let result = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                (shoppingModeButton.value as? String) == "On" || alert.exists
+            },
+            object: nil
+        )
+        XCTAssertEqual(XCTWaiter().wait(for: [result], timeout: 10), .completed)
+        if alert.exists {
+            XCTAssertTrue(alert.staticTexts["Live Activities are disabled for Planini."].exists)
+            alert.buttons["OK"].tap()
+        } else {
+            XCTAssertEqual(shoppingModeButton.value as? String, "On")
+            XCTAssertTrue(app.staticTexts["Shopping mode on. Your checklist is on the Lock Screen."].exists)
+            captureScreenshot(named: "ios-ui-shopping-mode-on")
+            XCUIDevice.shared.press(.home)
+            let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01))
+                .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)))
+            let checklistButton = springboard.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Check ")).firstMatch
+            XCTAssertTrue(checklistButton.waitForExistence(timeout: 60), springboard.debugDescription)
+            let itemName = String(checklistButton.label.dropFirst("Check ".count))
+            captureScreenshot(named: "ios-ui-shopping-lock-screen")
+            checklistButton.tap()
+            XCTAssertTrue(waitForItemCheckedState(named: itemName, checked: true, inListNamed: initialListName, accessToken: session.accessToken))
+            app.activate()
+            XCTAssertTrue(shoppingModeButton.waitForExistence(timeout: 5))
+            shoppingModeButton.tap()
+            XCTAssertTrue(app.staticTexts["Shopping mode off"].waitForExistence(timeout: 5))
+            XCTAssertEqual(shoppingModeButton.value as? String, "Off")
+        }
+    }
+
+    func testWidgetAddItemOpensListComposer() throws {
+        try assertLocalTestBackend()
+        let session = if let injectedSession { injectedSession } else { try bootstrapSession(email: userEmail) }
+        let app = launchedApp(session: session)
+        defer { terminateAndWait(app) }
+        for (index, listName) in [initialListName, "Hosting errands"].enumerated() {
+            let listID = try normalizeListName(prefixedBy: listName, to: listName, accessToken: session.accessToken)
+            app.open(URL(string: "planini://lists/\(listID.uuidString)/add")!)
+            let nameField = app.textFields["add-item-name-field"]
+            XCTAssertTrue(nameField.waitForExistence(timeout: 15))
+            XCTAssertFalse(app.buttons["add-item-save-button"].isEnabled)
+            let itemName = "Widget apples \(UUID().uuidString.prefix(6))"
+            tapElement(nameField)
+            XCTAssertTrue(prepareKeyboardForTyping(in: app, timeout: 5))
+            nameField.typeText(itemName)
+            captureScreenshot(named: "ios-ui-widget-add-item-\(index)")
+            XCTAssertTrue(tapAddItemSaveAndWaitForDismissal(in: app))
+            XCTAssertTrue(waitForItem(named: itemName, inListNamed: listName, accessToken: session.accessToken))
+            let createdID = try itemID(named: itemName, inListNamed: listName, accessToken: session.accessToken)
+            try deleteItem(itemID: createdID, accessToken: session.accessToken)
+        }
     }
 
     private func assertAccountRegistrationAvailable(in app: XCUIApplication) {

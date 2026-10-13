@@ -4,8 +4,8 @@ import PackageDescription
 let package = Package(
     name: "PlaniniIOS",
     platforms: [
-        .iOS(.v16),
-        .watchOS(.v10),
+        .iOS("27.0"),
+        .watchOS("27.0"),
         .macOS(.v13)
     ],
     products: [

@@ -64,6 +64,7 @@ struct WatchBackendClient {
         let categoryOrder = try await categoryOrderPayload.compactMap(ListCategoryOrderEntry.init)
 
         var updatedState = state
+        updatedState.syncedListID = listID
         updatedState.items = items
         updatedState.categories = categories
         updatedState.categoryOrder = categoryOrder
